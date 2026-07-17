@@ -1,0 +1,140 @@
+@import "tailwindcss";
+
+:root {
+  /* SME LoanFlow — deep navy + tech teal, light gray-white */
+  --navy-950: #0b1f33;
+  --navy-900: #12304a;
+  --navy-800: #1a4060;
+  --navy-700: #245278;
+  --teal-600: #0e7c86;
+  --teal-500: #14919b;
+  --teal-100: #d7f0f2;
+  --success-600: #1f7a4d;
+  --success-100: #e3f5eb;
+  --warning-600: #b86a00;
+  --warning-100: #fff1d6;
+  --danger-600: #b42318;
+  --danger-100: #fde8e6;
+  --surface-0: #f5f7fa;
+  --surface-1: #ffffff;
+  --surface-2: #eef2f6;
+  --border: #d7dee7;
+  --text-primary: #243447;
+  --text-secondary: #5b6b7c;
+  --text-muted: #8494a7;
+  --shadow-sm: 0 1px 2px rgba(18, 48, 74, 0.06);
+  --shadow-md: 0 8px 24px rgba(18, 48, 74, 0.08);
+
+  --background: var(--surface-0);
+  --foreground: var(--text-primary);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-navy-950: var(--navy-950);
+  --color-navy-900: var(--navy-900);
+  --color-navy-800: var(--navy-800);
+  --color-navy-700: var(--navy-700);
+  --color-teal-600: var(--teal-600);
+  --color-teal-500: var(--teal-500);
+  --color-teal-100: var(--teal-100);
+  --color-success-600: var(--success-600);
+  --color-success-100: var(--success-100);
+  --color-warning-600: var(--warning-600);
+  --color-warning-100: var(--warning-100);
+  --color-danger-600: var(--danger-600);
+  --color-danger-100: var(--danger-100);
+  --color-surface-0: var(--surface-0);
+  --color-surface-1: var(--surface-1);
+  --color-surface-2: var(--surface-2);
+  --color-border: var(--border);
+  --color-text-primary: var(--text-primary);
+  --color-text-secondary: var(--text-secondary);
+  --color-text-muted: var(--text-muted);
+  --font-sans: var(--font-noto-sans-tc);
+  --font-mono: var(--font-geist-mono);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-noto-sans-tc), "Noto Sans TC", system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+.mobile-shell {
+  max-width: 430px;
+  margin-inline: auto;
+  min-height: 100dvh;
+  background: var(--surface-1);
+  box-shadow: var(--shadow-md);
+  position: relative;
+}
+
+.admin-shell {
+  min-height: 100dvh;
+  background: var(--surface-0);
+}
+
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes pulse-soft {
+  0%,
+  100% {
+    opacity: 0.55;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+.animate-fade-up {
+  animation: fade-up 0.45s ease-out both;
+}
+
+.animate-pulse-soft {
+  animation: pulse-soft 1.6s ease-in-out infinite;
+}
+
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    var(--surface-2) 25%,
+    #e4ebf2 50%,
+    var(--surface-2) 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.4s infinite;
+  border-radius: 8px;
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
