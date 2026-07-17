@@ -10,13 +10,37 @@
 ```bash
 cd ~/Projects/sme-loanflow
 npm install
+cp .env.example .env.local
+# 編輯 .env.local，填入 OPENAI_API_KEY=sk-...
 npm run dev
 ```
 
 - 客戶端：http://localhost:3000  
-- 示範首頁（已有申請）：http://localhost:3000/app  
+- 示範首頁：http://localhost:3000/app  
+- **ChatGPT 文件初篩（申請人）**：http://localhost:3000/app/document-analysis  
+- **ChatGPT 文件初篩（內部，含三色燈）**：http://localhost:3000/admin/ai-analyze  
 - 申請 Wizard：http://localhost:3000/apply  
 - 內部控制台：http://localhost:3000/admin  
+
+## OpenAI／ChatGPT 接入
+
+| 項目 | 說明 |
+| --- | --- |
+| Env | `OPENAI_API_KEY`（必要）、`OPENAI_MODEL`（預設 `gpt-4o-mini`） |
+| API | `POST /api/documents/analyze`（`multipart/form-data`） |
+| 欄位 | `file`、`text`、`loanType`、`amountHkd`、`purpose`、`companyName` |
+| 流程 | PDF 抽字／圖片 Vision → GPT JSON Schema → 完整性 + 初篩 |
+| 合規 | 客戶端不顯示「必定批核／拒絕」；內部可看綠／黃／紅燈 |
+
+```bash
+# curl 範例（貼文字）
+curl -X POST http://localhost:3000/api/documents/analyze \
+  -F 'text=公司：智創科技。FY2025 營業額 1620萬，淨利 142萬。近六月平均入數約 150萬，現有月供 4萬。' \
+  -F 'loanType=unsecured' \
+  -F 'amountHkd=1500000' \
+  -F 'purpose=營運資金' \
+  -F 'companyName=智創科技有限公司'
+```
 
 ## 已覆蓋
 
@@ -25,35 +49,32 @@ npm run dev
 - Splash / Onboarding / Login
 - 身份與公司登記
 - Dashboard（案件進度 + 待辦）
-- AI 助理（快速選項、免責、轉介顧問）
-- 有抵押／無抵押申請分流（金額、物業／債務、文件、OCR 確認、摘要、授權、提交）
+- AI 助理 + **文件 ChatGPT 資格初篩**
+- 有抵押／無抵押申請分流（含真實文件分析入口）
 - 申請進度時間線、補件中心、通知、帳戶／私隱入口
 
 ### 內部控制台
 
-- KPI 案件總覽 + 篩選 + 列表
-- 一頁式財務簡報（趨勢圖、現金流、債務、抵押）
-- 三色燈初篩（圖示 + 原因 + 下一步）
-- 文件檢視器（左原文／右 OCR）
-- 補件管理模板、初篩規則審計欄位、Audit Log
+- KPI 案件總覽、財務簡報、三色燈、文件檢視器
+- **AI 文件初篩（含內部三色燈）**
+- 補件管理、初篩規則、Audit Log
 
 ### 文件
 
 - [`docs/SITEMAP.md`](docs/SITEMAP.md)
 - [`docs/USER_FLOWS.md`](docs/USER_FLOWS.md)
 - [`docs/DESIGN_SYSTEM.md`](docs/DESIGN_SYSTEM.md)
-- [`docs/BRIEF_REVIEW.md`](docs/BRIEF_REVIEW.md) ← 產品盲點建議預設
+- [`docs/BRIEF_REVIEW.md`](docs/BRIEF_REVIEW.md)
 
 ## Stack
 
-- Next.js 16 App Router + TypeScript + Tailwind CSS 4
-- lucide-react / recharts
-- Mock data only（無真實 OCR／LLM／推播）
+- Next.js 16 + TypeScript + Tailwind 4
+- OpenAI SDK + Zod JSON Schema
+- pdf-parse（文字型 PDF）；圖片走 Vision
 
-## 下一步（真後端時）
+## 下一步
 
-1. Auth（OTP／電郵）+ 角色 RBAC  
-2. 文件上傳（加密物件儲存）+ OCR pipeline  
-3. 申請狀態機 + 補件通知（Push／Email／SMS）  
-4. 初篩規則引擎 + 完整 Audit Log  
-5. Expo／RN 殼包裝同一 API（可選）
+1. Auth + RBAC  
+2. 物件儲存加密上載 + 正式 OCR pipeline  
+3. 狀態機 + Push／Email／SMS  
+4. 規則引擎與完整 Audit Log  

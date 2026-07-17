@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { MobileShell } from "@/components/app/mobile-shell";
+import { DocumentAnalyzeForm } from "@/components/app/document-analyze-form";
 import { Button } from "@/components/ui/button";
 import { Field, Input, Select, Textarea } from "@/components/ui/field";
 import {
@@ -279,11 +280,11 @@ export default function ApplyWizardPage() {
 
         {step === 3 && (
           <>
-            <SectionHeader title="文件上載及 AI 分析" subtitle="P12–P13" />
+            <SectionHeader title="文件上載及 AI 分析" subtitle="P12–P13 · ChatGPT" />
             <StateBanner
               tone="info"
               title="上載方式"
-              description="從檔案選擇、拍照、相簿，或連續掃描多頁。未來可連接銀行資料授權。"
+              description="從檔案選擇、拍照、相簿，或貼上文字。系統會讀取內容並做初步資格評估。"
             />
             <div className="space-y-3">
               {docs.map((doc) => (
@@ -297,19 +298,17 @@ export default function ApplyWizardPage() {
                     </div>
                     <DocStatusTag status={doc.status} />
                   </div>
-                  <div className="mt-3 flex gap-2">
-                    <Button size="sm" variant="outline">
-                      上載／拍照
-                    </Button>
-                    <Button size="sm" variant="ghost">
-                      重新上載
-                    </Button>
-                  </div>
                 </Card>
               ))}
             </div>
+            <DocumentAnalyzeForm
+              defaultLoanType={loanType ?? "unsecured"}
+              defaultAmount={amount}
+              defaultPurpose={purpose}
+              showInternalTrafficLight={false}
+            />
             <Card>
-              <p className="font-semibold text-navy-900">AI 文件完整性檢查</p>
+              <p className="font-semibold text-navy-900">示範完整性清單（mock）</p>
               <ul className="mt-3 space-y-2 text-sm">
                 {checklistOk.map((item) => (
                   <li key={item} className="text-success-600">

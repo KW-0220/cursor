@@ -44,6 +44,7 @@
 | P06 Dashboard | `/app` |
 | P07 AI 需求分析 | `/app/ai` |
 | P08–P17 Apply | `/apply`（step 0–7） |
+| P12–P14 GPT 文件初篩 | `/app/document-analysis` · `POST /api/documents/analyze` |
 | P18 Progress | `/app/applications/[id]` |
 | P19 Supplements | `/app/supplements` |
 | P20 Notifications | `/app/notifications` |

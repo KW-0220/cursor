@@ -98,6 +98,11 @@ export default function HomePage() {
       <div className="grid gap-2">
         {[
           { href: "/app/ai", label: "AI 貸款需求分析", icon: Bot },
+          {
+            href: "/app/document-analysis",
+            label: "上載文件 · ChatGPT 資格初篩",
+            icon: Bot,
+          },
           { href: "/apply", label: "建立新申請", icon: ChevronRight },
           { href: "/app/account", label: "安全及私隱說明", icon: ShieldCheck },
         ].map((item) => (
