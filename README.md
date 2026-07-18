@@ -5,28 +5,29 @@
 
 > AI 不做最終批核。核心是減文件錯漏、補件與人工初篩時間。
 
-## 公開測試（任何人可開）
+## 永久公開試用（Vercel）
 
-需要 **兩個 terminal**：
+**正式網址：** https://sme-loanflow.vercel.app
 
 ```bash
-# Terminal 1：App（已綁 0.0.0.0，區網／tunnel 都可連）
 cd ~/Projects/sme-loanflow
-npm run dev
-
-# Terminal 2：Cloudflare 臨時公開網址
-npm run dev:public
+npx vercel --prod --yes
+# 設定 ChatGPT（Dashboard → Settings → Environment Variables，或 CLI）：
+npx vercel env add OPENAI_API_KEY production
+npx vercel env add OPENAI_MODEL production   # 可選：gpt-4o-mini
+npx vercel --prod --yes   # 加完 env 再 deploy 一次
 ```
 
-終端機會印出類似：
-`https://xxxx.trycloudflare.com`
+未設 `OPENAI_API_KEY` 時，App 可瀏覽，但文件 AI 初篩會回 503。
 
-把該 URL 傳給測試者即可（Mac 要保持開機、兩個 process 都要跑）。
+### 臨時本機公開（唔推薦長期）
 
-注意：
-- Quick tunnel URL **每次重開都會變**
-- 未設 `OPENAI_API_KEY` 時文件初篩 API 會回 503
-- 勿把 API key 或正式客戶資料放到公開 demo
+```bash
+npm run dev          # Terminal 1
+npm run dev:public   # Terminal 2 → 網址會變而且會過期
+```
+
+本機瀏覽器請用：http://127.0.0.1:3000/（唔好用 localhost，避免 IPv6 拒連）
 
 
 ## OpenAI／ChatGPT 接入
