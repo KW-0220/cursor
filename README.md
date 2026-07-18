@@ -5,22 +5,29 @@
 
 > AI 不做最終批核。核心是減文件錯漏、補件與人工初篩時間。
 
-## Quick start
+## 公開測試（任何人可開）
+
+需要 **兩個 terminal**：
 
 ```bash
+# Terminal 1：App（已綁 0.0.0.0，區網／tunnel 都可連）
 cd ~/Projects/sme-loanflow
-npm install
-cp .env.example .env.local
-# 編輯 .env.local，填入 OPENAI_API_KEY=sk-...
 npm run dev
+
+# Terminal 2：Cloudflare 臨時公開網址
+npm run dev:public
 ```
 
-- 客戶端：http://localhost:3000  
-- 示範首頁：http://localhost:3000/app  
-- **ChatGPT 文件初篩（申請人）**：http://localhost:3000/app/document-analysis  
-- **ChatGPT 文件初篩（內部，含三色燈）**：http://localhost:3000/admin/ai-analyze  
-- 申請 Wizard：http://localhost:3000/apply  
-- 內部控制台：http://localhost:3000/admin  
+終端機會印出類似：
+`https://xxxx.trycloudflare.com`
+
+把該 URL 傳給測試者即可（Mac 要保持開機、兩個 process 都要跑）。
+
+注意：
+- Quick tunnel URL **每次重開都會變**
+- 未設 `OPENAI_API_KEY` 時文件初篩 API 會回 503
+- 勿把 API key 或正式客戶資料放到公開 demo
+
 
 ## OpenAI／ChatGPT 接入
 

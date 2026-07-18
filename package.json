@@ -3,9 +3,13 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "next dev --hostname 0.0.0.0 --port 3000",
+    "dev:local": "next dev --hostname 127.0.0.1 --port 3000",
+    "dev:public": "ssh -o StrictHostKeyChecking=accept-new -o ServerAliveInterval=30 -R 80:127.0.0.1:3000 nokey@localhost.run",
+    "dev:public:lt": "npx --yes localtunnel --port 3000",
+    "dev:public:cf": "npx --yes cloudflared tunnel --url http://127.0.0.1:3000",
     "build": "next build",
-    "start": "next start",
+    "start": "next start --hostname 0.0.0.0 --port 3000",
     "lint": "eslint"
   },
   "dependencies": {
