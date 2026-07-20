@@ -280,7 +280,7 @@ export default function ApplyWizardPage() {
 
         {step === 3 && (
           <>
-            <SectionHeader title="文件上載及 AI 分析" subtitle="P12–P13 · ChatGPT" />
+            <SectionHeader title="文件上載及 AI 分析" subtitle="P12–P13 · AI" />
             <StateBanner
               tone="info"
               title="上載方式"
@@ -465,12 +465,12 @@ export default function ApplyWizardPage() {
               2026-07-18 04:30 · 預計下一步：文件檢查
             </p>
             <p className="mx-auto mt-4 max-w-sm text-sm leading-relaxed text-text-secondary">
-              申請已成功提交。我們會先檢查文件及資料，如需要補充資料，將透過
-              App、電郵或短訊通知你。
+              請繼續填寫現有債務申報及資格聲明，系統其後會計算 EBITDA／DSCR
+              並核對十項政策。
             </p>
-            <Link href="/app/applications/SLF-2026-00482" className="mt-6 block">
+            <Link href="/apply/debts" className="mt-6 block">
               <Button fullWidth size="lg">
-                查看申請進度
+                繼續：債務申報及政策審批
               </Button>
             </Link>
           </div>
@@ -485,17 +485,32 @@ export default function ApplyWizardPage() {
                 上一步
               </Button>
             )}
-            <Button
-              className="flex-1"
-              disabled={
-                (step === 0 && !loanType) ||
-                (step === 6 &&
-                  consentItems.some((item) => !consents[item]))
-              }
-              onClick={next}
-            >
-              {step === 6 ? "提交申請" : "下一步"}
-            </Button>
+            {step === 6 ? (
+              <Link
+                href="/apply/debts"
+                className="flex-1"
+                onClick={(e) => {
+                  if (consentItems.some((item) => !consents[item])) {
+                    e.preventDefault();
+                  }
+                }}
+              >
+                <Button
+                  className="w-full"
+                  disabled={consentItems.some((item) => !consents[item])}
+                >
+                  下一步：債務申報
+                </Button>
+              </Link>
+            ) : (
+              <Button
+                className="flex-1"
+                disabled={step === 0 && !loanType}
+                onClick={next}
+              >
+                下一步
+              </Button>
+            )}
           </div>
         </div>
       )}

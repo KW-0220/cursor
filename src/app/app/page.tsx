@@ -100,7 +100,7 @@ export default function HomePage() {
           { href: "/app/ai", label: "AI 貸款需求分析", icon: Bot },
           {
             href: "/app/document-analysis",
-            label: "上載文件 · ChatGPT 資格初篩",
+            label: "上載文件 · AI 資格初篩",
             icon: Bot,
           },
           { href: "/apply", label: "建立新申請", icon: ChevronRight },

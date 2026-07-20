@@ -9,10 +9,23 @@
 
 **正式網址：** https://sme-loanflow.vercel.app
 
+### AI 十項政策審批（補充 Brief）
+
+| 流程 | URL |
+| --- | --- |
+| 債務申報 | `/apply/debts` |
+| 資格聲明 | `/apply/declarations` |
+| AI 分析中 | `/apply/analyzing` |
+| 客戶初果 | `/apply/result` |
+| 內部十項核對 | `/admin/policy/SLF-2026-00482` |
+| 引擎 API | `GET/POST /api/policy/evaluate` |
+
+引擎會計算 Gearing、EBITDA、DSCR、三年營收波幅，並核對 Q6–Q10；資料標籤區分 `AI 提取`／`客戶聲明`／`系統計算`。
+
 ```bash
 cd ~/Projects/sme-loanflow
 npx vercel --prod --yes
-# 設定 ChatGPT（Dashboard → Settings → Environment Variables，或 CLI）：
+# 設定 AI（Dashboard → Settings → Environment Variables，或 CLI）：
 npx vercel env add OPENAI_API_KEY production
 npx vercel env add OPENAI_MODEL production   # 可選：gpt-4o-mini
 npx vercel --prod --yes   # 加完 env 再 deploy 一次
@@ -30,7 +43,7 @@ npm run dev:public   # Terminal 2 → 網址會變而且會過期
 本機瀏覽器請用：http://127.0.0.1:3000/（唔好用 localhost，避免 IPv6 拒連）
 
 
-## OpenAI／ChatGPT 接入
+## OpenAI／AI 接入
 
 | 項目 | 說明 |
 | --- | --- |
@@ -57,7 +70,7 @@ curl -X POST http://localhost:3000/api/documents/analyze \
 - Splash / Onboarding / Login
 - 身份與公司登記
 - Dashboard（案件進度 + 待辦）
-- AI 助理 + **文件 ChatGPT 資格初篩**
+- AI 助理 + **文件 AI 資格初篩**
 - 有抵押／無抵押申請分流（含真實文件分析入口）
 - 申請進度時間線、補件中心、通知、帳戶／私隱入口
 

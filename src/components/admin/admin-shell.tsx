@@ -15,6 +15,7 @@ import { cn } from "@/lib/utils";
 const nav = [
   { href: "/admin", label: "案件總覽", icon: LayoutDashboard },
   { href: "/admin/cases/SLF-2026-00482", label: "財務簡報示範", icon: FileSearch },
+  { href: "/admin/policy/SLF-2026-00482", label: "政策核對（十項）", icon: ClipboardList },
   { href: "/admin/ai-analyze", label: "AI 文件初篩", icon: Bot },
   { href: "/admin/supplements", label: "補件管理", icon: ClipboardList },
   { href: "/admin/rules", label: "初篩規則", icon: Settings2 },

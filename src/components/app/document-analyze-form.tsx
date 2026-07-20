@@ -96,7 +96,7 @@ export function DocumentAnalyzeForm({
     <div className="space-y-4">
       <Card className="space-y-3">
         <SectionHeader
-          title="上載文件給 ChatGPT 初篩"
+          title="上載文件給 AI 初篩"
           subtitle="PDF／文字／圖片 → 抽出內容 → 初步資格評估"
         />
         <Field label="文件" hint="最大 12MB；掃描 PDF 若無文字請改上圖片或貼文">
@@ -145,7 +145,7 @@ export function DocumentAnalyzeForm({
           {loading ? "正在讀取文件並分析……" : "開始 AI 資格初篩"}
         </Button>
         <Disclaimer>
-          使用 OpenAI API（模型可由 OPENAI_MODEL 設定）。結果只屬初步評估，非正式批核。
+          使用 AI 分析（模型可由 OPENAI_MODEL 設定）。結果只屬初步評估，非正式批核。
         </Disclaimer>
       </Card>
 
@@ -157,7 +157,7 @@ export function DocumentAnalyzeForm({
         <StateBanner
           tone="info"
           title="正在處理"
-          description="安全讀取文件內容 → 呼叫 ChatGPT 結構化初篩，請稍候。"
+          description="安全讀取文件內容 → 呼叫 AI 結構化初篩，請稍候。"
         />
       )}
 

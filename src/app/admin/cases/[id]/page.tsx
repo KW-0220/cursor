@@ -36,6 +36,9 @@ export default async function CaseDetailPage({
         </div>
         <div className="flex flex-wrap gap-2">
           <StatusTag status={app.status} />
+          <Link href={`/admin/policy/${app.id}`}>
+            <Button variant="secondary">AI 政策核對</Button>
+          </Link>
           <Link href={`/admin/cases/${app.id}/documents`}>
             <Button variant="outline">文件檢視器</Button>
           </Link>
