@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import type { EligibilityAnalysis } from "@/lib/eligibility";
+import type { FinancialExtract } from "@/lib/financial-extract";
 import { Button } from "@/components/ui/button";
 import { Field, Input, Select, Textarea } from "@/components/ui/field";
 import {
@@ -21,6 +22,7 @@ type AnalyzeResponse = {
   model?: string;
   fileName?: string;
   extractMethod?: string;
+  extract?: FinancialExtract;
   analysis?: EligibilityAnalysis;
   disclaimer?: string;
 };
@@ -91,6 +93,10 @@ export function DocumentAnalyzeForm({
   }
 
   const analysis = result?.analysis;
+  const extract = result?.extract;
+
+  const money = (n: number | null | undefined) =>
+    n == null ? "—" : formatHKD(n);
 
   return (
     <div className="space-y-4">
@@ -161,7 +167,7 @@ export function DocumentAnalyzeForm({
         />
       )}
 
-      {analysis && (
+      {(extract || analysis) && (
         <div className="space-y-4 animate-fade-up">
           <StateBanner
             tone="success"
@@ -169,6 +175,45 @@ export function DocumentAnalyzeForm({
             description={`${result?.fileName} · ${result?.extractMethod} · ${result?.model}`}
           />
 
+          {extract && (
+            <Card>
+              <SectionHeader
+                title="財務抽取"
+                subtitle="缺欄＝文件無資料（不猜測）"
+              />
+              <dl className="space-y-3">
+                {(
+                  [
+                    ["公司名稱", extract.companyName ?? "—"],
+                    ["財政年度", extract.fiscalYear ?? "—"],
+                    ["Revenue", money(extract.revenue)],
+                    ["EBITDA", money(extract.ebitda)],
+                    ["Net Profit", money(extract.netProfit)],
+                    ["Existing Debt", money(extract.existingDebt)],
+                  ] as const
+                ).map(([label, value]) => (
+                  <div
+                    key={label}
+                    className="flex items-baseline justify-between gap-3 border-b border-border/60 pb-2 last:border-0"
+                  >
+                    <dt className="text-sm text-text-secondary">{label}</dt>
+                    <dd className="text-right text-sm font-semibold tabular text-navy-900">
+                      {value}
+                    </dd>
+                  </div>
+                ))}
+              </dl>
+              {extract.notes.length > 0 && (
+                <ul className="mt-3 space-y-1 text-xs text-text-muted">
+                  {extract.notes.map((n) => (
+                    <li key={n}>· {n}</li>
+                  ))}
+                </ul>
+              )}
+            </Card>
+          )}
+
+          {analysis && (
           <Card>
             <p className="text-xs text-text-muted">文件類型判斷</p>
             <p className="mt-1 font-semibold text-navy-900">
@@ -188,8 +233,9 @@ export function DocumentAnalyzeForm({
               {analysis.needsHumanReview ? " · 需人工覆核" : ""}
             </p>
           </Card>
+          )}
 
-          {showInternalTrafficLight && (
+          {analysis && showInternalTrafficLight && (
             <div className="space-y-3">
               <SectionHeader
                 title="內部初篩（顧問／控制台）"
@@ -217,6 +263,7 @@ export function DocumentAnalyzeForm({
             </div>
           )}
 
+          {analysis && (
           <Card>
             <SectionHeader title="完整性檢查" />
             <ul className="space-y-1 text-sm">
@@ -232,51 +279,6 @@ export function DocumentAnalyzeForm({
               ))}
             </ul>
           </Card>
-
-          {(analysis.extracted.revenueByYear.length > 0 ||
-            analysis.extracted.monthlyInflows.length > 0 ||
-            analysis.extracted.existingDebts.length > 0) && (
-            <Card>
-              <SectionHeader title="提取資料（請人工確認）" />
-              {analysis.extracted.revenueByYear.length > 0 && (
-                <div className="mb-3">
-                  <p className="text-xs text-text-muted">營業額</p>
-                  {analysis.extracted.revenueByYear.map((r) => (
-                    <p key={r.year} className="tabular text-sm">
-                      {r.year}：
-                      {r.amountHkd != null ? formatHKD(r.amountHkd) : "未能確認"}
-                    </p>
-                  ))}
-                </div>
-              )}
-              {analysis.extracted.monthlyInflows.length > 0 && (
-                <div className="mb-3">
-                  <p className="text-xs text-text-muted">月入數</p>
-                  {analysis.extracted.monthlyInflows.map((m) => (
-                    <p key={m.month} className="tabular text-sm">
-                      {m.month}：
-                      {m.amountHkd != null ? formatHKD(m.amountHkd) : "未能確認"}
-                    </p>
-                  ))}
-                </div>
-              )}
-              {analysis.extracted.existingDebts.length > 0 && (
-                <div>
-                  <p className="text-xs text-text-muted">現有債務</p>
-                  {analysis.extracted.existingDebts.map((d) => (
-                    <p key={d.lender} className="text-sm">
-                      {d.lender}
-                      {d.outstandingHkd != null
-                        ? ` · 未償還 ${formatHKD(d.outstandingHkd)}`
-                        : ""}
-                      {d.monthlyPaymentHkd != null
-                        ? ` · 月供 ${formatHKD(d.monthlyPaymentHkd)}`
-                        : ""}
-                    </p>
-                  ))}
-                </div>
-              )}
-            </Card>
           )}
 
           <Disclaimer>
