@@ -165,30 +165,43 @@ export async function POST(req: Request) {
     const model = process.env.OPENAI_MODEL || "gpt-5-mini";
     const userMessage = lastUser;
 
-    const completion = await openai.chat.completions.create({
-      model,
-      messages: [
-        {
-          role: "system",
-          content: SYSTEM_PROMPT,
-        },
-        {
-          role: "user",
-          content: userMessage,
-        },
-      ],
-    });
+    try {
+      const completion = await openai.chat.completions.create({
+        model,
+        messages: [
+          {
+            role: "system",
+            content: SYSTEM_PROMPT,
+          },
+          {
+            role: "user",
+            content: userMessage,
+          },
+        ],
+      });
 
-    const reply =
-      completion.choices[0]?.message?.content?.trim() ||
-      localFallback(lastUser).reply;
+      const reply =
+        completion.choices[0]?.message?.content?.trim() ||
+        localFallback(lastUser).reply;
 
-    return NextResponse.json({
-      reply,
-      actions: inferActions(`${lastUser}\n${reply}`),
-      disclaimer,
-      model,
-    });
+      return NextResponse.json({
+        reply,
+        actions: inferActions(`${lastUser}\n${reply}`),
+        disclaimer,
+        model,
+      });
+    } catch (openaiErr) {
+      const fb = localFallback(lastUser);
+      const detail =
+        openaiErr instanceof Error ? openaiErr.message : "OpenAI error";
+      return NextResponse.json({
+        reply: fb.reply,
+        actions: fb.actions,
+        disclaimer,
+        model: "local-fallback",
+        warning: detail,
+      });
+    }
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Chat failed";
     return NextResponse.json({ error: msg }, { status: 500 });
