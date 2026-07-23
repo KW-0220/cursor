@@ -48,7 +48,7 @@
 | KYC／BR／NAR1／月結單預審 | `/apply/kyc-docs` → `company-docs` → `statements` → `prescreen` |
 | Lead 預審轉介 | `/admin/leads/[id]` |
 | N09–N12 政策核對 | `/admin/policy/[id]` |
-| P12–P14 AI 文件分析 | `/app/document-analysis` · `POST /api/documents/analyze` |
+| P12–P14 AI 文件分析 | `/app/document-analysis` · `POST /api/analyze-document` |
 | 預審引擎 API | `GET/POST /api/prescreen/evaluate` |
 | 政策引擎 API | `GET/POST /api/policy/evaluate` |
 | 適合度 API | `GET/POST /api/suitability/evaluate` |

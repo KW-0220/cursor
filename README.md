@@ -62,14 +62,14 @@ npm run dev:public   # Terminal 2 → 網址會變而且會過期
 | --- | --- |
 | Env | `OPENAI_API_KEY`（必要）、`OPENAI_MODEL`（預設 `gpt-5-mini`） |
 | Chat | `POST /api/chat`（內部先 RAG search，再叫 OpenAI） |
-| Docs | `POST /api/documents/analyze`（`multipart/form-data`） |
+| Docs | `POST /api/analyze-document`（alias：`/api/documents/analyze`） |
 | RAG | `POST /api/rag/search` · `POST /api/rag/upsert`（接口已預留，現為 stub） |
 | CRM | `POST /api/crm/leads` · `POST /api/crm/applications/sync`（接口已預留，現為 stub） |
 | 合規 | 客戶端不顯示「必定批核／拒絕」；內部可看綠／黃／紅燈 |
 
 ```bash
 # curl 範例（貼文字）
-curl -X POST http://localhost:3000/api/documents/analyze \
+curl -X POST http://localhost:3000/api/analyze-document \
   -F 'text=公司：智創科技。FY2025 營業額 1620萬，淨利 142萬。近六月平均入數約 150萬，現有月供 4萬。' \
   -F 'loanType=unsecured' \
   -F 'amountHkd=1500000' \

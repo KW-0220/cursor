@@ -72,7 +72,7 @@ export function DocumentAnalyzeForm({
       form.set("purpose", purpose);
       form.set("companyName", companyName);
 
-      const res = await fetch("/api/documents/analyze", {
+      const res = await fetch("/api/analyze-document", {
         method: "POST",
         body: form,
       });
@@ -96,8 +96,8 @@ export function DocumentAnalyzeForm({
     <div className="space-y-4">
       <Card className="space-y-3">
         <SectionHeader
-          title="上載文件給 AI 初篩"
-          subtitle="PDF／文字／圖片 → 抽出內容 → 初步資格評估"
+          title="上載文件給 AI 分析"
+          subtitle="AI 財務助理＋文件分析引擎｜資料提取與預審，不直接批核"
         />
         <Field label="文件" hint="最大 12MB；掃描 PDF 若無文字請改上圖片或貼文">
           <Input
@@ -142,10 +142,10 @@ export function DocumentAnalyzeForm({
           </Field>
         </div>
         <Button fullWidth size="lg" disabled={loading} onClick={onAnalyze}>
-          {loading ? "正在讀取文件並分析……" : "開始 AI 資格初篩"}
+          {loading ? "正在讀取文件並分析……" : "開始 AI 文件分析"}
         </Button>
         <Disclaimer>
-          使用 AI 分析（模型可由 OPENAI_MODEL 設定）。結果只屬初步評估，非正式批核。
+          AI 只作財務助理及文件分析（提取／計算／預審條件），不會直接決定是否批出貸款。
         </Disclaimer>
       </Card>
 

@@ -7,12 +7,12 @@
 - Frontend **禁止** `new OpenAI()` / 直連 `api.openai.com`
 - 前端只打自家 API：
   - `POST /api/chat`
-  - `POST /api/documents/analyze`
+  - `POST /api/analyze-document`（alias `/api/documents/analyze`）
 
 若在 Client Component import `@/lib/openai`，`server-only` 會於 build 直接炸掉。
 
 ```text
-Browser ──► /api/chat | /api/documents/analyze ──► getOpenAI() ──► OpenAI
+Browser ──► /api/chat | /api/analyze-document ──► getOpenAI() ──► OpenAI
                 │
                 └──► getRagKnowledgeBase() ──► KB (stub → live)
 ```
