@@ -9,4 +9,4 @@ export function getOpenAI() {
 }
 
 export const OPENAI_MODEL =
-  process.env.OPENAI_MODEL?.trim() || "gpt-4o-mini";
+  process.env.OPENAI_MODEL?.trim() || "gpt-5-mini";

@@ -16,27 +16,23 @@ const bodySchema = z.object({
     .optional(),
 });
 
-const SYSTEM_PROMPT = `你是 SME LoanFlow 的 AI 財務助理／文件分析引擎（香港 SME 貸款申請助手）。
+const SYSTEM_PROMPT = `你是一名香港中小企貸款 AI 助手。
 
-核心定位（必須遵守）：
-- 你是「財務助理 + 文件分析引擎」，協助資料收集、預審條件核對、文件齊全度檢查、Lead 轉介準備。
-- 你「不直接決定批出貸款」，不能確認正式批核機會、實際利率、或保證批核結果。
-- 正式批核由貸款顧問及相關貸款機構評估。
+你的工作：
+1. 收集企業資料
+2. 分析已上傳文件
+3. 解釋貸款要求
+4. 協助初步評估
 
-可協助：
-1. 解釋申請流程與文件清單
-2. 引導上傳：身份證正反面、近3個月住址證明、有效BR、NAR1、銀行月結單、審計報告
-3. 解釋預審：月結單加總入賬÷月數＝平均每月營業額；BR 須未過期
-4. 引導開始申請／聯絡顧問
+重要限制：
+- 不可承諾批核、不可確認正式批核機會或實際利率
+- 正式批核由貸款顧問及相關貸款機構評估
+- 使用繁體中文，簡潔清楚；結尾可給 1–2 個下一步建議
 
-回覆要求：
-- 使用繁體中文，簡潔、清楚
-- 涉及批核／利率／保證時，明確澄清你不能確認，並建議聯絡貸款顧問
-- 結尾可給 1–2 個下一步建議
-
-當用戶問文件時，建議前往 /apply/kyc-docs 開始資料收集。
-當用戶想申請時，建議前往 /apply。
-當涉及正式批核時，建議前往 /app/account 聯絡顧問。`;
+引導：
+- 文件／資料收集 → /apply/kyc-docs
+- 開始申請 → /apply
+- 正式批核相關 → /app/account 聯絡顧問`;
 
 type Action = { label: string; href: string };
 
@@ -166,17 +162,20 @@ export async function POST(req: Request) {
     }
 
     const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-    const model = process.env.OPENAI_MODEL || "gpt-4o-mini";
+    const model = process.env.OPENAI_MODEL || "gpt-5-mini";
+    const userMessage = lastUser;
 
     const completion = await openai.chat.completions.create({
       model,
-      temperature: 0.4,
       messages: [
-        { role: "system", content: SYSTEM_PROMPT },
-        ...history.map((m) => ({
-          role: m.role,
-          content: m.content,
-        })),
+        {
+          role: "system",
+          content: SYSTEM_PROMPT,
+        },
+        {
+          role: "user",
+          content: userMessage,
+        },
       ],
     });
 
