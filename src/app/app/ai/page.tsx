@@ -7,82 +7,73 @@ import type { ChatMessage } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Disclaimer } from "@/components/ui/layout";
 
-function replyFor(input: string): ChatMessage {
-  const lower = input.toLowerCase();
-  if (lower.includes("批核") || lower.includes("保證") || lower.includes("利率")) {
-    return {
-      id: crypto.randomUUID(),
-      role: "assistant",
-      content:
-        "我無法確認正式批核機會或實際利率。這些需由貸款顧問及相關貸款機構評估。",
-      actions: [{ label: "聯絡貸款顧問", href: "/app/account" }],
-      disclaimer:
-        "AI 分析只供初步評估，並非正式貸款批核。",
-    };
-  }
-  if (lower.includes("文件") || lower.includes("結單") || lower.includes("審計")) {
-    return {
-      id: crypto.randomUUID(),
-      role: "assistant",
-      content:
-        "無抵押貸款一般需要：最近三年審計報告、最近六個月銀行結單、現有銀行授信信。有抵押另加物業相關文件。",
-      actions: [
-        { label: "查看文件清單", href: "/apply" },
-        { label: "開始申請", href: "/apply" },
-      ],
-      disclaimer:
-        "此建議只供初步參考，實際文件要求可能因貸款機構而異。",
-    };
-  }
-  if (lower.includes("物業") || lower.includes("抵押")) {
-    return {
-      id: crypto.randomUUID(),
-      role: "assistant",
-      content:
-        "如果你持有香港物業並可接受抵押，有抵押貸款通常可申請較高額度。建議申請方向：有抵押貸款。",
-      actions: [{ label: "按此開始申請", href: "/apply" }],
-      quickReplies: ["我想了解無抵押", "要準備甚麼文件？"],
-      disclaimer:
-        "此建議只供初步參考，實際貸款條件及批核結果由相關貸款機構決定。",
-    };
-  }
-  return {
-    id: crypto.randomUUID(),
-    role: "assistant",
-    content: `了解，你提到「${input}」。接下來可告訴我希望申請金額、公司營運年期，以及是否有香港物業可作抵押。`,
-    quickReplies: [
-      "希望申請 150 萬",
-      "營運超過 5 年",
-      "沒有物業可抵押",
-      "有審計報告",
-    ],
-    actions: [{ label: "按此開始申請", href: "/apply" }],
-    disclaimer:
-      "此建議只供初步參考，實際貸款條件及批核結果由相關貸款機構決定。",
-  };
-}
-
 export default function AIAssistantPage() {
   const [messages, setMessages] = useState<ChatMessage[]>([aiWelcome]);
   const [input, setInput] = useState("");
+  const [loading, setLoading] = useState(false);
 
-  const send = (text: string) => {
-    if (!text.trim()) return;
+  const send = async (text: string) => {
+    if (!text.trim() || loading) return;
     const userMsg: ChatMessage = {
       id: crypto.randomUUID(),
       role: "user",
       content: text,
     };
-    setMessages((m) => [...m, userMsg, replyFor(text)]);
+    const next = [...messages, userMsg];
+    setMessages(next);
     setInput("");
+    setLoading(true);
+
+    try {
+      const res = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          messages: next
+            .filter((m) => m.role === "user" || m.role === "assistant")
+            .map((m) => ({ role: m.role, content: m.content })),
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Chat failed");
+
+      const assistant: ChatMessage = {
+        id: crypto.randomUUID(),
+        role: "assistant",
+        content: data.reply,
+        actions: data.actions,
+        disclaimer: data.disclaimer,
+      };
+      setMessages((m) => [...m, assistant]);
+    } catch (err) {
+      setMessages((m) => [
+        ...m,
+        {
+          id: crypto.randomUUID(),
+          role: "assistant",
+          content:
+            err instanceof Error
+              ? `暫時未能連線 AI（${err.message}）。你可以先開始資料收集，或稍後再試。`
+              : "暫時未能連線 AI，請稍後再試。",
+          actions: [
+            { label: "開始資料收集", href: "/apply/kyc-docs" },
+            { label: "聯絡貸款顧問", href: "/app/account" },
+          ],
+          disclaimer:
+            "AI 不直接決定批出貸款；只協助資料收集與預審條件核對。",
+        },
+      ]);
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
     <main className="flex h-[calc(100dvh-4.5rem)] flex-col">
       <header className="border-b border-border px-4 py-3">
-        <h1 className="text-lg font-semibold text-navy-900">AI 助理</h1>
+        <h1 className="text-lg font-semibold text-navy-900">AI 財務助理</h1>
         <p className="text-xs text-text-secondary">
-          支援廣東話書面語及中英夾雜 · 可隨時轉介顧問
+          文件分析＋資料收集引擎 · 不直接批核貸款 · 可轉介顧問
         </p>
       </header>
 
@@ -96,7 +87,7 @@ export default function AIAssistantPage() {
                 : "bg-surface-2 text-text-primary"
             }`}
           >
-            <p>{m.content}</p>
+            <p className="whitespace-pre-wrap">{m.content}</p>
             {m.actions && (
               <div className="mt-2 flex flex-wrap gap-2">
                 {m.actions.map((a) => (
@@ -113,8 +104,9 @@ export default function AIAssistantPage() {
                 {m.quickReplies.map((q) => (
                   <button
                     key={q}
-                    onClick={() => send(q)}
-                    className="rounded-full bg-surface-1 px-2.5 py-1 text-xs text-teal-600 ring-1 ring-border"
+                    onClick={() => void send(q)}
+                    disabled={loading}
+                    className="rounded-full bg-surface-1 px-2.5 py-1 text-xs text-teal-600 ring-1 ring-border disabled:opacity-50"
                   >
                     {q}
                   </button>
@@ -126,6 +118,11 @@ export default function AIAssistantPage() {
             )}
           </div>
         ))}
+        {loading && (
+          <div className="max-w-[90%] rounded-2xl bg-surface-2 px-3.5 py-2.5 text-sm text-text-secondary">
+            AI 思考中…
+          </div>
+        )}
         <Disclaimer>
           涉及批核機會、正式利率、文件矛盾或投訴時，請使用「聯絡貸款顧問」。
         </Disclaimer>
@@ -136,8 +133,9 @@ export default function AIAssistantPage() {
           {aiWelcome.quickReplies?.slice(0, 4).map((q) => (
             <button
               key={q}
-              onClick={() => send(q)}
-              className="rounded-full bg-teal-100 px-2.5 py-1 text-xs text-teal-600"
+              onClick={() => void send(q)}
+              disabled={loading}
+              className="rounded-full bg-teal-100 px-2.5 py-1 text-xs text-teal-600 disabled:opacity-50"
             >
               {q}
             </button>
@@ -147,16 +145,19 @@ export default function AIAssistantPage() {
           className="flex gap-2"
           onSubmit={(e) => {
             e.preventDefault();
-            send(input);
+            void send(input);
           }}
         >
           <input
             value={input}
             onChange={(e) => setInput(e.target.value)}
+            disabled={loading}
             placeholder="例如：我想借錢出糧同入貨"
-            className="h-11 flex-1 rounded-xl border border-border bg-surface-1 px-3 text-sm outline-none focus:border-teal-500"
+            className="h-11 flex-1 rounded-xl border border-border bg-surface-1 px-3 text-sm outline-none focus:border-teal-500 disabled:opacity-50"
           />
-          <Button type="submit">傳送</Button>
+          <Button type="submit" disabled={loading}>
+            {loading ? "…" : "傳送"}
+          </Button>
         </form>
       </div>
     </main>
