@@ -45,9 +45,16 @@
 | P07 AI 需求分析 | `/app/ai` |
 | P08–P17 Apply | `/apply`（step 0–7） |
 | N01–N07 債務／聲明／初批 | `/apply/debts` → `declarations` → `confirm` → `analyzing` → `result` |
+| KYC／BR／NAR1／月結單預審 | `/apply/kyc-docs` → `company-docs` → `statements` → `prescreen` |
+| Lead 預審轉介 | `/admin/leads/[id]` |
 | N09–N12 政策核對 | `/admin/policy/[id]` |
-| P12–P14 GPT 文件初篩 | `/app/document-analysis` · `POST /api/documents/analyze` |
+| P12–P14 AI 文件分析 | `/app/document-analysis` · `POST /api/documents/analyze` |
+| 預審引擎 API | `GET/POST /api/prescreen/evaluate` |
 | 政策引擎 API | `GET/POST /api/policy/evaluate` |
+| 適合度 API | `GET/POST /api/suitability/evaluate` |
+| Chat（Backend OpenAI） | `POST /api/chat` |
+| RAG KB（預留） | `/api/rag` · `/api/rag/search` · `/api/rag/upsert` |
+| CRM（預留） | `/api/crm` · `/api/crm/leads` · `/api/crm/applications/sync` |
 | P18 Progress | `/app/applications/[id]` |
 | P19 Supplements | `/app/supplements` |
 | P20 Notifications | `/app/notifications` |

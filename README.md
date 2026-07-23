@@ -3,11 +3,22 @@
 香港中小企貸款智能申請 App（MVP 原型）  
 客戶端 mobile-first Web + 內部 Desktop 審批控制台 + Design System + UX 文件。
 
-> AI 不做最終批核。核心是減文件錯漏、補件與人工初篩時間。
+> AI 是財務助理 + 文件分析引擎：資料收集 → 資格預審 → Lead 轉介準備。**不直接決定批核貸款。**
 
 ## 永久公開試用（Vercel）
 
 **正式網址：** https://sme-loanflow.vercel.app
+
+### AI 資料收集／預審流程
+
+| 步驟 | URL |
+| --- | --- |
+| 身份證正反面 + 近 3 個月住址證明 | `/apply/kyc-docs` |
+| BR 有效期 + NAR1 董事／股東 | `/apply/company-docs` |
+| 月結單入賬加總 → 平均每月營業額 | `/apply/statements` |
+| 預審條件／Lead 轉介準備 | `/apply/prescreen` |
+| 內部 Lead 預審 | `/admin/leads/SLF-2026-00482` |
+| 引擎 API | `GET/POST /api/prescreen/evaluate` |
 
 ### AI 十項政策審批（補充 Brief）
 
@@ -20,7 +31,7 @@
 | 內部十項核對 | `/admin/policy/SLF-2026-00482` |
 | 引擎 API | `GET/POST /api/policy/evaluate` |
 
-引擎會計算 Gearing、EBITDA、DSCR、三年營收波幅，並核對 Q6–Q10；資料標籤區分 `AI 提取`／`客戶聲明`／`系統計算`。
+平均每月營業額＝各月結單**所有入賬加總 ÷ 月數**。BR 必須未過期；NAR1 需顯示董事及持股。
 
 ```bash
 cd ~/Projects/sme-loanflow
@@ -43,14 +54,17 @@ npm run dev:public   # Terminal 2 → 網址會變而且會過期
 本機瀏覽器請用：http://127.0.0.1:3000/（唔好用 localhost，避免 IPv6 拒連）
 
 
-## OpenAI／AI 接入
+## OpenAI／AI 接入（Backend only）
+
+> **`OPENAI_API_KEY` 只放 Backend。Frontend 不可直連 OpenAI。** 詳見 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
 
 | 項目 | 說明 |
 | --- | --- |
-| Env | `OPENAI_API_KEY`（必要）、`OPENAI_MODEL`（預設 `gpt-4o-mini`） |
-| API | `POST /api/documents/analyze`（`multipart/form-data`） |
-| 欄位 | `file`、`text`、`loanType`、`amountHkd`、`purpose`、`companyName` |
-| 流程 | PDF 抽字／圖片 Vision → GPT JSON Schema → 完整性 + 初篩 |
+| Env | `OPENAI_API_KEY`（必要）、`OPENAI_MODEL`（預設 `gpt-5-mini`） |
+| Chat | `POST /api/chat`（內部先 RAG search，再叫 OpenAI） |
+| Docs | `POST /api/documents/analyze`（`multipart/form-data`） |
+| RAG | `POST /api/rag/search` · `POST /api/rag/upsert`（接口已預留，現為 stub） |
+| CRM | `POST /api/crm/leads` · `POST /api/crm/applications/sync`（接口已預留，現為 stub） |
 | 合規 | 客戶端不顯示「必定批核／拒絕」；內部可看綠／黃／紅燈 |
 
 ```bash
@@ -97,5 +111,6 @@ curl -X POST http://localhost:3000/api/documents/analyze \
 
 1. Auth + RBAC  
 2. 物件儲存加密上載 + 正式 OCR pipeline  
-3. 狀態機 + Push／Email／SMS  
-4. 規則引擎與完整 Audit Log  
+3. 接真實 RAG provider（`RAG_PROVIDER`）+ CRM（`CRM_PROVIDER`）  
+4. 狀態機 + Push／Email／SMS  
+5. 規則引擎與完整 Audit Log  

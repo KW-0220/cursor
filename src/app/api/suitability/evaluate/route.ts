@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getCrmClient } from "@/lib/integrations/crm";
 import {
   evaluateSuitability,
   getDemoSuitable,
@@ -17,7 +18,10 @@ export async function GET() {
 
 export async function POST(req: NextRequest) {
   try {
-    const body = (await req.json()) as Partial<SuitabilityInput>;
+    const body = (await req.json()) as Partial<SuitabilityInput> & {
+      companyName?: string;
+      syncCrm?: boolean;
+    };
     const input: SuitabilityInput = {
       companyAge:
         body.companyAge === undefined || body.companyAge === null
@@ -45,7 +49,19 @@ export async function POST(req: NextRequest) {
     }
 
     const result = evaluateSuitability(input);
-    return NextResponse.json({ ok: true, result });
+
+    let crmLead = null;
+    if (body.syncCrm && body.companyName) {
+      crmLead = await getCrmClient().upsertLead({
+        companyName: body.companyName,
+        suitabilityStatus: result.status,
+        readyForLeadReferral: result.status === "Suitable",
+        source: "suitability-evaluate",
+        notes: result.clientMessage,
+      });
+    }
+
+    return NextResponse.json({ ok: true, result, crmLead });
   } catch (err) {
     return NextResponse.json(
       {

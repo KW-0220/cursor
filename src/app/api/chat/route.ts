@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
-import OpenAI from "openai";
 import { z } from "zod";
+import {
+  buildRagContextBlock,
+  getRagKnowledgeBase,
+} from "@/lib/integrations/rag";
+import { getOpenAI, hasOpenAIKey, OPENAI_MODEL } from "@/lib/openai";
 
 export const runtime = "nodejs";
 
@@ -155,18 +159,29 @@ export async function POST(req: Request) {
     const disclaimer =
       "此建議只供初步參考。AI 不直接決定批出貸款；只協助資料收集與預審條件核對。實際貸款條件及批核結果由相關貸款機構決定。";
 
-    if (!process.env.OPENAI_API_KEY) {
+    // RAG（預留接口）：Backend 取知識，再餵給 LLM；前端永不直連 KB / OpenAI
+    const rag = await getRagKnowledgeBase().search({
+      query: lastUser,
+      topK: 3,
+    });
+    const ragBlock = buildRagContextBlock(rag.chunks);
+    const systemWithRag = ragBlock
+      ? `${SYSTEM_PROMPT}\n\n---\n知識庫參考（RAG）：\n${ragBlock}`
+      : SYSTEM_PROMPT;
+
+    if (!hasOpenAIKey()) {
       const fb = localFallback(lastUser);
       return NextResponse.json({
         reply: fb.reply,
         actions: fb.actions,
         disclaimer,
         model: "local-fallback",
+        rag: { provider: rag.provider, mode: rag.mode, hits: rag.chunks.length },
       });
     }
 
-    const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-    const model = process.env.OPENAI_MODEL || "gpt-5-mini";
+    const openai = getOpenAI();
+    const model = OPENAI_MODEL;
     const userMessage = lastUser;
 
     try {
@@ -175,7 +190,7 @@ export async function POST(req: Request) {
         messages: [
           {
             role: "system",
-            content: SYSTEM_PROMPT,
+            content: systemWithRag,
           },
           {
             role: "user",
@@ -193,6 +208,7 @@ export async function POST(req: Request) {
         actions: inferActions(`${lastUser}\n${reply}`),
         disclaimer,
         model,
+        rag: { provider: rag.provider, mode: rag.mode, hits: rag.chunks.length },
       });
     } catch (openaiErr) {
       const fb = localFallback(lastUser);
@@ -204,6 +220,7 @@ export async function POST(req: Request) {
         disclaimer,
         model: "local-fallback",
         warning: detail,
+        rag: { provider: rag.provider, mode: rag.mode, hits: rag.chunks.length },
       });
     }
   } catch (err) {
