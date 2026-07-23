@@ -7,7 +7,7 @@ import {
   eligibilityJsonSchema,
 } from "@/lib/eligibility";
 import { extractDocumentText } from "@/lib/document-extract";
-import { getOpenAI, OPENAI_MODEL } from "@/lib/openai";
+import { getOpenAI, hasOpenAIKey, OPENAI_MODEL } from "@/lib/openai";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -16,12 +16,12 @@ const MAX_BYTES = 12 * 1024 * 1024;
 
 export async function POST(req: NextRequest) {
   try {
-    if (!process.env.OPENAI_API_KEY) {
+    if (!hasOpenAIKey()) {
       return NextResponse.json(
         {
           error: "MISSING_OPENAI_API_KEY",
           message:
-            "請在專案根目錄建立 .env.local，設定 OPENAI_API_KEY=sk-...",
+            "請在專案根目錄建立 .env.local，設定 OPENAI_API_KEY=sk-...（Backend only，勿用 NEXT_PUBLIC_）",
         },
         { status: 503 },
       );
