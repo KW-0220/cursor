@@ -1,142 +1,98 @@
 "use client";
 
-import { useMemo, useState } from "react";
 import Link from "next/link";
+import { Check } from "lucide-react";
 import { MobileShell } from "@/components/app/mobile-shell";
 import { Button } from "@/components/ui/button";
 import {
   Card,
   Disclaimer,
   PageHeader,
-  SectionHeader,
-  StateBanner,
 } from "@/components/ui/layout";
 import {
-  evaluateSuitability,
-  type SuitabilityStatus,
+  DEFAULT_WHATSAPP_URL,
+  getDemoSuitable,
 } from "@/lib/suitability";
-import { formatHKD } from "@/lib/utils";
-
-const SCENARIOS = {
-  suitable: {
-    label: "Suitable",
-    companyAge: 3,
-    monthlyRevenue: 180_000,
-    debtRatio: 35,
-  },
-  not: {
-    label: "未達標",
-    companyAge: 1,
-    monthlyRevenue: 80_000,
-    debtRatio: 62,
-  },
-  incomplete: {
-    label: "缺資料",
-    companyAge: 4,
-    monthlyRevenue: null as number | null,
-    debtRatio: 40,
-  },
-} as const;
-
-function statusTone(status: SuitabilityStatus) {
-  if (status === "Suitable") return "success" as const;
-  if (status === "Incomplete") return "warning" as const;
-  return "info" as const;
-}
-
-function statusTitle(status: SuitabilityStatus) {
-  if (status === "Suitable") return "Suitable｜初步適合";
-  if (status === "Incomplete") return "Incomplete｜資料未齊";
-  return "NotSuitable｜暫未達初步門檻";
-}
 
 export default function ResultPage() {
-  const [scenario, setScenario] =
-    useState<keyof typeof SCENARIOS>("suitable");
-  const input = SCENARIOS[scenario];
-  const result = useMemo(
-    () =>
-      evaluateSuitability({
-        companyAge: input.companyAge,
-        monthlyRevenue: input.monthlyRevenue,
-        debtRatio: input.debtRatio,
-      }),
-    [input],
-  );
+  // Demo：公司 3 年 · 月營業額 50 萬 · 負債 20 萬 → Suitable
+  const result = getDemoSuitable();
+  const view = result.clientView;
 
   return (
     <MobileShell>
-      <PageHeader title="初步評估結果" subtitle="適合度規則｜非正式批核" backHref="/app" />
-      <main className="space-y-4 px-4 py-5 pb-28">
-        <div className="flex flex-wrap gap-2">
-          {(Object.keys(SCENARIOS) as (keyof typeof SCENARIOS)[]).map((key) => (
-            <button
-              key={key}
-              onClick={() => setScenario(key)}
-              className={`rounded-full px-3 py-1.5 text-xs font-medium ${
-                scenario === key
-                  ? "bg-navy-900 text-white"
-                  : "bg-surface-2 text-text-secondary"
-              }`}
-            >
-              {SCENARIOS[key].label}
-            </button>
-          ))}
+      <PageHeader
+        title={view.title}
+        subtitle="根據你提供資料 · 非正式批核"
+        backHref="/apply/analyzing"
+      />
+      <main className="space-y-5 px-4 py-6 pb-32">
+        <div>
+          <h2 className="text-2xl font-semibold tracking-tight text-navy-900">
+            {view.title}
+          </h2>
+          <p className="mt-2 text-sm text-text-secondary">{view.intro}</p>
         </div>
 
-        <StateBanner
-          tone={statusTone(result.status)}
-          title={statusTitle(result.status)}
-          description={result.clientMessage}
-        />
+        <Card className="space-y-4">
+          {view.facts.map((f) => (
+            <div
+              key={f.label}
+              className="flex items-baseline justify-between gap-4 border-b border-border/70 pb-3 last:border-0 last:pb-0"
+            >
+              <p className="text-sm text-text-secondary">{f.label}</p>
+              <p className="text-right text-base font-semibold tabular text-navy-900">
+                {f.value}
+              </p>
+            </div>
+          ))}
+        </Card>
 
-        <Card>
-          <p className="font-mono text-sm text-navy-900">
-            {`if (companyAge >= 2 && monthlyRevenue >= 100000 && debtRatio < 50) status = "Suitable"`}
+        <section>
+          <p className="text-sm font-medium text-navy-900">初步符合：</p>
+          <ul className="mt-3 space-y-2.5">
+            {view.highlights.map((h) => (
+              <li key={h.label} className="flex items-center gap-2.5 text-sm">
+                <span
+                  className={`flex h-6 w-6 items-center justify-center rounded-full ${
+                    h.ok
+                      ? "bg-teal-100 text-teal-700"
+                      : "bg-surface-2 text-text-muted"
+                  }`}
+                  aria-hidden
+                >
+                  {h.ok ? <Check className="h-3.5 w-3.5" strokeWidth={3} /> : "–"}
+                </span>
+                <span
+                  className={
+                    h.ok ? "text-navy-900" : "text-text-muted line-through"
+                  }
+                >
+                  {h.label}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </section>
+
+        <Card className="border-teal-500/20 bg-teal-100/40">
+          <p className="text-xs font-medium uppercase tracking-wide text-teal-700">
+            建議下一步
           </p>
-          <p className="mt-2 text-xs text-text-muted">
-            status = <span className="font-semibold text-teal-600">{result.status}</span>
+          <p className="mt-1.5 text-base font-semibold text-navy-900">
+            {view.nextStep}
           </p>
         </Card>
 
-        <SectionHeader title="條件核對" />
-        <div className="space-y-2">
-          {result.checks.map((c) => (
-            <Card key={c.id} className="flex items-start justify-between gap-3">
-              <div>
-                <p className="text-sm font-medium text-navy-900">{c.label}</p>
-                <p className="text-xs text-text-secondary">要求：{c.requirement}</p>
-                <p className="mt-1 text-sm tabular text-text-primary">
-                  實際：
-                  {c.id === "monthlyRevenue" && result.input.monthlyRevenue != null
-                    ? formatHKD(Math.round(result.input.monthlyRevenue))
-                    : c.actual}
-                </p>
-              </div>
-              <span
-                className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-medium ${
-                  c.pass === true
-                    ? "bg-teal-100 text-teal-700"
-                    : c.pass === false
-                      ? "bg-amber-100 text-amber-800"
-                      : "bg-surface-2 text-text-muted"
-                }`}
-              >
-                {c.pass === true ? "PASS" : c.pass === false ? "FAIL" : "—"}
-              </span>
-            </Card>
-          ))}
-        </div>
-
-        <div className="flex flex-col gap-2">
-          <Link href="/apply/prescreen">
+        <div className="flex flex-col gap-2.5">
+          <Link href="/apply/confirm">
+            <Button fullWidth>{view.submitLabel}</Button>
+          </Link>
+          <a href={DEFAULT_WHATSAPP_URL} target="_blank" rel="noreferrer">
             <Button fullWidth variant="outline">
-              返回預審條件
+              {view.whatsappLabel}
             </Button>
-          </Link>
-          <Link href="/app/account">
-            <Button fullWidth>聯絡貸款顧問</Button>
-          </Link>
+          </a>
         </div>
 
         <Disclaimer>{result.disclaimer}</Disclaimer>
