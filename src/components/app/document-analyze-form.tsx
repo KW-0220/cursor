@@ -184,32 +184,41 @@ export function DocumentAnalyzeForm({
               <dl className="space-y-3">
                 {(
                   [
-                    ["公司名稱", extract.companyName ?? "—"],
-                    ["財政年度", extract.fiscalYear ?? "—"],
-                    ["Revenue", money(extract.revenue)],
-                    ["EBITDA", money(extract.ebitda)],
-                    ["Net Profit", money(extract.netProfit)],
-                    ["Existing Debt", money(extract.existingDebt)],
+                    ["company_name", extract.company_name ?? "—"],
+                    ["financial_year", extract.financial_year ?? "—"],
+                    ["revenue", money(extract.revenue)],
+                    ["EBITDA", money(extract.EBITDA)],
+                    ["net_profit", money(extract.net_profit)],
+                    ["existing_debt", money(extract.existing_debt)],
                   ] as const
                 ).map(([label, value]) => (
                   <div
                     key={label}
                     className="flex items-baseline justify-between gap-3 border-b border-border/60 pb-2 last:border-0"
                   >
-                    <dt className="text-sm text-text-secondary">{label}</dt>
+                    <dt className="font-mono text-xs text-text-secondary">
+                      {label}
+                    </dt>
                     <dd className="text-right text-sm font-semibold tabular text-navy-900">
                       {value}
                     </dd>
                   </div>
                 ))}
               </dl>
-              {extract.notes.length > 0 && (
-                <ul className="mt-3 space-y-1 text-xs text-text-muted">
-                  {extract.notes.map((n) => (
-                    <li key={n}>· {n}</li>
-                  ))}
-                </ul>
-              )}
+              <pre className="mt-4 overflow-x-auto rounded-xl bg-navy-900 p-3 text-xs leading-relaxed text-teal-100">
+                {JSON.stringify(
+                  {
+                    company_name: extract.company_name,
+                    financial_year: extract.financial_year,
+                    revenue: extract.revenue,
+                    EBITDA: extract.EBITDA,
+                    net_profit: extract.net_profit,
+                    existing_debt: extract.existing_debt,
+                  },
+                  null,
+                  2,
+                )}
+              </pre>
             </Card>
           )}
 

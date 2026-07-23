@@ -27,9 +27,13 @@ function analyzeModel() {
  * POST /api/analyze-document
  * Backend-only OpenAI（禁止 Frontend 直連）
  *
- * formData:
- * - file：財務報表（圖／PDF／文字）
- * - text / companyName（可選）
+ * 成功時 extract（及頂層欄位）固定為：
+ * {
+ *   company_name, financial_year, revenue, EBITDA, net_profit, existing_debt
+ * }
+ *
+ * formData: file / text / companyName
+ * Query: ?raw=1 → 只回上述 JSON（無 wrapper）
  */
 export async function POST(req: NextRequest) {
   try {
@@ -46,6 +50,7 @@ export async function POST(req: NextRequest) {
 
     const formData = await req.formData();
     const file = formData.get("file");
+    const rawOnly = new URL(req.url).searchParams.get("raw") === "1";
 
     const pastedText = String(formData.get("text") ?? "").trim();
     const companyNameHint =
@@ -109,7 +114,7 @@ export async function POST(req: NextRequest) {
     const userContent: Array<OpenAI.Chat.ChatCompletionContentPart> = [
       {
         type: "text",
-        text: userText || "請分析這份財務報表",
+        text: userText || "請分析這份財務報表，並以指定 JSON 格式輸出。",
       },
     ];
 
@@ -160,70 +165,75 @@ export async function POST(req: NextRequest) {
 
     const extract = parsed.data;
 
-    // 兼容舊 UI：塞進 analysis 形狀（中性、不表示批核）
+    // ?raw=1 → 只回指定 JSON
+    if (rawOnly) {
+      return NextResponse.json(extract);
+    }
+
+    const filled = [
+      extract.company_name && "company_name",
+      extract.financial_year && "financial_year",
+      extract.revenue != null && "revenue",
+      extract.EBITDA != null && "EBITDA",
+      extract.net_profit != null && "net_profit",
+      extract.existing_debt != null && "existing_debt",
+    ].filter((x): x is string => Boolean(x));
+
+    const missing = [
+      !extract.company_name && "company_name",
+      !extract.financial_year && "financial_year",
+      extract.revenue == null && "revenue",
+      extract.EBITDA == null && "EBITDA",
+      extract.net_profit == null && "net_profit",
+      extract.existing_debt == null && "existing_debt",
+    ].filter((x): x is string => Boolean(x));
+
     const analysis = {
       documentType: "audit_report" as const,
       overall: "amber" as const,
       summary: [
-        extract.companyName ?? "未能抽出公司名稱",
-        extract.fiscalYear ? `FY ${extract.fiscalYear}` : null,
+        extract.company_name ?? "未能抽出公司名稱",
+        extract.financial_year ? `FY ${extract.financial_year}` : null,
         extract.revenue != null ? `Revenue ${extract.revenue}` : null,
       ]
         .filter(Boolean)
         .join(" · "),
-      companyNameGuess: extract.companyName,
+      companyNameGuess: extract.company_name,
       extracted: {
-        revenueByYear: extract.fiscalYear
+        revenueByYear: extract.financial_year
           ? [
               {
-                year: extract.fiscalYear,
+                year: extract.financial_year,
                 amountHkd: extract.revenue,
               },
             ]
           : [],
         monthlyInflows: [],
         existingDebts:
-          extract.existingDebt != null
+          extract.existing_debt != null
             ? [
                 {
                   lender: "（文件合計／未分項）",
-                  outstandingHkd: extract.existingDebt,
+                  outstandingHkd: extract.existing_debt,
                   monthlyPaymentHkd: null,
                 },
               ]
             : [],
         bouncedCheques: null,
         notes: [
-          ...extract.notes,
-          extract.ebitda != null ? `EBITDA: ${extract.ebitda}` : null,
-          extract.netProfit != null ? `Net Profit: ${extract.netProfit}` : null,
+          extract.EBITDA != null ? `EBITDA: ${extract.EBITDA}` : null,
+          extract.net_profit != null
+            ? `Net Profit: ${extract.net_profit}`
+            : null,
         ].filter((n): n is string => Boolean(n)),
       },
       completeness: {
-        ok: (
-          [
-            extract.companyName && "公司名稱",
-            extract.fiscalYear && "財政年度",
-            extract.revenue != null && "Revenue",
-            extract.ebitda != null && "EBITDA",
-            extract.netProfit != null && "Net Profit",
-            extract.existingDebt != null && "Existing Debt",
-          ] as Array<string | false | null>
-        ).filter((x): x is string => Boolean(x)),
-        issues: (
-          [
-            !extract.companyName && "缺少公司名稱",
-            !extract.fiscalYear && "缺少財政年度",
-            extract.revenue == null && "缺少 Revenue",
-            extract.ebitda == null && "缺少 EBITDA",
-            extract.netProfit == null && "缺少 Net Profit",
-            extract.existingDebt == null && "缺少 Existing Debt",
-          ] as Array<string | false>
-        ).filter((x): x is string => Boolean(x)),
+        ok: filled,
+        issues: missing.map((k) => `缺少 ${k}`),
       },
       ruleHits: [],
-      confidence: extract.confidence,
-      needsHumanReview: extract.confidence < 0.7 || extract.revenue == null,
+      confidence: missing.length === 0 ? 0.85 : 0.55,
+      needsHumanReview: missing.length > 0,
       applicantFacingMessage:
         "已完成財務文件初步抽取，供顧問覆核。AI 不直接決定批出貸款。",
     };
@@ -235,6 +245,13 @@ export async function POST(req: NextRequest) {
       mimeType,
       extractMethod,
       extract,
+      // 扁平欄位 = 指定 JSON
+      company_name: extract.company_name,
+      financial_year: extract.financial_year,
+      revenue: extract.revenue,
+      EBITDA: extract.EBITDA,
+      net_profit: extract.net_profit,
+      existing_debt: extract.existing_debt,
       analysis,
       usage: response.usage ?? null,
       disclaimer:
@@ -271,4 +288,16 @@ export async function POST(req: NextRequest) {
       { status: 500 },
     );
   }
+}
+
+/** GET：回傳 JSON schema 範例 */
+export async function GET() {
+  return NextResponse.json({
+    company_name: "ABC Limited",
+    financial_year: "2025",
+    revenue: 6200000,
+    EBITDA: 850000,
+    net_profit: 420000,
+    existing_debt: 500000,
+  });
 }
