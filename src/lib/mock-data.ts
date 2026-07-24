@@ -297,7 +297,7 @@ export const aiWelcome: ChatMessage = {
   id: "m0",
   role: "assistant",
   content:
-    "你好，我可以先了解你的融資需要，再協助你準備合適的申請資料。請問今次貸款主要用作甚麼用途？",
+    "你好，我是 SME LoanFlow 的 AI 財務助理。我可以協助你整理融資需要、文件清單及資料收集，但不會直接決定是否批出貸款。請問今次貸款主要用作甚麼用途？",
   quickReplies: [
     "營運資金",
     "出糧／支付供應商",
@@ -308,7 +308,7 @@ export const aiWelcome: ChatMessage = {
     "其他用途",
   ],
   disclaimer:
-    "此建議只供初步參考，實際貸款條件及批核結果由相關貸款機構決定。",
+    "AI 為財務助理及文件分析引擎，只供資料收集與預審參考；最終批核由貸款顧問及相關機構決定。",
 };
 
 export const checklistOk = [

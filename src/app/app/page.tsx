@@ -97,10 +97,15 @@ export default function HomePage() {
       <SectionHeader title="快捷入口" />
       <div className="grid gap-2">
         {[
-          { href: "/app/ai", label: "AI 貸款需求分析", icon: Bot },
+          { href: "/app/ai", label: "AI 財務助理", icon: Bot },
+          {
+            href: "/apply/kyc-docs",
+            label: "資料收集：身分／BR／月結單預審",
+            icon: Bot,
+          },
           {
             href: "/app/document-analysis",
-            label: "上載文件 · AI 資格初篩",
+            label: "上載文件 · AI 文件分析",
             icon: Bot,
           },
           { href: "/apply", label: "建立新申請", icon: ChevronRight },

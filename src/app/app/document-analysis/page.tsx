@@ -6,7 +6,7 @@ export default function DocumentAnalysisPage() {
     <div>
       <PageHeader
         title="AI 文件資格初篩"
-        subtitle="AI 讀取文件 → 完整性檢查 → 初步評估"
+        subtitle="AI 讀取文件 → 提取資料 → 預審條件（非批核）"
         backHref="/app"
       />
       <main className="px-4 py-5">
