@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
   createSessionToken,
+  findUserByEmail,
   getSessionFromCookieHeader,
   markProfileCompleted,
+  mergeVaultCookie,
   sessionCookie,
   updateUserContact,
 } from "@/lib/auth";
@@ -39,8 +41,15 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  const full = await findUserByEmail(user.email);
   const token = await createSessionToken(user);
   const res = NextResponse.json({ ok: true, user });
-  res.headers.set("Set-Cookie", sessionCookie(token));
+  res.headers.append("Set-Cookie", sessionCookie(token));
+  if (full) {
+    res.headers.append(
+      "Set-Cookie",
+      await mergeVaultCookie(req.headers.get("cookie"), full),
+    );
+  }
   return res;
 }

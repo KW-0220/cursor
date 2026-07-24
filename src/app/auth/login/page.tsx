@@ -27,6 +27,7 @@ export default function LoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [hint, setHint] = useState<string | null>(null);
   const [storageWarning, setStorageWarning] = useState<string | null>(null);
+  const [twilioReady, setTwilioReady] = useState(false);
 
   useEffect(() => {
     void (async () => {
@@ -34,6 +35,7 @@ export default function LoginPage() {
         const res = await fetch("/api/auth/status");
         const data = await res.json();
         if (data.warning) setStorageWarning(data.warning);
+        setTwilioReady(Boolean(data.twilio));
       } catch {
         // ignore
       }
@@ -266,9 +268,13 @@ export default function LoginPage() {
         ) : (
           <div className="space-y-4">
             <StateBanner
-              tone="info"
-              title="手機短訊驗證"
-              description="需已設定 Twilio Verify。若尚未啟用，請改用「電郵帳戶」註冊（可立即使用）。"
+              tone={twilioReady ? "success" : "info"}
+              title={twilioReady ? "手機短訊驗證已啟用" : "手機短訊驗證"}
+              description={
+                twilioReady
+                  ? "輸入香港手機號碼（+852）後按「發送驗證碼」，查收 SMS 後輸入 6 位碼即可繼續。"
+                  : "需已設定 Twilio Verify。若尚未啟用，請改用「電郵帳戶」註冊（可立即使用）。"
+              }
             />
             <Field label="手機號碼" required>
               <Input

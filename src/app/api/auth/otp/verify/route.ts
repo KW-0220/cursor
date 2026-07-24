@@ -3,11 +3,17 @@ import { z } from "zod";
 import {
   createSessionToken,
   findUserByEmail,
+  mergeVaultCookie,
   registerUser,
   sessionCookie,
   updateUserContact,
   type PublicUser,
 } from "@/lib/auth";
+import {
+  getTwilioAuth,
+  toE164,
+  twilioBasicAuthHeader,
+} from "@/lib/twilio";
 
 export const runtime = "nodejs";
 
@@ -29,11 +35,8 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const sid = process.env.TWILIO_ACCOUNT_SID?.trim();
-  const token = process.env.TWILIO_AUTH_TOKEN?.trim();
-  const service = process.env.TWILIO_VERIFY_SERVICE_SID?.trim();
-
-  if (!sid || !token || !service) {
+  const auth = getTwilioAuth();
+  if (!auth) {
     return NextResponse.json(
       {
         error: "SMS_NOT_CONFIGURED",
@@ -43,16 +46,14 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const phone = parsed.data.phone.replace(/\s+/g, "");
-  const e164 = phone.startsWith("+") ? phone : `+${phone}`;
-  const auth = Buffer.from(`${sid}:${token}`).toString("base64");
+  const e164 = toE164(parsed.data.phone);
 
   const twilioRes = await fetch(
-    `https://verify.twilio.com/v2/Services/${service}/VerificationCheck`,
+    `https://verify.twilio.com/v2/Services/${auth.serviceSid}/VerificationCheck`,
     {
       method: "POST",
       headers: {
-        Authorization: `Basic ${auth}`,
+        Authorization: twilioBasicAuthHeader(auth),
         "Content-Type": "application/x-www-form-urlencoded",
       },
       body: new URLSearchParams({ To: e164, Code: parsed.data.code }),
@@ -98,12 +99,19 @@ export async function POST(req: NextRequest) {
     });
   }
 
+  const full = await findUserByEmail(user.email);
   const sessionToken = await createSessionToken(user);
   const res = NextResponse.json({
     ok: true,
     user,
     next: user.profileCompleted ? "/app" : "/register/identity",
   });
-  res.headers.set("Set-Cookie", sessionCookie(sessionToken));
+  res.headers.append("Set-Cookie", sessionCookie(sessionToken));
+  if (full) {
+    res.headers.append(
+      "Set-Cookie",
+      await mergeVaultCookie(req.headers.get("cookie"), full),
+    );
+  }
   return res;
 }

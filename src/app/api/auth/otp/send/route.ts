@@ -1,5 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import {
+  getTwilioAuth,
+  toE164,
+  twilioBasicAuthHeader,
+} from "@/lib/twilio";
 
 export const runtime = "nodejs";
 
@@ -7,11 +12,7 @@ const bodySchema = z.object({
   phone: z.string().min(8),
 });
 
-/**
- * 手機 OTP 發送
- * 需設定 TWILIO_ACCOUNT_SID / TWILIO_AUTH_TOKEN / TWILIO_VERIFY_SERVICE_SID
- * 未設定時回傳 503，前端引導改用電郵註冊。
- */
+/** 手機 OTP 發送（Twilio Verify） */
 export async function POST(req: NextRequest) {
   const parsed = bodySchema.safeParse(await req.json());
   if (!parsed.success) {
@@ -21,11 +22,8 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const sid = process.env.TWILIO_ACCOUNT_SID?.trim();
-  const token = process.env.TWILIO_AUTH_TOKEN?.trim();
-  const service = process.env.TWILIO_VERIFY_SERVICE_SID?.trim();
-
-  if (!sid || !token || !service) {
+  const auth = getTwilioAuth();
+  if (!auth) {
     return NextResponse.json(
       {
         error: "SMS_NOT_CONFIGURED",
@@ -36,16 +34,14 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const phone = parsed.data.phone.replace(/\s+/g, "");
-  const e164 = phone.startsWith("+") ? phone : `+${phone}`;
-  const auth = Buffer.from(`${sid}:${token}`).toString("base64");
+  const e164 = toE164(parsed.data.phone);
 
   const twilioRes = await fetch(
-    `https://verify.twilio.com/v2/Services/${service}/Verifications`,
+    `https://verify.twilio.com/v2/Services/${auth.serviceSid}/Verifications`,
     {
       method: "POST",
       headers: {
-        Authorization: `Basic ${auth}`,
+        Authorization: twilioBasicAuthHeader(auth),
         "Content-Type": "application/x-www-form-urlencoded",
       },
       body: new URLSearchParams({ To: e164, Channel: "sms" }),
@@ -54,11 +50,25 @@ export async function POST(req: NextRequest) {
 
   if (!twilioRes.ok) {
     const detail = await twilioRes.text();
+    let message = "驗證碼發送失敗，請稍後再試或改用電郵註冊";
+    try {
+      const j = JSON.parse(detail) as { code?: number; message?: string };
+      if (j.code === 21608) {
+        message =
+          "Twilio Trial 只能發送至已驗證手機。請到 Twilio Console → Verified Caller IDs 加入你的號碼，或升級帳戶。";
+      } else if (j.code === 21211) {
+        message = "手機號碼格式無效，請使用國際格式（例如 +85291234567）";
+      } else if (j.message) {
+        message = j.message;
+      }
+    } catch {
+      // keep default
+    }
     return NextResponse.json(
       {
         error: "SMS_SEND_FAILED",
-        message: "驗證碼發送失敗，請稍後再試或改用電郵註冊",
-        detail: detail.slice(0, 200),
+        message,
+        detail: detail.slice(0, 300),
       },
       { status: 502 },
     );
