@@ -12,6 +12,9 @@ import { getOpenAI, hasOpenAIKey } from "@/lib/openai";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
+/** OpenAI 不支援 hkg1；強制在新加坡執行 */
+export const preferredRegion = ["sin1", "iad1"];
+
 
 const MAX_BYTES = 12 * 1024 * 1024;
 
