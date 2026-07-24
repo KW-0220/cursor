@@ -3,7 +3,15 @@
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { MobileShell } from "@/components/app/mobile-shell";
-import { DocumentAnalyzeForm } from "@/components/app/document-analyze-form";
+import {
+  ApplyDocumentsUpload,
+  applyDocsProgress,
+  emptyApplyDocs,
+  isApplyDocsComplete,
+  lastSixBankMonths,
+  summarizeApplyDocs,
+  type ApplyDocsState,
+} from "@/components/app/apply-documents-upload";
 import { Button } from "@/components/ui/button";
 import { Field, Input, Select, Textarea } from "@/components/ui/field";
 import {
@@ -14,14 +22,6 @@ import {
   SectionHeader,
   StateBanner,
 } from "@/components/ui/layout";
-import { DocStatusTag } from "@/components/ui/status";
-import {
-  checklistIssues,
-  checklistOk,
-  documentRequirements,
-  financialYears,
-  bankMonths,
-} from "@/lib/mock-data";
 import { formatHKD } from "@/lib/utils";
 import type { LoanType } from "@/lib/types";
 
@@ -30,24 +30,54 @@ const steps = [
   "金額用途",
   "細節",
   "文件",
-  "OCR 確認",
+  "文件確認",
   "摘要",
   "聲明",
   "完成",
 ];
 
 const quickAmounts = [500000, 1000000, 3000000, 5000000];
+const BANK_MONTHS = lastSixBankMonths();
 
 export default function ApplyWizardPage() {
   const [step, setStep] = useState(0);
   const [loanType, setLoanType] = useState<LoanType | null>(null);
   const [amount, setAmount] = useState(1500000);
   const [purpose, setPurpose] = useState("營運資金");
-  const [hasExistingLoan, setHasExistingLoan] = useState(true);
+  const [hasExistingLoan, setHasExistingLoan] = useState(false);
+  const [lender, setLender] = useState("");
+  const [debtType, setDebtType] = useState("營運貸款");
+  const [facility, setFacility] = useState("");
+  const [outstanding, setOutstanding] = useState("");
+  const [propertyType, setPropertyType] = useState("寫字樓");
+  const [propertyAddress, setPropertyAddress] = useState("");
+  const [propertyOwner, setPropertyOwner] = useState("");
+  const [propertyHolder, setPropertyHolder] = useState("公司");
+  const [propertyValue, setPropertyValue] = useState("");
+  const [propertyMortgage, setPropertyMortgage] = useState("");
+  const [docs, setDocs] = useState<ApplyDocsState>(() =>
+    emptyApplyDocs(BANK_MONTHS),
+  );
   const [consents, setConsents] = useState<Record<string, boolean>>({});
+  const [applicationId, setApplicationId] = useState<string | null>(null);
+  const [submittedAt, setSubmittedAt] = useState<string | null>(null);
 
   const progress = ((step + 1) / steps.length) * 100;
-  const docs = loanType ? documentRequirements[loanType] : [];
+  const docsComplete = isApplyDocsComplete(docs, BANK_MONTHS);
+  const docsSummary = useMemo(
+    () => summarizeApplyDocs(docs, BANK_MONTHS),
+    [docs],
+  );
+  const docsPct = useMemo(() => {
+    const p = applyDocsProgress(docs, BANK_MONTHS);
+    return Math.round((p.done / p.total) * 100);
+  }, [docs]);
+
+  const propertyEquity = useMemo(() => {
+    const v = Number(propertyValue) || 0;
+    const m = Number(propertyMortgage) || 0;
+    return Math.max(0, v - m);
+  }, [propertyValue, propertyMortgage]);
 
   const consentItems = useMemo(
     () => [
@@ -61,8 +91,42 @@ export default function ApplyWizardPage() {
     [],
   );
 
+  const allConsented = consentItems.every((item) => consents[item]);
+
   const next = () => setStep((s) => Math.min(steps.length - 1, s + 1));
   const back = () => setStep((s) => Math.max(0, s - 1));
+
+  function submitApplication() {
+    if (!allConsented) return;
+    const id = `SLF-${new Date().getFullYear()}-${String(Date.now()).slice(-5)}`;
+    const at = new Date().toISOString();
+    setApplicationId(id);
+    setSubmittedAt(new Date().toLocaleString("zh-HK", { hour12: false }));
+    try {
+      const prev = JSON.parse(
+        sessionStorage.getItem("slf_applications") || "[]",
+      ) as unknown[];
+      const record = {
+        id,
+        loanType,
+        amount,
+        purpose,
+        hasExistingLoan,
+        docsPct,
+        bankCount: docsSummary.bankCount,
+        status: "submitted" as const,
+        createdAt: at,
+        updatedAt: at,
+      };
+      sessionStorage.setItem(
+        "slf_applications",
+        JSON.stringify([record, ...prev]),
+      );
+    } catch {
+      // ignore
+    }
+    setStep(7);
+  }
 
   return (
     <MobileShell>
@@ -78,10 +142,7 @@ export default function ApplyWizardPage() {
       <main className="space-y-4 px-4 py-5 pb-28">
         {step === 0 && (
           <>
-            <SectionHeader
-              title="選擇貸款類型"
-              subtitle="以兩張大型選擇卡展示"
-            />
+            <SectionHeader title="選擇貸款類型" />
             {(
               [
                 {
@@ -92,7 +153,7 @@ export default function ApplyWizardPage() {
                     "希望申請較高貸款額",
                     "可接受以物業作抵押",
                   ],
-                  docs: "需準備抵押物業資料、三年審計、六個月結單、營運簡介",
+                  docs: "必須：BR、NAR1、六個月銀行月結單 PDF、董事／股東／擔保人身份證明，以及抵押物業資料",
                 },
                 {
                   type: "unsecured" as const,
@@ -102,12 +163,13 @@ export default function ApplyWizardPage() {
                     "主要依靠公司營運及現金流",
                     "希望申請營運資金",
                   ],
-                  docs: "需準備三年審計、六個月結單、現有銀行授信信",
+                  docs: "必須：BR、NAR1、六個月銀行月結單 PDF、董事／股東／擔保人身份證明",
                 },
               ] as const
             ).map((card) => (
               <button
                 key={card.type}
+                type="button"
                 onClick={() => setLoanType(card.type)}
                 className={`w-full rounded-2xl border p-4 text-left transition ${
                   loanType === card.type
@@ -145,6 +207,7 @@ export default function ApplyWizardPage() {
               {quickAmounts.map((a) => (
                 <button
                   key={a}
+                  type="button"
                   onClick={() => setAmount(a)}
                   className={`rounded-full px-3 py-1.5 text-xs font-medium ${
                     amount === a
@@ -197,9 +260,12 @@ export default function ApplyWizardPage() {
 
         {step === 2 && loanType === "secured" && (
           <>
-            <SectionHeader title="抵押物業資料" subtitle="P10A" />
+            <SectionHeader title="抵押物業資料" />
             <Field label="物業類型" required>
-              <Select defaultValue="寫字樓">
+              <Select
+                value={propertyType}
+                onChange={(e) => setPropertyType(e.target.value)}
+              >
                 <option>住宅</option>
                 <option>商舖</option>
                 <option>寫字樓</option>
@@ -208,29 +274,52 @@ export default function ApplyWizardPage() {
               </Select>
             </Field>
             <Field label="物業地址" required>
-              <Input defaultValue="九龍觀塘開源道 72 號宏利金融中心 8 樓" />
+              <Input
+                value={propertyAddress}
+                onChange={(e) => setPropertyAddress(e.target.value)}
+                placeholder="請輸入物業地址"
+              />
             </Field>
             <Field label="物業業權人" required>
-              <Input defaultValue="智創科技有限公司" />
+              <Input
+                value={propertyOwner}
+                onChange={(e) => setPropertyOwner(e.target.value)}
+                placeholder="公司或個人名稱"
+              />
             </Field>
             <Field label="公司／個人持有" required>
-              <Select defaultValue="公司">
+              <Select
+                value={propertyHolder}
+                onChange={(e) => setPropertyHolder(e.target.value)}
+              >
                 <option>公司</option>
                 <option>個人</option>
               </Select>
             </Field>
             <div className="grid grid-cols-2 gap-3">
-              <Field label="估計市值" required>
-                <Input type="number" defaultValue={9800000} className="tabular" />
+              <Field label="估計市值（HKD）" required>
+                <Input
+                  type="number"
+                  className="tabular"
+                  value={propertyValue}
+                  onChange={(e) => setPropertyValue(e.target.value)}
+                  placeholder="0"
+                />
               </Field>
-              <Field label="現時貸款餘額" required>
-                <Input type="number" defaultValue={4200000} className="tabular" />
+              <Field label="現時貸款餘額（HKD）" required>
+                <Input
+                  type="number"
+                  className="tabular"
+                  value={propertyMortgage}
+                  onChange={(e) => setPropertyMortgage(e.target.value)}
+                  placeholder="0"
+                />
               </Field>
             </div>
             <Card className="bg-surface-2">
               <p className="text-xs text-text-muted">估計物業淨值</p>
               <p className="mt-1 text-xl font-semibold tabular text-navy-900">
-                {formatHKD(5600000)}
+                {formatHKD(propertyEquity)}
               </p>
               <p className="mt-2 text-xs text-text-secondary">
                 估計市值 − 現有貸款餘額。不顯示「最高可借金額」為確定結果。
@@ -241,7 +330,7 @@ export default function ApplyWizardPage() {
 
         {step === 2 && loanType === "unsecured" && (
           <>
-            <SectionHeader title="現有貸款情況" subtitle="P10B｜可新增多項" />
+            <SectionHeader title="現有貸款情況" subtitle="可新增多項" />
             <Field label="現時是否有銀行貸款" required>
               <Select
                 value={hasExistingLoan ? "是" : "否"}
@@ -257,17 +346,35 @@ export default function ApplyWizardPage() {
                   <p className="text-sm font-semibold text-navy-900">貸款 #1</p>
                   <div className="mt-3 space-y-3">
                     <Field label="貸款機構" required>
-                      <Input defaultValue="香港某銀行" />
+                      <Input
+                        value={lender}
+                        onChange={(e) => setLender(e.target.value)}
+                        placeholder="例如：香港某銀行"
+                      />
                     </Field>
                     <Field label="貸款類型" required>
-                      <Input defaultValue="營運貸款" />
+                      <Input
+                        value={debtType}
+                        onChange={(e) => setDebtType(e.target.value)}
+                        placeholder="營運貸款"
+                      />
                     </Field>
                     <div className="grid grid-cols-2 gap-3">
                       <Field label="獲批額度">
-                        <Input type="number" defaultValue={1000000} />
+                        <Input
+                          type="number"
+                          value={facility}
+                          onChange={(e) => setFacility(e.target.value)}
+                          placeholder="0"
+                        />
                       </Field>
                       <Field label="未償還金額">
-                        <Input type="number" defaultValue={620000} />
+                        <Input
+                          type="number"
+                          value={outstanding}
+                          onChange={(e) => setOutstanding(e.target.value)}
+                          placeholder="0"
+                        />
                       </Field>
                     </div>
                     <Field label="是否曾經逾期">
@@ -278,7 +385,7 @@ export default function ApplyWizardPage() {
                     </Field>
                   </div>
                 </Card>
-                <Button variant="outline" fullWidth>
+                <Button variant="outline" fullWidth type="button">
                   ＋ 新增另一項現有貸款
                 </Button>
               </>
@@ -287,117 +394,86 @@ export default function ApplyWizardPage() {
         )}
 
         {step === 3 && (
-          <>
-            <SectionHeader title="文件上載及 AI 分析" subtitle="P12–P13 · AI" />
-            <StateBanner
-              tone="info"
-              title="上載方式"
-              description="從檔案選擇、拍照、相簿，或貼上文字。系統會讀取內容並做初步資格評估。"
-            />
-            <div className="space-y-3">
-              {docs.map((doc) => (
-                <Card key={doc.name}>
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <p className="font-medium text-navy-900">{doc.name}</p>
-                      <p className="mt-1 text-xs text-text-muted">
-                        {doc.requirement}
-                      </p>
-                    </div>
-                    <DocStatusTag status={doc.status} />
-                  </div>
-                </Card>
-              ))}
-            </div>
-            <DocumentAnalyzeForm
-              defaultLoanType={loanType ?? "unsecured"}
-              defaultAmount={amount}
-              defaultPurpose={purpose}
-              showInternalTrafficLight={false}
-            />
-            <Card>
-              <p className="font-semibold text-navy-900">示範完整性清單（mock）</p>
-              <ul className="mt-3 space-y-2 text-sm">
-                {checklistOk.map((item) => (
-                  <li key={item} className="text-success-600">
-                    ✓ {item}
-                  </li>
-                ))}
-                {checklistIssues.map((item) => (
-                  <li key={item} className="text-warning-600">
-                    ! {item}
-                  </li>
-                ))}
-              </ul>
-              <p className="mt-3 text-xs text-text-secondary">
-                系統未能確認此項資料，請由申請人或貸款顧問覆核。不可將低信心
-                OCR 結果當作確定資料。
-              </p>
-            </Card>
-          </>
+          <ApplyDocumentsUpload
+            months={BANK_MONTHS}
+            docs={docs}
+            onChange={setDocs}
+          />
         )}
 
         {step === 4 && (
           <>
-            <SectionHeader title="OCR 資料確認" subtitle="P14｜保留修改審計" />
+            <SectionHeader
+              title="確認已上載文件"
+              subtitle="請核對檔名；之後可交由系統初步讀取"
+            />
+            <StateBanner
+              tone="info"
+              title="本頁不顯示批核結果"
+              description="只確認你已提交的檔案。AI 讀取後如有資料不清，會另行要求你確認或補件。"
+            />
             <Card>
-              <p className="font-semibold text-navy-900">審計報告（按年度）</p>
-              <div className="mt-3 space-y-3">
-                {financialYears.map((y) => (
-                  <div
-                    key={y.year}
-                    className="rounded-xl bg-surface-2 p-3 text-sm"
-                  >
-                    <div className="flex justify-between">
-                      <span className="font-medium">{y.year}</span>
-                      <span className="text-xs text-text-muted">
-                        信心度 {(y.confidence * 100).toFixed(0)}% · p.
-                        {y.sourcePage}
-                      </span>
-                    </div>
-                    <div className="mt-2 grid grid-cols-2 gap-2 tabular text-xs text-text-secondary">
-                      <span>營業額 {formatHKD(y.revenue)}</span>
-                      <span>毛利 {formatHKD(y.grossProfit)}</span>
-                      <span>淨利潤 {formatHKD(y.netProfit)}</span>
-                      <span>股東權益 {formatHKD(y.equity)}</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
+              <p className="text-xs text-text-muted">商業登記證 BR</p>
+              <p className="mt-1 text-sm font-medium text-navy-900">
+                {docsSummary.br ?? "—"}
+              </p>
             </Card>
             <Card>
-              <p className="font-semibold text-navy-900">銀行結單（按月）</p>
-              <div className="mt-3 space-y-2">
-                {bankMonths.map((m) => (
-                  <div
-                    key={m.month}
-                    className="flex items-center justify-between rounded-xl bg-surface-2 px-3 py-2 text-xs"
-                  >
-                    <span className="font-medium">{m.month}</span>
-                    <span className="tabular text-text-secondary">
-                      入數 {formatHKD(m.totalInflow)}
+              <p className="text-xs text-text-muted">NAR1</p>
+              <p className="mt-1 text-sm font-medium text-navy-900">
+                {docsSummary.nar1 ?? "—"}
+              </p>
+            </Card>
+            <Card>
+              <p className="text-xs text-text-muted">身份證明</p>
+              <ul className="mt-1 space-y-1 text-sm font-medium text-navy-900">
+                {docsSummary.identity.length === 0 ? (
+                  <li>—</li>
+                ) : (
+                  docsSummary.identity.map((n) => <li key={n}>· {n}</li>)
+                )}
+              </ul>
+            </Card>
+            <Card>
+              <p className="text-xs text-text-muted">
+                銀行月結單（{docsSummary.bankCount}／6）
+              </p>
+              <ul className="mt-1 space-y-1 text-sm text-navy-900">
+                {BANK_MONTHS.map((m) => (
+                  <li key={m} className="flex justify-between gap-2">
+                    <span className="text-text-secondary">{m}</span>
+                    <span className="truncate font-medium">
+                      {docs.bank[m]?.name ?? "缺"}
                     </span>
-                  </div>
+                  </li>
                 ))}
-              </div>
-              <div className="mt-3 flex gap-2">
-                <Button size="sm">確認資料</Button>
-                <Button size="sm" variant="outline">
-                  修改
-                </Button>
-                <Button size="sm" variant="ghost">
-                  提交人工覆核
-                </Button>
-              </div>
+              </ul>
             </Card>
+            {docsSummary.companyOther.length > 0 && (
+              <Card>
+                <p className="text-xs text-text-muted">其他公司文件</p>
+                <ul className="mt-1 space-y-1 text-sm font-medium text-navy-900">
+                  {docsSummary.companyOther.map((n) => (
+                    <li key={n}>· {n}</li>
+                  ))}
+                </ul>
+              </Card>
+            )}
+            <Button
+              variant="outline"
+              fullWidth
+              type="button"
+              onClick={() => setStep(3)}
+            >
+              返回修改文件
+            </Button>
           </>
         )}
 
         {step === 5 && (
           <>
-            <SectionHeader title="申請摘要" subtitle="P15｜不含內部紅燈" />
+            <SectionHeader title="申請摘要" subtitle="提交前請核對" />
             {[
-              ["公司資料", "智創科技有限公司 · BR 12345678"],
               [
                 "貸款需要",
                 `${loanType === "secured" ? "有抵押" : "無抵押"} · ${formatHKD(amount)} · ${purpose}`,
@@ -405,15 +481,14 @@ export default function ApplyWizardPage() {
               [
                 "抵押物／現有貸款",
                 loanType === "secured"
-                  ? "寫字樓 · 估計淨值 HKD 5,600,000"
+                  ? `${propertyType}${propertyAddress ? ` · ${propertyAddress}` : ""} · 估計淨值 ${formatHKD(propertyEquity)}`
                   : hasExistingLoan
-                    ? "已申報現有銀行貸款"
+                    ? `已申報現有銀行貸款${lender ? `（${lender}）` : ""}`
                     : "沒有現有銀行貸款",
               ],
-              ["文件完成狀態", "78% · 有 1 項待確認"],
               [
-                "AI 提取財務摘要",
-                "三年營業額上升；近六月平均入數約 HKD 1.51M",
+                "文件完成狀態",
+                `${docsPct}% · BR／NAR1／身份／銀行月結單 ${docsSummary.bankCount}/6`,
               ],
             ].map(([title, body]) => (
               <Card key={title}>
@@ -422,7 +497,7 @@ export default function ApplyWizardPage() {
               </Card>
             ))}
             <Disclaimer>
-              提交前不會向客戶顯示內部三色燈或「高違約風險」等判斷，避免誤解。
+              提交前不會向客戶顯示內部評分或「保證批核」等字眼，避免誤解。
             </Disclaimer>
           </>
         )}
@@ -431,7 +506,7 @@ export default function ApplyWizardPage() {
           <>
             <SectionHeader
               title="聲明及授權"
-              subtitle="P16｜每項可展開，不可一鍵全勾"
+              subtitle="每項須分別確認，不可一鍵全勾"
             />
             <div className="space-y-3">
               {consentItems.map((item) => (
@@ -447,15 +522,7 @@ export default function ApplyWizardPage() {
                       setConsents((c) => ({ ...c, [item]: e.target.checked }))
                     }
                   />
-                  <span className="text-sm text-text-primary">
-                    {item}
-                    <button
-                      type="button"
-                      className="ml-2 text-xs text-teal-600 underline"
-                    >
-                      查看詳情
-                    </button>
-                  </span>
+                  <span className="text-sm text-text-primary">{item}</span>
                 </label>
               ))}
             </div>
@@ -467,20 +534,24 @@ export default function ApplyWizardPage() {
             <div className="mx-auto flex size-16 items-center justify-center rounded-full bg-success-100 text-2xl text-success-600">
               ✓
             </div>
-            <h2 className="mt-4 text-xl font-bold text-navy-900">提交成功</h2>
+            <h2 className="mt-4 text-xl font-bold text-navy-900">已提交申請</h2>
             <p className="mt-2 text-sm text-text-secondary">
-              申請編號 SLF-2026-00499
+              申請編號 {applicationId}
             </p>
-            <p className="mt-1 text-xs text-text-muted">
-              2026-07-18 04:30 · 預計下一步：文件檢查
-            </p>
+            {submittedAt && (
+              <p className="mt-1 text-xs text-text-muted">提交時間 {submittedAt}</p>
+            )}
             <p className="mx-auto mt-4 max-w-sm text-sm leading-relaxed text-text-secondary">
-              請繼續填寫現有債務申報及資格聲明，系統其後會計算 EBITDA／DSCR
-              並核對十項政策。
+              我們已收到你的申請資料及必須文件。下一步為文件檢查與現金流初步分析；不會在此顯示最終批核結果。
             </p>
-            <Link href="/apply/documents" className="mt-6 block">
+            <Link href="/app/applications" className="mt-6 block">
               <Button fullWidth size="lg">
-                繼續：上載必須文件（BR／NAR1／月結單／身份）
+                返回我的申請
+              </Button>
+            </Link>
+            <Link href="/app" className="mt-2 block">
+              <Button fullWidth variant="outline">
+                返回主頁
               </Button>
             </Link>
           </div>
@@ -496,29 +567,22 @@ export default function ApplyWizardPage() {
               </Button>
             )}
             {step === 6 ? (
-              <Link
-                href="/apply/documents"
+              <Button
                 className="flex-1"
-                onClick={(e) => {
-                  if (consentItems.some((item) => !consents[item])) {
-                    e.preventDefault();
-                  }
-                }}
+                disabled={!allConsented}
+                onClick={submitApplication}
               >
-                <Button
-                  className="w-full"
-                  disabled={consentItems.some((item) => !consents[item])}
-                >
-                  下一步：上載必須文件
-                </Button>
-              </Link>
+                提交申請
+              </Button>
             ) : (
               <Button
                 className="flex-1"
-                disabled={step === 0 && !loanType}
+                disabled={
+                  (step === 0 && !loanType) || (step === 3 && !docsComplete)
+                }
                 onClick={next}
               >
-                下一步
+                {step === 3 && !docsComplete ? "請先完成必須文件" : "下一步"}
               </Button>
             )}
           </div>
