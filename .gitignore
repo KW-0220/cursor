@@ -40,3 +40,9 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# local customer registry (may contain PII)
+/data/customers.json
+/data/*.json
+!/data/.gitkeep
+

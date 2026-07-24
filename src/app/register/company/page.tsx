@@ -1,65 +1,195 @@
-import Link from "next/link";
+"use client";
+
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { MobileShell } from "@/components/app/mobile-shell";
 import { Button } from "@/components/ui/button";
 import { Field, Input, Select } from "@/components/ui/field";
-import { PageHeader, StateBanner } from "@/components/ui/layout";
+import {
+  PageHeader,
+  StateBanner,
+  Disclaimer,
+} from "@/components/ui/layout";
+
+const IDENTITY_KEY = "slf_register_identity";
+
+type IdentityDraft = {
+  applicantNameZh: string;
+  applicantNameEn: string;
+  idNumber: string;
+  phone: string;
+  email: string;
+  title: string;
+  relation: "董事" | "股東" | "獲授權代表" | "其他";
+};
 
 export default function CompanyPage() {
+  const router = useRouter();
+  const [identity, setIdentity] = useState<IdentityDraft | null>(null);
+  const [companyNameZh, setCompanyNameZh] = useState("智創科技有限公司");
+  const [companyNameEn, setCompanyNameEn] = useState(
+    "SmartCreate Technology Ltd.",
+  );
+  const [brNumber, setBrNumber] = useState("12345678");
+  const [crNumber, setCrNumber] = useState("7890123");
+  const [foundedAt, setFoundedAt] = useState("2018-03-12");
+  const [companyType, setCompanyType] = useState("有限公司");
+  const [industry, setIndustry] = useState("資訊科技服務");
+  const [address, setAddress] = useState(
+    "香港九龍觀塘成業街 27 號日昇中心 12 樓 A 室",
+  );
+  const [employees, setEmployees] = useState(28);
+  const [website, setWebsite] = useState("https://smartcreate.example");
+  const [contactPerson, setContactPerson] = useState("陳大文");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    try {
+      const raw = sessionStorage.getItem(IDENTITY_KEY);
+      if (raw) setIdentity(JSON.parse(raw) as IdentityDraft);
+    } catch {
+      setIdentity(null);
+    }
+  }, []);
+
+  async function submit() {
+    setSaving(true);
+    setError(null);
+    try {
+      const identityPayload =
+        identity ??
+        ({
+          applicantNameZh: contactPerson,
+          applicantNameEn: contactPerson,
+          idNumber: "UNKNOWN",
+          phone: "",
+          email: `unknown+${Date.now()}@example.com`,
+          title: "董事",
+          relation: "董事",
+        } satisfies IdentityDraft);
+
+      const res = await fetch("/api/admin/customers", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...identityPayload,
+          companyNameZh,
+          companyNameEn,
+          brNumber,
+          crNumber,
+          foundedAt,
+          companyType,
+          industry,
+          address,
+          employees,
+          website: website || null,
+          contactPerson,
+          source: "register",
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.message || data.error || "儲存失敗");
+      }
+      sessionStorage.removeItem(IDENTITY_KEY);
+      router.push("/app");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "儲存失敗");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   return (
     <MobileShell>
       <PageHeader
         title="公司基本資料"
-        subtitle="P05｜可 OCR 商業登記證"
+        subtitle="P05｜完成後寫入客戶資料庫"
         backHref="/register/identity"
       />
-      <main className="space-y-4 px-4 py-5">
+      <main className="space-y-4 px-4 py-5 pb-28">
         <StateBanner
           tone="info"
           title="可選：上載商業登記證"
           description="系統可自動填寫公司名稱、商業登記號碼及地址，再由你確認。"
         />
+        {!identity && (
+          <StateBanner
+            tone="warning"
+            title="未找到身份步驟資料"
+            description="建議返回身份確認頁重填；仍可繼續提交公司資料。"
+          />
+        )}
+        {error && (
+          <StateBanner tone="error" title="無法儲存" description={error} />
+        )}
+
         <Field label="公司中文名稱" required>
-          <Input defaultValue="智創科技有限公司" />
+          <Input
+            value={companyNameZh}
+            onChange={(e) => setCompanyNameZh(e.target.value)}
+          />
         </Field>
         <Field label="公司英文名稱" required>
-          <Input defaultValue="SmartCreate Technology Ltd." />
+          <Input
+            value={companyNameEn}
+            onChange={(e) => setCompanyNameEn(e.target.value)}
+          />
         </Field>
         <Field label="商業登記號碼" required>
-          <Input defaultValue="12345678" />
+          <Input value={brNumber} onChange={(e) => setBrNumber(e.target.value)} />
         </Field>
         <Field label="公司註冊編號" required>
-          <Input defaultValue="7890123" />
+          <Input value={crNumber} onChange={(e) => setCrNumber(e.target.value)} />
         </Field>
         <Field label="公司成立日期" required>
-          <Input type="date" defaultValue="2018-03-12" />
+          <Input
+            type="date"
+            value={foundedAt}
+            onChange={(e) => setFoundedAt(e.target.value)}
+          />
         </Field>
         <Field label="公司類型" required>
-          <Select defaultValue="有限公司">
+          <Select
+            value={companyType}
+            onChange={(e) => setCompanyType(e.target.value)}
+          >
             <option>有限公司</option>
             <option>獨資</option>
             <option>合夥</option>
           </Select>
         </Field>
         <Field label="業務性質" required>
-          <Input defaultValue="資訊科技服務" />
+          <Input value={industry} onChange={(e) => setIndustry(e.target.value)} />
         </Field>
         <Field label="主要營運地址" required>
-          <Input defaultValue="香港九龍觀塘成業街 27 號日昇中心 12 樓 A 室" />
+          <Input value={address} onChange={(e) => setAddress(e.target.value)} />
         </Field>
         <Field label="員工人數" required>
-          <Input type="number" defaultValue={28} />
+          <Input
+            type="number"
+            value={employees}
+            onChange={(e) => setEmployees(Number(e.target.value))}
+          />
         </Field>
         <Field label="公司網站" hint="選填">
-          <Input defaultValue="https://smartcreate.example" />
+          <Input value={website} onChange={(e) => setWebsite(e.target.value)} />
         </Field>
         <Field label="主要聯絡人" required>
-          <Input defaultValue="陳大文" />
+          <Input
+            value={contactPerson}
+            onChange={(e) => setContactPerson(e.target.value)}
+          />
         </Field>
-        <Link href="/app">
-          <Button fullWidth size="lg">
-            完成並進入首頁
-          </Button>
-        </Link>
+
+        <Disclaimer>
+          按「完成」會將申請人及公司資料儲存至後台客戶登記資料庫，並可供 Excel 下載。
+        </Disclaimer>
+
+        <Button fullWidth size="lg" disabled={saving} onClick={() => void submit()}>
+          {saving ? "儲存中…" : "完成並進入首頁"}
+        </Button>
       </main>
     </MobileShell>
   );

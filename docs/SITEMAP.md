@@ -51,6 +51,7 @@
 | Lead 預審轉介 | `/admin/leads/[id]` |
 | N09–N12 政策核對 | `/admin/policy/[id]` |
 | 現金流審批規則 | `/admin/cashflow-rules` |
+| **客戶登記資料庫** | `/admin/customers` · `GET/POST /api/admin/customers` · Excel `GET /api/admin/customers/export` |
 | P12–P14 AI 文件分析 | `/app/document-analysis` · `POST /api/analyze-document` |
 | 預審引擎 API | `GET/POST /api/prescreen/evaluate` |
 | 現金流引擎 API | `GET/POST /api/cashflow/evaluate` · `GET/PUT /api/cashflow/rules` |

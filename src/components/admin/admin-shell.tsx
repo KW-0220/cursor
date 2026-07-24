@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   Bot,
+  Database,
   FileSearch,
   LayoutDashboard,
   Settings2,
@@ -14,6 +15,7 @@ import { cn } from "@/lib/utils";
 
 const nav = [
   { href: "/admin", label: "案件總覽", icon: LayoutDashboard },
+  { href: "/admin/customers", label: "客戶登記資料庫", icon: Database },
   { href: "/admin/cases/SLF-2026-00482", label: "財務簡報示範", icon: FileSearch },
   { href: "/admin/leads/SLF-2026-00482", label: "Lead 預審轉介", icon: Bot },
   { href: "/admin/policy/SLF-2026-00482", label: "政策核對（十項）", icon: ClipboardList },
