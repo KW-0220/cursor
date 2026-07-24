@@ -43,6 +43,7 @@ next-env.d.ts
 
 # local customer registry (may contain PII)
 /data/customers.json
+/data/users.json
 /data/*.json
 !/data/.gitkeep
 

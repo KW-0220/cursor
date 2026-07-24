@@ -47,7 +47,10 @@ export default function CompanyPage() {
   useEffect(() => {
     try {
       const raw = sessionStorage.getItem(IDENTITY_KEY);
-      if (raw) setIdentity(JSON.parse(raw) as IdentityDraft);
+      if (!raw) return;
+      const draft = JSON.parse(raw) as IdentityDraft;
+      setIdentity(draft);
+      if (draft.applicantNameZh) setContactPerson(draft.applicantNameZh);
     } catch {
       setIdentity(null);
     }
@@ -90,7 +93,6 @@ export default function CompanyPage() {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        // 即使後台寫入失敗，仍允許進入 App（示範環境）；提示用戶
         console.warn("customer upsert failed", data);
         sessionStorage.setItem(
           "slf_register_warning",
@@ -99,8 +101,20 @@ export default function CompanyPage() {
       } else {
         sessionStorage.removeItem("slf_register_warning");
       }
+
+      // 標記帳戶資料已完成（若已登入）
+      await fetch("/api/auth/profile/complete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          nameZh: identityPayload.applicantNameZh,
+          phone: identityPayload.phone,
+        }),
+      }).catch(() => null);
+
       sessionStorage.removeItem(IDENTITY_KEY);
       router.push("/app");
+      router.refresh();
     } catch (e) {
       setError(e instanceof Error ? e.message : "儲存失敗");
     } finally {
