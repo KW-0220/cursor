@@ -406,7 +406,9 @@ export default function ApplyWizardPage() {
                 "抵押物／現有貸款",
                 loanType === "secured"
                   ? "寫字樓 · 估計淨值 HKD 5,600,000"
-                  : "現有銀行貸款 2 項",
+                  : hasExistingLoan
+                    ? "已申報現有銀行貸款"
+                    : "沒有現有銀行貸款",
               ],
               ["文件完成狀態", "78% · 有 1 項待確認"],
               [
