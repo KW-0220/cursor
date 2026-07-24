@@ -2,7 +2,10 @@
 
 import { useState } from "react";
 import type { EligibilityAnalysis } from "@/lib/eligibility";
-import type { FinancialExtract } from "@/lib/financial-extract";
+import {
+  formatStructuredExtractJson,
+  type FinancialExtract,
+} from "@/lib/financial-extract";
 import { Button } from "@/components/ui/button";
 import { Field, Input, Select, Textarea } from "@/components/ui/field";
 import {
@@ -206,18 +209,7 @@ export function DocumentAnalyzeForm({
                 ))}
               </dl>
               <pre className="mt-4 overflow-x-auto rounded-xl bg-navy-900 p-3 text-xs leading-relaxed text-teal-100">
-                {JSON.stringify(
-                  {
-                    company_name: extract.company_name,
-                    financial_year: extract.financial_year,
-                    revenue: extract.revenue,
-                    EBITDA: extract.EBITDA,
-                    net_profit: extract.net_profit,
-                    existing_debt: extract.existing_debt,
-                  },
-                  null,
-                  2,
-                )}
+                {formatStructuredExtractJson(extract)}
               </pre>
             </Card>
           )}

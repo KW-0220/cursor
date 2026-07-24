@@ -9,8 +9,13 @@ import {
   SectionHeader,
   StateBanner,
 } from "@/components/ui/layout";
-import { formatHKD } from "@/lib/utils";
 import type { FinancialExtract } from "@/lib/financial-extract";
+import {
+  formatStructuredExtractJson,
+  mergeFinancialExtracts,
+  toStructuredExtractJson,
+} from "@/lib/financial-extract";
+import { formatHKD } from "@/lib/utils";
 
 export type UploadedMeta = {
   name: string;
@@ -103,6 +108,33 @@ function formatBytes(n: number) {
 
 function money(n: number | null | undefined) {
   return n == null ? "—" : formatHKD(n);
+}
+
+function StructuredJsonBlock({
+  title,
+  extract,
+}: {
+  title?: string;
+  extract: FinancialExtract;
+}) {
+  const json = formatStructuredExtractJson(extract);
+  return (
+    <div className="space-y-2">
+      {title && (
+        <p className="text-xs font-medium text-text-muted">{title}</p>
+      )}
+      <pre className="overflow-x-auto rounded-xl bg-navy-900 p-3 text-xs leading-relaxed text-teal-100">
+        {json}
+      </pre>
+      <button
+        type="button"
+        className="text-xs text-teal-700 underline"
+        onClick={() => void navigator.clipboard?.writeText(json)}
+      >
+        複製 JSON
+      </button>
+    </div>
+  );
 }
 
 function FileRow({
@@ -285,7 +317,7 @@ export function ApplyDocumentsUpload({
       label,
       fileName: meta.name,
       ok: true,
-      extract: data.extract,
+      extract: toStructuredExtractJson(data.extract),
       model: data.model,
     };
   }
@@ -482,6 +514,21 @@ export function ApplyDocumentsUpload({
         )}
         {analyzeResults.length > 0 && (
           <div className="space-y-3">
+            {(() => {
+              const merged = mergeFinancialExtracts(
+                analyzeResults.filter((r) => r.ok).map((r) => r.extract),
+              );
+              return (
+                <Card>
+                  <SectionHeader
+                    title="申請結構化資料（JSON）"
+                    subtitle="AI 讀取後合併輸出 · 缺欄＝null"
+                  />
+                  <StructuredJsonBlock extract={merged} />
+                </Card>
+              );
+            })()}
+
             {analyzeResults.map((r) => (
               <Card key={`${r.label}-${r.fileName}`} className="bg-surface-2">
                 <p className="text-xs text-text-muted">{r.label}</p>
@@ -493,49 +540,55 @@ export function ApplyDocumentsUpload({
                     {r.message || "失敗"}
                   </p>
                 ) : r.extract ? (
-                  <dl className="mt-3 space-y-2 text-sm">
-                    <div className="flex justify-between gap-2">
-                      <dt className="text-text-secondary">公司</dt>
-                      <dd className="font-medium text-navy-900">
-                        {r.extract.company_name ?? "—"}
-                      </dd>
-                    </div>
-                    <div className="flex justify-between gap-2">
-                      <dt className="text-text-secondary">年度</dt>
-                      <dd className="font-medium">
-                        {r.extract.financial_year ?? "—"}
-                      </dd>
-                    </div>
-                    <div className="flex justify-between gap-2">
-                      <dt className="text-text-secondary">營業額</dt>
-                      <dd className="tabular font-medium">
-                        {money(r.extract.revenue)}
-                      </dd>
-                    </div>
-                    <div className="flex justify-between gap-2">
-                      <dt className="text-text-secondary">EBITDA</dt>
-                      <dd className="tabular font-medium">
-                        {money(r.extract.EBITDA)}
-                      </dd>
-                    </div>
-                    <div className="flex justify-between gap-2">
-                      <dt className="text-text-secondary">淨利潤</dt>
-                      <dd className="tabular font-medium">
-                        {money(r.extract.net_profit)}
-                      </dd>
-                    </div>
-                    <div className="flex justify-between gap-2">
-                      <dt className="text-text-secondary">現有債務</dt>
-                      <dd className="tabular font-medium">
-                        {money(r.extract.existing_debt)}
-                      </dd>
-                    </div>
-                    {r.model && (
-                      <p className="pt-1 text-xs text-text-muted">
-                        model：{r.model}
-                      </p>
-                    )}
-                  </dl>
+                  <div className="mt-3 space-y-3">
+                    <StructuredJsonBlock
+                      title="結構化輸出"
+                      extract={r.extract}
+                    />
+                    <dl className="space-y-2 text-sm">
+                      <div className="flex justify-between gap-2">
+                        <dt className="text-text-secondary">company_name</dt>
+                        <dd className="font-medium text-navy-900">
+                          {r.extract.company_name ?? "null"}
+                        </dd>
+                      </div>
+                      <div className="flex justify-between gap-2">
+                        <dt className="text-text-secondary">financial_year</dt>
+                        <dd className="font-medium">
+                          {r.extract.financial_year ?? "null"}
+                        </dd>
+                      </div>
+                      <div className="flex justify-between gap-2">
+                        <dt className="text-text-secondary">revenue</dt>
+                        <dd className="tabular font-medium">
+                          {money(r.extract.revenue)}
+                        </dd>
+                      </div>
+                      <div className="flex justify-between gap-2">
+                        <dt className="text-text-secondary">EBITDA</dt>
+                        <dd className="tabular font-medium">
+                          {money(r.extract.EBITDA)}
+                        </dd>
+                      </div>
+                      <div className="flex justify-between gap-2">
+                        <dt className="text-text-secondary">net_profit</dt>
+                        <dd className="tabular font-medium">
+                          {money(r.extract.net_profit)}
+                        </dd>
+                      </div>
+                      <div className="flex justify-between gap-2">
+                        <dt className="text-text-secondary">existing_debt</dt>
+                        <dd className="tabular font-medium">
+                          {money(r.extract.existing_debt)}
+                        </dd>
+                      </div>
+                      {r.model && (
+                        <p className="pt-1 text-xs text-text-muted">
+                          model：{r.model}
+                        </p>
+                      )}
+                    </dl>
+                  </div>
                 ) : (
                   <p className="mt-2 text-sm text-text-secondary">已完成讀取</p>
                 )}
@@ -543,7 +596,9 @@ export function ApplyDocumentsUpload({
             ))}
             <Disclaimer>
               AI
-              結果只供初步參考，不作貸款批核或利率承諾；最終由合作機構決定。
+              結果只供初步參考，不作貸款批核或利率承諾；最終由合作機構決定。輸出格式固定為
+              company_name / financial_year / revenue / EBITDA / net_profit /
+              existing_debt。
             </Disclaimer>
           </div>
         )}

@@ -6,6 +6,7 @@ import {
   FinancialExtractSchema,
   buildFinancialExtractUserText,
   financialExtractJsonSchema,
+  toStructuredExtractJson,
 } from "@/lib/financial-extract";
 import { getOpenAI, hasOpenAIKey } from "@/lib/openai";
 
@@ -163,7 +164,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const extract = parsed.data;
+    const extract = toStructuredExtractJson(parsed.data);
 
     // ?raw=1 → 只回指定 JSON
     if (rawOnly) {

@@ -95,3 +95,41 @@ export const FINANCIAL_EXTRACT_EXAMPLE: FinancialExtract = {
   net_profit: 420_000,
   existing_debt: 500_000,
 };
+
+/** 固定輸出順序／欄位（給 UI／下游） */
+export function toStructuredExtractJson(
+  extract: Partial<FinancialExtract> | null | undefined,
+): FinancialExtract {
+  return {
+    company_name: extract?.company_name ?? null,
+    financial_year: extract?.financial_year ?? null,
+    revenue: extract?.revenue ?? null,
+    EBITDA: extract?.EBITDA ?? null,
+    net_profit: extract?.net_profit ?? null,
+    existing_debt: extract?.existing_debt ?? null,
+  };
+}
+
+/** 多份文件抽取合併：後填不覆蓋已有非 null 值 */
+export function mergeFinancialExtracts(
+  list: Array<Partial<FinancialExtract> | null | undefined>,
+): FinancialExtract {
+  const out = toStructuredExtractJson(null);
+  for (const raw of list) {
+    if (!raw) continue;
+    const e = toStructuredExtractJson(raw);
+    (Object.keys(out) as (keyof FinancialExtract)[]).forEach((k) => {
+      if (out[k] == null && e[k] != null) {
+        (out as Record<string, unknown>)[k] = e[k];
+      }
+    });
+  }
+  return out;
+}
+
+export function formatStructuredExtractJson(
+  extract: Partial<FinancialExtract> | null | undefined,
+  space = 2,
+) {
+  return JSON.stringify(toStructuredExtractJson(extract), null, space);
+}
