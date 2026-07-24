@@ -1,8 +1,9 @@
 import "server-only";
+import { createHash } from "crypto";
 import { promises as fs } from "fs";
 import path from "path";
 import bcrypt from "bcryptjs";
-import { SignJWT, jwtVerify } from "jose";
+import { EncryptJWT, SignJWT, jwtDecrypt, jwtVerify } from "jose";
 import { z } from "zod";
 
 export const RegisterSchema = z.object({
@@ -33,6 +34,9 @@ export type PublicUser = Omit<AuthUser, "passwordHash">;
 const DATA_DIR = path.join(process.cwd(), "data");
 const DATA_FILE = path.join(DATA_DIR, "users.json");
 const COOKIE_NAME = "slf_session";
+/** 同瀏覽器備援：無 Redis 時仍可重新登入（EncryptJWT） */
+const VAULT_COOKIE = "slf_vault";
+const VAULT_MAX_USERS = 30;
 
 let memoryUsers: AuthUser[] | null = null;
 
@@ -42,6 +46,11 @@ function sessionSecret() {
     process.env.OPENAI_API_KEY?.trim()?.slice(0, 48) ||
     "sme-loanflow-dev-secret-change-me";
   return new TextEncoder().encode(secret);
+}
+
+/** A256GCM 需要剛好 32 bytes */
+function vaultKey() {
+  return createHash("sha256").update(sessionSecret()).digest();
 }
 
 function toPublic(u: AuthUser): PublicUser {
@@ -136,9 +145,15 @@ export async function findUserByEmail(email: string) {
   return users.find((u) => u.email.toLowerCase() === key) ?? null;
 }
 
-export async function registerUser(input: z.infer<typeof RegisterSchema>) {
+export async function registerUser(
+  input: z.infer<typeof RegisterSchema>,
+  vaultUsers?: AuthUser[],
+) {
   const email = input.email.trim().toLowerCase();
-  const existing = await findUserByEmail(email);
+  const existing =
+    (await findUserByEmail(email)) ||
+    vaultUsers?.find((u) => u.email.toLowerCase() === email) ||
+    null;
   if (existing) {
     throw new Error("EMAIL_EXISTS");
   }
@@ -159,12 +174,74 @@ export async function registerUser(input: z.infer<typeof RegisterSchema>) {
   return toPublic(user);
 }
 
-export async function verifyLogin(input: z.infer<typeof LoginSchema>) {
-  const user = await findUserByEmail(input.email);
+export async function verifyLogin(
+  input: z.infer<typeof LoginSchema>,
+  vaultUsers?: AuthUser[],
+) {
+  let user = await findUserByEmail(input.email);
+  if (!user && vaultUsers?.length) {
+    const key = input.email.trim().toLowerCase();
+    const fromVault = vaultUsers.find((u) => u.email.toLowerCase() === key);
+    if (fromVault) {
+      // 把 vault 用戶灌回 server store（同 instance / Redis）
+      const users = await loadUsers();
+      if (!users.some((u) => u.email.toLowerCase() === key)) {
+        users.push(fromVault);
+        await saveUsers(users);
+      }
+      user = fromVault;
+    }
+  }
   if (!user) throw new Error("INVALID_CREDENTIALS");
   const ok = await bcrypt.compare(input.password, user.passwordHash);
   if (!ok) throw new Error("INVALID_CREDENTIALS");
   return toPublic(user);
+}
+
+export async function upsertUserIntoStore(user: AuthUser) {
+  const users = await loadUsers();
+  const idx = users.findIndex((u) => u.id === user.id || u.email === user.email);
+  if (idx >= 0) users[idx] = user;
+  else users.push(user);
+  await saveUsers(users);
+  return toPublic(user);
+}
+
+export async function readVaultFromCookieHeader(
+  cookieHeader: string | null,
+): Promise<AuthUser[]> {
+  if (!cookieHeader) return [];
+  const match = cookieHeader
+    .split(";")
+    .map((p) => p.trim())
+    .find((p) => p.startsWith(`${VAULT_COOKIE}=`));
+  if (!match) return [];
+  const token = decodeURIComponent(match.slice(VAULT_COOKIE.length + 1));
+  try {
+    const { payload } = await jwtDecrypt(token, vaultKey());
+    const users = (payload.users as AuthUser[]) || [];
+    return Array.isArray(users) ? users : [];
+  } catch {
+    return [];
+  }
+}
+
+export async function mergeVaultCookie(
+  existingCookieHeader: string | null,
+  user: AuthUser,
+) {
+  const current = await readVaultFromCookieHeader(existingCookieHeader);
+  const next = [
+    user,
+    ...current.filter((u) => u.email.toLowerCase() !== user.email.toLowerCase()),
+  ].slice(0, VAULT_MAX_USERS);
+  const token = await new EncryptJWT({ users: next })
+    .setProtectedHeader({ alg: "dir", enc: "A256GCM" })
+    .setIssuedAt()
+    .setExpirationTime("365d")
+    .encrypt(vaultKey());
+  const secure = process.env.NODE_ENV === "production" ? "; Secure" : "";
+  return `${VAULT_COOKIE}=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${60 * 60 * 24 * 365}${secure}`;
 }
 
 export async function markProfileCompleted(userId: string) {
@@ -245,4 +322,9 @@ export function clearSessionCookie() {
   return `${COOKIE_NAME}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0${secure}`;
 }
 
-export { COOKIE_NAME };
+export function clearVaultCookie() {
+  const secure = process.env.NODE_ENV === "production" ? "; Secure" : "";
+  return `${VAULT_COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0${secure}`;
+}
+
+export { COOKIE_NAME, VAULT_COOKIE };

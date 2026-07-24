@@ -1,20 +1,34 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
   clearSessionCookie,
+  clearVaultCookie,
   getSessionFromCookieHeader,
   findUserByEmail,
+  readVaultFromCookieHeader,
+  upsertUserIntoStore,
 } from "@/lib/auth";
 
 export const runtime = "nodejs";
 
 export async function GET(req: NextRequest) {
-  const session = await getSessionFromCookieHeader(
-    req.headers.get("cookie"),
-  );
+  const cookie = req.headers.get("cookie");
+  const session = await getSessionFromCookieHeader(cookie);
   if (!session) {
     return NextResponse.json({ ok: false, user: null }, { status: 401 });
   }
-  const full = await findUserByEmail(session.email);
+
+  let full = await findUserByEmail(session.email);
+  if (!full) {
+    const vault = await readVaultFromCookieHeader(cookie);
+    const fromVault = vault.find(
+      (u) => u.email.toLowerCase() === session.email.toLowerCase(),
+    );
+    if (fromVault) {
+      await upsertUserIntoStore(fromVault);
+      full = fromVault;
+    }
+  }
+
   return NextResponse.json({
     ok: true,
     user: full
@@ -32,6 +46,7 @@ export async function GET(req: NextRequest) {
 
 export async function DELETE() {
   const res = NextResponse.json({ ok: true });
-  res.headers.set("Set-Cookie", clearSessionCookie());
+  res.headers.append("Set-Cookie", clearSessionCookie());
+  res.headers.append("Set-Cookie", clearVaultCookie());
   return res;
 }

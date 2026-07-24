@@ -14,7 +14,7 @@ export async function GET() {
     onVercel,
     warning:
       storage !== "redis" && onVercel
-        ? "正式環境尚未接 Redis／KV：帳戶可能在重啟後遺失。請在 Vercel 設定 UPSTASH_REDIS_REST_* 或 KV_REST_API_* 與 AUTH_SECRET。"
+        ? "尚未接 Redis／KV：同瀏覽器可註冊／登入（加密備援 cookie）；跨裝置或清 cookie 後建議設定 UPSTASH_REDIS_REST_* 與 AUTH_SECRET。"
         : null,
   });
 }
