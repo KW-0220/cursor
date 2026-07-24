@@ -39,7 +39,7 @@ export async function POST(req: NextRequest) {
         {
           error: "MISSING_OPENAI_API_KEY",
           message:
-            "OPENAI_API_KEY 必須放 Backend（.env.local），不可用 NEXT_PUBLIC_",
+            "OPENAI_API_KEY 必須放 Backend（.env.local 或 Vercel Environment Variables），不可用 NEXT_PUBLIC_",
         },
         { status: 503 },
       );
