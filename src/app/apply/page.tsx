@@ -43,6 +43,7 @@ export default function ApplyWizardPage() {
   const [loanType, setLoanType] = useState<LoanType | null>(null);
   const [amount, setAmount] = useState(1500000);
   const [purpose, setPurpose] = useState("營運資金");
+  const [hasExistingLoan, setHasExistingLoan] = useState(true);
   const [consents, setConsents] = useState<Record<string, boolean>>({});
 
   const progress = ((step + 1) / steps.length) * 100;
@@ -242,39 +243,46 @@ export default function ApplyWizardPage() {
           <>
             <SectionHeader title="現有貸款情況" subtitle="P10B｜可新增多項" />
             <Field label="現時是否有銀行貸款" required>
-              <Select defaultValue="是">
+              <Select
+                value={hasExistingLoan ? "是" : "否"}
+                onChange={(e) => setHasExistingLoan(e.target.value === "是")}
+              >
                 <option>是</option>
                 <option>否</option>
               </Select>
             </Field>
-            <Card>
-              <p className="text-sm font-semibold text-navy-900">貸款 #1</p>
-              <div className="mt-3 space-y-3">
-                <Field label="貸款機構" required>
-                  <Input defaultValue="香港某銀行" />
-                </Field>
-                <Field label="貸款類型" required>
-                  <Input defaultValue="營運貸款" />
-                </Field>
-                <div className="grid grid-cols-2 gap-3">
-                  <Field label="獲批額度">
-                    <Input type="number" defaultValue={1000000} />
-                  </Field>
-                  <Field label="未償還金額">
-                    <Input type="number" defaultValue={620000} />
-                  </Field>
-                </div>
-                <Field label="是否曾經逾期">
-                  <Select defaultValue="否">
-                    <option>否</option>
-                    <option>是</option>
-                  </Select>
-                </Field>
-              </div>
-            </Card>
-            <Button variant="outline" fullWidth>
-              ＋ 新增另一項現有貸款
-            </Button>
+            {hasExistingLoan && (
+              <>
+                <Card>
+                  <p className="text-sm font-semibold text-navy-900">貸款 #1</p>
+                  <div className="mt-3 space-y-3">
+                    <Field label="貸款機構" required>
+                      <Input defaultValue="香港某銀行" />
+                    </Field>
+                    <Field label="貸款類型" required>
+                      <Input defaultValue="營運貸款" />
+                    </Field>
+                    <div className="grid grid-cols-2 gap-3">
+                      <Field label="獲批額度">
+                        <Input type="number" defaultValue={1000000} />
+                      </Field>
+                      <Field label="未償還金額">
+                        <Input type="number" defaultValue={620000} />
+                      </Field>
+                    </div>
+                    <Field label="是否曾經逾期">
+                      <Select defaultValue="否">
+                        <option>否</option>
+                        <option>是</option>
+                      </Select>
+                    </Field>
+                  </div>
+                </Card>
+                <Button variant="outline" fullWidth>
+                  ＋ 新增另一項現有貸款
+                </Button>
+              </>
+            )}
           </>
         )}
 
