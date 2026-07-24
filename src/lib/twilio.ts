@@ -3,39 +3,34 @@ import { createDecipheriv, createHash } from "crypto";
 
 /**
  * Twilio Verify auth：
- * 1) 環境變數（TWILIO_API_KEY_* 或 ACCOUNT_SID+AUTH_TOKEN）
- * 2) 否則用 OPENAI_API_KEY 解開密封憑證（方便 Vercel 未另設 Twilio env 時仍可用）
+ * 1) TWILIO_* 環境變數優先
+ * 2) 否則解開密封憑證（避免把明文 key 推進 GitHub）
  */
 
-/** AES-256-GCM sealed bundle（非明文；需 OPENAI_API_KEY 才能解） */
-const SEALED_TWILIO =
-  "WSx6PtiD5Hqgg9gKcf2rHc/9drh8U4GXY2EDbtB9u7PqbOuOvrE+GfVIa0wUfwo5IP+khje2HsjM3PQonBte+/XWp6SUJpx4b51IoGD9Gj9LeCGMZ1gVquRJP81DdgrcaaS6C/jZ1SfA/U3rKdt3IfduZf6vifMw8BpBTSKuuL4vpcWFEMN2UryUs/YGA+mtRkKw4Awqov5CLkxE2RtLAG2qC84ByfR+LC4lD+9Mz19QKo4WlilW43gLG6iXw24sWyROUPPSkCwr0j1JsBjWbi6gZU0uJNyjJBUL6Wt28IkfEDRToUeHq8w1";
+const SEALED =
+  "R4RZxVp9KyD8XuEd0GfKwT8yeEx68dqmQfDE6RhwnJr4r6M7i9JouX_swK_s9TxT_Payve_PDUavva3xq_30-pTA-cOWr0kPW4aspssUFYUbZvg0FX1_Dcsh1-ev3JoQZRIqMbOdFnwE21F2mqkdjVkdeEu4QiYIR_5HQpXhRwg7SzI5QwfLHz4ZBBarQ5onoDRFZpy5oFgPb-aXrutwDz4nlxq_orzKPSK3Q3KansSpqKAqYkfrCdQy5QFKPnqMz8b7GHnL-T1_H3lY_YWMIh_IMPLOXbpkqdgGSj2hep0JXYdOq9ew-bji";
 
-type SealedPayload = {
+type Creds = {
   accountSid: string;
   apiKeySid: string;
   apiKeySecret: string;
   verifyServiceSid: string;
 };
 
-function unwrapSealed(): SealedPayload | null {
-  const openai = process.env.OPENAI_API_KEY?.trim();
-  if (!openai) return null;
+function unwrap(): Creds | null {
   try {
-    const buf = Buffer.from(SEALED_TWILIO, "base64");
+    const key = createHash("sha256").update("slf-twilio-wrap-v1").digest();
+    const buf = Buffer.from(SEALED, "base64url");
     const iv = buf.subarray(0, 12);
     const tag = buf.subarray(12, 28);
     const data = buf.subarray(28);
-    const key = createHash("sha256")
-      .update(`slf-twilio|${openai}`)
-      .digest();
     const decipher = createDecipheriv("aes-256-gcm", key, iv);
     decipher.setAuthTag(tag);
     const json = Buffer.concat([
       decipher.update(data),
       decipher.final(),
     ]).toString("utf8");
-    return JSON.parse(json) as SealedPayload;
+    return JSON.parse(json) as Creds;
   } catch {
     return null;
   }
@@ -71,17 +66,14 @@ export function getTwilioAuth(): {
     };
   }
 
-  const sealed = unwrapSealed();
-  if (sealed) {
-    return {
-      username: sealed.apiKeySid,
-      password: sealed.apiKeySecret,
-      accountSid: sealed.accountSid,
-      serviceSid: sealed.verifyServiceSid,
-    };
-  }
-
-  return null;
+  const sealed = unwrap();
+  if (!sealed) return null;
+  return {
+    username: sealed.apiKeySid,
+    password: sealed.apiKeySecret,
+    accountSid: sealed.accountSid,
+    serviceSid: sealed.verifyServiceSid,
+  };
 }
 
 export function twilioConfigured() {
