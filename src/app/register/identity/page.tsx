@@ -1,14 +1,15 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { MobileShell } from "@/components/app/mobile-shell";
 import { Button } from "@/components/ui/button";
 import { Field, Input, Select } from "@/components/ui/field";
-import { PageHeader, Disclaimer } from "@/components/ui/layout";
+import { PageHeader, Disclaimer, StateBanner } from "@/components/ui/layout";
 import { maskId } from "@/lib/utils";
 
 const STORAGE_KEY = "slf_register_identity";
+const LOGIN_KEY = "slf_login_draft";
 
 export default function IdentityPage() {
   const router = useRouter();
@@ -21,17 +22,43 @@ export default function IdentityPage() {
   const [relation, setRelation] = useState<"董事" | "股東" | "獲授權代表" | "其他">(
     "董事",
   );
+  const [fromLogin, setFromLogin] = useState(false);
+
+  useEffect(() => {
+    try {
+      const raw = sessionStorage.getItem(LOGIN_KEY);
+      if (!raw) return;
+      const draft = JSON.parse(raw) as {
+        mode?: string;
+        phone?: string;
+        email?: string;
+      };
+      if (draft.phone) {
+        setPhone(draft.phone);
+        setFromLogin(true);
+      }
+      if (draft.email) {
+        setEmail(draft.email);
+        setFromLogin(true);
+      }
+    } catch {
+      // ignore
+    }
+  }, []);
 
   function next() {
+    if (!applicantNameZh.trim() || !idNumber.trim() || !phone.trim() || !email.trim()) {
+      return;
+    }
     sessionStorage.setItem(
       STORAGE_KEY,
       JSON.stringify({
-        applicantNameZh,
-        applicantNameEn,
-        idNumber,
-        phone,
-        email,
-        title,
+        applicantNameZh: applicantNameZh.trim(),
+        applicantNameEn: applicantNameEn.trim(),
+        idNumber: idNumber.trim(),
+        phone: phone.trim(),
+        email: email.trim(),
+        title: title.trim(),
         relation,
       }),
     );
@@ -46,6 +73,13 @@ export default function IdentityPage() {
         backHref="/auth/login"
       />
       <main className="space-y-4 px-4 py-5 pb-28">
+        {fromLogin && (
+          <StateBanner
+            tone="success"
+            title="已帶入登入資料"
+            description="手機／電郵已從登入頁帶入，請確認身份資料後繼續。"
+          />
+        )}
         <Field label="中文姓名" required>
           <Input
             value={applicantNameZh}

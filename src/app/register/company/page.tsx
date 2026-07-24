@@ -88,9 +88,16 @@ export default function CompanyPage() {
           source: "register",
         }),
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        throw new Error(data.message || data.error || "儲存失敗");
+        // 即使後台寫入失敗，仍允許進入 App（示範環境）；提示用戶
+        console.warn("customer upsert failed", data);
+        sessionStorage.setItem(
+          "slf_register_warning",
+          data.message || data.error || "客戶資料暫未能寫入後台",
+        );
+      } else {
+        sessionStorage.removeItem("slf_register_warning");
       }
       sessionStorage.removeItem(IDENTITY_KEY);
       router.push("/app");
