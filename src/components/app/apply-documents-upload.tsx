@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
+import { Button } from "@/components/ui/button";
 import { Field, Input } from "@/components/ui/field";
 import {
   Card,
@@ -8,11 +9,14 @@ import {
   SectionHeader,
   StateBanner,
 } from "@/components/ui/layout";
+import { formatHKD } from "@/lib/utils";
+import type { FinancialExtract } from "@/lib/financial-extract";
 
 export type UploadedMeta = {
   name: string;
   size: number;
   type: string;
+  file: File;
 };
 
 export type ApplyDocsState = {
@@ -23,9 +27,18 @@ export type ApplyDocsState = {
   bank: Record<string, UploadedMeta | null>;
 };
 
+type AnalyzeItemResult = {
+  label: string;
+  fileName: string;
+  ok: boolean;
+  message?: string;
+  extract?: FinancialExtract;
+  model?: string;
+};
+
 export function lastSixBankMonths(now = new Date()): string[] {
   const d = new Date(now.getFullYear(), now.getMonth(), 1);
-  d.setMonth(d.getMonth() - 1); // 至上一個完整月份
+  d.setMonth(d.getMonth() - 1);
   const months: string[] = [];
   for (let i = 0; i < 6; i++) {
     const y = d.getFullYear();
@@ -67,13 +80,29 @@ export function applyDocsProgress(docs: ApplyDocsState, months: string[]) {
 }
 
 function toMeta(file: File): UploadedMeta {
-  return { name: file.name, size: file.size, type: file.type || "application/octet-stream" };
+  return {
+    name: file.name,
+    size: file.size,
+    type: file.type || "application/octet-stream",
+    file,
+  };
+}
+
+function isPdf(file: File) {
+  return (
+    file.type === "application/pdf" ||
+    file.name.toLowerCase().endsWith(".pdf")
+  );
 }
 
 function formatBytes(n: number) {
   if (n < 1024) return `${n} B`;
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
   return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function money(n: number | null | undefined) {
+  return n == null ? "—" : formatHKD(n);
 }
 
 function FileRow({
@@ -107,6 +136,7 @@ function SingleUpload({
   accept,
   value,
   onChange,
+  pdfOnly,
 }: {
   label: string;
   required?: boolean;
@@ -114,7 +144,9 @@ function SingleUpload({
   accept: string;
   value: UploadedMeta | null;
   onChange: (f: UploadedMeta | null) => void;
+  pdfOnly?: boolean;
 }) {
+  const [reject, setReject] = useState<string | null>(null);
   return (
     <Card>
       <Field label={label} required={required} hint={hint}>
@@ -123,12 +155,18 @@ function SingleUpload({
           accept={accept}
           onChange={(e) => {
             const f = e.target.files?.[0];
-            if (!f) return;
-            onChange(toMeta(f));
             e.target.value = "";
+            if (!f) return;
+            if (pdfOnly && !isPdf(f)) {
+              setReject("只接受 PDF 檔");
+              return;
+            }
+            setReject(null);
+            onChange(toMeta(f));
           }}
         />
       </Field>
+      {reject && <p className="mt-2 text-xs text-danger-600">{reject}</p>}
       {value ? (
         <FileRow file={value} onClear={() => onChange(null)} />
       ) : (
@@ -162,9 +200,9 @@ function MultiUpload({
           multiple
           onChange={(e) => {
             const list = Array.from(e.target.files ?? []);
+            e.target.value = "";
             if (!list.length) return;
             onChange([...values, ...list.map(toMeta)]);
-            e.target.value = "";
           }}
         />
       </Field>
@@ -173,7 +211,7 @@ function MultiUpload({
       ) : (
         values.map((f, i) => (
           <FileRow
-            key={`${f.name}-${i}`}
+            key={`${f.name}-${i}-${f.size}`}
             file={f}
             onClear={() => onChange(values.filter((_, idx) => idx !== i))}
           />
@@ -187,10 +225,18 @@ export function ApplyDocumentsUpload({
   months,
   docs,
   onChange,
+  loanType = "unsecured",
+  amountHkd = 1500000,
+  purpose = "營運資金",
+  companyName = "",
 }: {
   months: string[];
   docs: ApplyDocsState;
   onChange: (next: ApplyDocsState) => void;
+  loanType?: string;
+  amountHkd?: number;
+  purpose?: string;
+  companyName?: string;
 }) {
   const progress = useMemo(
     () => applyDocsProgress(docs, months),
@@ -198,16 +244,99 @@ export function ApplyDocumentsUpload({
   );
   const complete = isApplyDocsComplete(docs, months);
 
+  const [analyzing, setAnalyzing] = useState(false);
+  const [analyzeProgress, setAnalyzeProgress] = useState<string | null>(null);
+  const [analyzeError, setAnalyzeError] = useState<string | null>(null);
+  const [analyzeResults, setAnalyzeResults] = useState<AnalyzeItemResult[]>(
+    [],
+  );
+
+  async function analyzeOne(
+    label: string,
+    meta: UploadedMeta,
+  ): Promise<AnalyzeItemResult> {
+    const form = new FormData();
+    form.set("file", meta.file);
+    form.set("loanType", loanType);
+    form.set("amountHkd", String(amountHkd));
+    form.set("purpose", purpose);
+    if (companyName.trim()) form.set("companyName", companyName.trim());
+
+    const res = await fetch("/api/analyze-document", {
+      method: "POST",
+      body: form,
+    });
+    const data = (await res.json()) as {
+      ok?: boolean;
+      message?: string;
+      error?: string;
+      extract?: FinancialExtract;
+      model?: string;
+    };
+    if (!res.ok || !data.ok) {
+      return {
+        label,
+        fileName: meta.name,
+        ok: false,
+        message: data.message || data.error || "分析失敗",
+      };
+    }
+    return {
+      label,
+      fileName: meta.name,
+      ok: true,
+      extract: data.extract,
+      model: data.model,
+    };
+  }
+
+  async function runAiAnalyze() {
+    if (!complete) {
+      setAnalyzeError("請先完成必須文件（BR、NAR1、身份、6 份銀行月結單 PDF）");
+      return;
+    }
+    setAnalyzing(true);
+    setAnalyzeError(null);
+    setAnalyzeResults([]);
+
+    const queue: { label: string; meta: UploadedMeta }[] = [];
+    if (docs.br) queue.push({ label: "商業登記證 BR", meta: docs.br });
+    if (docs.nar1) queue.push({ label: "NAR1", meta: docs.nar1 });
+    // 身份證明仍須上載；AI 財務抽取以 BR／NAR1／銀行月結為主
+    months.forEach((m) => {
+      const meta = docs.bank[m];
+      if (meta) queue.push({ label: `銀行月結單 ${m}`, meta });
+    });
+
+    const results: AnalyzeItemResult[] = [];
+    try {
+      for (let i = 0; i < queue.length; i++) {
+        const item = queue[i];
+        setAnalyzeProgress(
+          `正在分析（${i + 1}／${queue.length}）：${item.label}`,
+        );
+        results.push(await analyzeOne(item.label, item.meta));
+        setAnalyzeResults([...results]);
+      }
+      setAnalyzeProgress(null);
+    } catch (e) {
+      setAnalyzeError(e instanceof Error ? e.message : "網絡錯誤");
+      setAnalyzeProgress(null);
+    } finally {
+      setAnalyzing(false);
+    }
+  }
+
   return (
     <div className="space-y-4">
       <SectionHeader
         title="上載必須文件"
-        subtitle="第一階段申請 · 全部於本頁提交"
+        subtitle="真實申請 · 全部於本頁提交"
       />
       <StateBanner
         tone="info"
         title="文件清單"
-        description="請上載：商業登記證 BR、NAR1、身份證明，以及最近六個月銀行月結單（必須 6 份 PDF）。"
+        description="請上載：① 公司及身份文件 ② 最近六個月銀行月結單（必須 6 份 PDF）③ NAR1 ④ 商業登記證 BR。"
       />
 
       <Card className="bg-surface-2">
@@ -260,19 +389,13 @@ export function ApplyDocumentsUpload({
                 accept="application/pdf,.pdf"
                 onChange={(e) => {
                   const f = e.target.files?.[0];
+                  e.target.value = "";
                   if (!f) return;
-                  if (
-                    f.type &&
-                    f.type !== "application/pdf" &&
-                    !f.name.toLowerCase().endsWith(".pdf")
-                  ) {
-                    return;
-                  }
+                  if (!isPdf(f)) return;
                   onChange({
                     ...docs,
                     bank: { ...docs.bank, [m]: toMeta(f) },
                   });
-                  e.target.value = "";
                 }}
               />
             </Field>
@@ -324,8 +447,110 @@ export function ApplyDocumentsUpload({
         />
       )}
 
+      <Card className="space-y-3">
+        <SectionHeader
+          title="AI 文件分析"
+          subtitle="讀取已上載檔案 · 抽取資料／預審，不直接批核"
+        />
+        <Button
+          fullWidth
+          size="lg"
+          type="button"
+          disabled={analyzing || !complete}
+          onClick={() => void runAiAnalyze()}
+        >
+          {analyzing ? "正在分析……" : "立即AI分析"}
+        </Button>
+        {!complete && (
+          <p className="text-xs text-text-muted">
+            齊備必須文件後即可執行 AI 分析。
+          </p>
+        )}
+        {analyzeProgress && (
+          <StateBanner
+            tone="info"
+            title="分析進行中"
+            description={analyzeProgress}
+          />
+        )}
+        {analyzeError && (
+          <StateBanner
+            tone="error"
+            title="無法完成分析"
+            description={analyzeError}
+          />
+        )}
+        {analyzeResults.length > 0 && (
+          <div className="space-y-3">
+            {analyzeResults.map((r) => (
+              <Card key={`${r.label}-${r.fileName}`} className="bg-surface-2">
+                <p className="text-xs text-text-muted">{r.label}</p>
+                <p className="mt-0.5 text-sm font-semibold text-navy-900">
+                  {r.fileName}
+                </p>
+                {!r.ok ? (
+                  <p className="mt-2 text-sm text-danger-600">
+                    {r.message || "失敗"}
+                  </p>
+                ) : r.extract ? (
+                  <dl className="mt-3 space-y-2 text-sm">
+                    <div className="flex justify-between gap-2">
+                      <dt className="text-text-secondary">公司</dt>
+                      <dd className="font-medium text-navy-900">
+                        {r.extract.company_name ?? "—"}
+                      </dd>
+                    </div>
+                    <div className="flex justify-between gap-2">
+                      <dt className="text-text-secondary">年度</dt>
+                      <dd className="font-medium">
+                        {r.extract.financial_year ?? "—"}
+                      </dd>
+                    </div>
+                    <div className="flex justify-between gap-2">
+                      <dt className="text-text-secondary">營業額</dt>
+                      <dd className="tabular font-medium">
+                        {money(r.extract.revenue)}
+                      </dd>
+                    </div>
+                    <div className="flex justify-between gap-2">
+                      <dt className="text-text-secondary">EBITDA</dt>
+                      <dd className="tabular font-medium">
+                        {money(r.extract.EBITDA)}
+                      </dd>
+                    </div>
+                    <div className="flex justify-between gap-2">
+                      <dt className="text-text-secondary">淨利潤</dt>
+                      <dd className="tabular font-medium">
+                        {money(r.extract.net_profit)}
+                      </dd>
+                    </div>
+                    <div className="flex justify-between gap-2">
+                      <dt className="text-text-secondary">現有債務</dt>
+                      <dd className="tabular font-medium">
+                        {money(r.extract.existing_debt)}
+                      </dd>
+                    </div>
+                    {r.model && (
+                      <p className="pt-1 text-xs text-text-muted">
+                        model：{r.model}
+                      </p>
+                    )}
+                  </dl>
+                ) : (
+                  <p className="mt-2 text-sm text-text-secondary">已完成讀取</p>
+                )}
+              </Card>
+            ))}
+            <Disclaimer>
+              AI
+              結果只供初步參考，不作貸款批核或利率承諾；最終由合作機構決定。
+            </Disclaimer>
+          </div>
+        )}
+      </Card>
+
       <Disclaimer>
-        上載檔案僅用於本申請之初步文件檢查及配對。不會在此頁顯示批核結果或保證利率。
+        上載檔案僅用於本申請之初步文件檢查及配對。本頁不顯示最終批核結果或保證利率。
       </Disclaimer>
     </div>
   );

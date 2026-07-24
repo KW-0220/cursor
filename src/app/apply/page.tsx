@@ -398,6 +398,9 @@ export default function ApplyWizardPage() {
             months={BANK_MONTHS}
             docs={docs}
             onChange={setDocs}
+            loanType={loanType ?? "unsecured"}
+            amountHkd={amount}
+            purpose={purpose}
           />
         )}
 
