@@ -45,11 +45,15 @@
 | P07 AI 需求分析 | `/app/ai` |
 | P08–P17 Apply | `/apply`（step 0–7） |
 | N01–N07 債務／聲明／初批 | `/apply/debts` → `declarations` → `confirm` → `analyzing` → `result` |
-| KYC／BR／NAR1／月結單預審 | `/apply/kyc-docs` → `company-docs` → `statements` → `prescreen` |
+| KYC／BR／NAR1／月結單預審 | `/apply/kyc-docs` → `company-docs` → `statements` → `prescreen`（舊流） |
+| **必須文件 hub（修正）** | `/apply/documents` → br / nar1 / bank-statements / identity / supplements / cross-check |
+| **銀行現金流分析** | `/apply/cashflow` |
 | Lead 預審轉介 | `/admin/leads/[id]` |
 | N09–N12 政策核對 | `/admin/policy/[id]` |
+| 現金流審批規則 | `/admin/cashflow-rules` |
 | P12–P14 AI 文件分析 | `/app/document-analysis` · `POST /api/analyze-document` |
 | 預審引擎 API | `GET/POST /api/prescreen/evaluate` |
+| 現金流引擎 API | `GET/POST /api/cashflow/evaluate` · `GET/PUT /api/cashflow/rules` |
 | 政策引擎 API | `GET/POST /api/policy/evaluate` |
 | 適合度 API | `GET/POST /api/suitability/evaluate` |
 | Chat（Backend OpenAI） | `POST /api/chat` |

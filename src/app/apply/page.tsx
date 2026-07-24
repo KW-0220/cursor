@@ -468,9 +468,9 @@ export default function ApplyWizardPage() {
               請繼續填寫現有債務申報及資格聲明，系統其後會計算 EBITDA／DSCR
               並核對十項政策。
             </p>
-            <Link href="/apply/debts" className="mt-6 block">
+            <Link href="/apply/documents" className="mt-6 block">
               <Button fullWidth size="lg">
-                繼續：債務申報及政策審批
+                繼續：上載必須文件（BR／NAR1／月結單／身份）
               </Button>
             </Link>
           </div>
@@ -487,7 +487,7 @@ export default function ApplyWizardPage() {
             )}
             {step === 6 ? (
               <Link
-                href="/apply/debts"
+                href="/apply/documents"
                 className="flex-1"
                 onClick={(e) => {
                   if (consentItems.some((item) => !consents[item])) {
@@ -499,7 +499,7 @@ export default function ApplyWizardPage() {
                   className="w-full"
                   disabled={consentItems.some((item) => !consents[item])}
                 >
-                  下一步：債務申報
+                  下一步：上載必須文件
                 </Button>
               </Link>
             ) : (

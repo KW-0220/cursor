@@ -9,7 +9,20 @@
 
 **正式網址：** https://sme-loanflow.vercel.app
 
-### AI 資料收集／預審流程
+### AI 資料收集／預審流程（第一階段修正）
+
+| 步驟 | URL |
+| --- | --- |
+| 必須文件 hub（BR／NAR1／6 個月 PDF／身份） | `/apply/documents` |
+| 交叉核對 | `/apply/documents/cross-check` |
+| 銀行現金流（ADB／進帳／異常） | `/apply/cashflow` |
+| 客戶端初步結果 | `/apply/result` |
+| 現金流審批規則（後台） | `/admin/cashflow-rules` |
+| 引擎 API | `GET/POST /api/cashflow/evaluate` |
+
+詳見 [`docs/PHASE1_CASHFLOW.md`](docs/PHASE1_CASHFLOW.md)。第一階段**不以三年 Audited Report 為必須**；EBITDA／Gearing 屬第二階段。
+
+### AI 資料收集／預審流程（舊示範頁仍保留）
 
 | 步驟 | URL |
 | --- | --- |
