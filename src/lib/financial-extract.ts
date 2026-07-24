@@ -43,10 +43,21 @@ export const financialExtractJsonSchema = {
   },
 } as const;
 
-export const FINANCIAL_EXTRACT_SYSTEM_PROMPT = `你是一個香港中小企貸款審批助手（文件分析引擎）。
+/** 對齊產品要求嘅 system prompt（再加 JSON schema 約束） */
+export const FINANCIAL_EXTRACT_SYSTEM_PROMPT = `你是一個香港中小企貸款審批助手。
 
-請分析財務文件，並「只以 JSON」輸出以下欄位（不要加其他文字）：
+請分析財務文件，抽取：
 
+1. 公司名稱（company_name）
+2. 財政年度（financial_year）
+3. Revenue（revenue）
+4. EBITDA（EBITDA）
+5. Net Profit（net_profit）
+6. Existing Debt（existing_debt）
+
+不要猜測不存在的資料。文件沒有的欄位必須填 null。
+
+只以 JSON 輸出（不要加其他文字）：
 {
   "company_name": string | null,
   "financial_year": string | null,
@@ -56,19 +67,8 @@ export const FINANCIAL_EXTRACT_SYSTEM_PROMPT = `你是一個香港中小企貸�
   "existing_debt": number | null
 }
 
-對應抽取：
-1. company_name — 公司名稱
-2. financial_year — 財政年度（例如 "2025"）
-3. revenue — Revenue（港元數字，不要貨幣符號）
-4. EBITDA
-5. net_profit — Net Profit
-6. existing_debt — Existing Debt（現有負債總額）
-
-硬性規則：
-- 必須輸出合法 JSON
-- 不要猜測不存在的資料；文件沒有就填 null
-- 金額為純數字（例如 6200000），不要字串、不要逗號
-- 不可承諾批核、不可寫「保證批出／拒絕」`;
+金額為純數字（例如 6200000），不要貨幣符號、不要逗號、不要字串。
+不可承諾批核，不可寫「保證批出／拒絕」。`;
 
 export function buildFinancialExtractUserText(input: {
   fileName?: string;
@@ -76,7 +76,7 @@ export function buildFinancialExtractUserText(input: {
   companyNameHint?: string;
 }) {
   const parts = [
-    "請分析這份財務報表，並以指定 JSON 格式輸出。",
+    "請分析這份財務報表",
     input.fileName ? `檔名：${input.fileName}` : null,
     input.companyNameHint ? `申請公司提示：${input.companyNameHint}` : null,
     input.pastedText

@@ -15,13 +15,9 @@ export const maxDuration = 60;
 
 const MAX_BYTES = 12 * 1024 * 1024;
 
-/** 本 route 預設 gpt-5；可用 OPENAI_MODEL / OPENAI_ANALYZE_MODEL 覆寫 */
+/** 文件分析預設 gpt-5（可用 OPENAI_ANALYZE_MODEL 覆寫） */
 function analyzeModel() {
-  return (
-    process.env.OPENAI_ANALYZE_MODEL?.trim() ||
-    process.env.OPENAI_MODEL?.trim() ||
-    "gpt-5"
-  );
+  return process.env.OPENAI_ANALYZE_MODEL?.trim() || "gpt-5";
 }
 
 /**
@@ -106,16 +102,16 @@ export async function POST(req: NextRequest) {
     const client = getOpenAI();
     const model = analyzeModel();
 
-    const userText = buildFinancialExtractUserText({
-      fileName,
-      pastedText: extractedText,
-      companyNameHint,
-    });
-
+    // 對齊：user content = text + 可選 image_url
     const userContent: Array<OpenAI.Chat.ChatCompletionContentPart> = [
       {
         type: "text",
-        text: userText || "請分析這份財務報表，並以指定 JSON 格式輸出。",
+        text:
+          buildFinancialExtractUserText({
+            fileName,
+            pastedText: extractedText,
+            companyNameHint,
+          }) || "請分析這份財務報表",
       },
     ];
 
@@ -126,6 +122,14 @@ export async function POST(req: NextRequest) {
       });
     }
 
+    /**
+     * import OpenAI from "openai"
+     * const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
+     * model: "gpt-5"
+     * system: 香港中小企貸款審批助手 + 6 欄抽取
+     * user: text + image_url
+     * + json_schema 強制結構化輸出
+     */
     const response = await client.chat.completions.create({
       model,
       messages: [
