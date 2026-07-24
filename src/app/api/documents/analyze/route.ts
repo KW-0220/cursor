@@ -7,5 +7,6 @@
  */
 export const runtime = "nodejs";
 export const maxDuration = 60;
+export const preferredRegion = ["sin1", "iad1"];
 
 export { POST } from "../../analyze-document/route";

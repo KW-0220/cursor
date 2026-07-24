@@ -7,8 +7,8 @@ import {
 import { getOpenAI, hasOpenAIKey, OPENAI_MODEL } from "@/lib/openai";
 
 export const runtime = "nodejs";
-
-const bodySchema = z.object({
+export const preferredRegion = ["sin1", "iad1"];
+export const maxDuration = 60;
   message: z.string().min(1).optional(),
   messages: z
     .array(
