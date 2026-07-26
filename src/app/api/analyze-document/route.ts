@@ -107,21 +107,6 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const url = new URL(req.url);
-    const extractOnly = url.searchParams.get("extractOnly") === "1";
-    if (extractOnly) {
-      return NextResponse.json({
-        ok: true,
-        extractOnly: true,
-        fileName,
-        mimeType,
-        extractMethod,
-        textLength: extractedText.length,
-        textPreview: extractedText.slice(0, 2000),
-        hasImage: Boolean(imageUrl),
-      });
-    }
-
     const model = analyzeModel();
     // 切斷與 PDF parser 的引用，避免異常物件進入 prompt
     const plainText = extractedText ? String(extractedText) : "";
@@ -133,49 +118,6 @@ export async function POST(req: NextRequest) {
         pastedText: plainText,
         companyNameHint,
       }) || "請分析這份財務報表";
-
-    // 除錯：確認 PDF 抽字後 Manus 用真實 prompt 能否完成
-    if (url.searchParams.get("traceManus") === "1") {
-      const mode = url.searchParams.get("mode") || "ping";
-      const t0 = Date.now();
-      try {
-        const ping = await manusRespond({
-          system:
-            mode === "full"
-              ? FINANCIAL_EXTRACT_SYSTEM_PROMPT
-              : '只回 JSON：{"company_name":"X","financial_year":null,"revenue":null,"EBITDA":null,"net_profit":null,"existing_debt":null}',
-          userText:
-            mode === "full"
-              ? userText
-              : `ping after ${extractMethod}; textLen=${plainText.length}; file=${manusFileName}`,
-          maxWaitMs: 45_000,
-          pollMs: 1500,
-        });
-        return NextResponse.json({
-          ok: true,
-          traceManus: true,
-          mode,
-          extractMethod,
-          manusFileName,
-          userTextPreview: userText.slice(0, 500),
-          ms: Date.now() - t0,
-          taskId: ping.id,
-          status: ping.status,
-          text: ping.text.slice(0, 500),
-        });
-      } catch (e) {
-        return NextResponse.json({
-          ok: false,
-          traceManus: true,
-          mode,
-          extractMethod,
-          manusFileName,
-          userTextPreview: userText.slice(0, 500),
-          ms: Date.now() - t0,
-          error: e instanceof Error ? e.message : "UNKNOWN",
-        });
-      }
-    }
 
     /**
      * Manus Responses API（OpenAI SDK compatible）
