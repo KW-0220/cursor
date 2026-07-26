@@ -175,28 +175,39 @@ export function buildExtractHint(input: {
   extract: FinancialExtract;
   textLength: number;
   textPreview: string;
+  extractMethod?: string;
 }): string | null {
-  const { docKind, extract, textLength, textPreview } = input;
+  const { docKind, extract, textLength, textPreview, extractMethod } = input;
   const hasFinance =
     extract.revenue != null ||
     extract.EBITDA != null ||
     extract.net_profit != null ||
     extract.existing_debt != null;
+  const usedVision =
+    extractMethod === "pdf_vision" || extractMethod === "image";
 
   if (docKind === "br") {
     if (extract.company_name && !hasFinance) {
-      return "PDF 已讀到。BR 通常只有公司名，不會有 revenue／EBITDA／純利；財務數字要睇銀行月結或審計報告。";
+      return "已讀到 BR。通常只有公司名，不會有 revenue／EBITDA／純利；財務數字要睇銀行月結或審計報告。";
+    }
+    if (!extract.company_name && usedVision) {
+      return "已用頁面影像辨識，但仍未見到清晰公司名。請改上更清楚�辨識，但仍未見到清晰公司名。請改上更清楚嘅 JPG／PNG（成張證、唔好反光）。";
     }
   }
 
-  if (docKind === "nar1" && extract.company_name && !hasFinance) {
-    return "PDF 已讀到。NAR1 多數無損益表數字；revenue／EBITDA 請靠銀行月結或財務報表。";
+  if (docKind === "nar1") {
+    if (extract.company_name && !hasFinance) {
+      return "已讀到 NAR1。多數無損益表數字；revenue／EBITDA 請靠銀行月結或財務報表。";
+    }
+    if (!extract.company_name && usedVision) {
+      return "已用頁面影像辨識 NAR1，但仍未抽出公司名。請上完整頁（唔好只封面）或改 JPG／PNG。";
+    }
   }
 
-  if (!hasFinance && textLength > 0) {
+  if (!hasFinance && textLength > 0 && !usedVision) {
     const hasDigit = /\d{3,}/.test(textPreview);
     if (!hasDigit) {
-      return "PDF 有文字層但幾乎沒有金額數字（可能係封面／掃描影像）。請改上可搜尋文字版 PDF，或清晰整頁照片。";
+      return "PDF 有文字層但幾乎沒有金額數字（可能係封面／掃描影像）。系統會嘗試轉圖；若仍失敗請上清晰整頁照片。";
     }
     if (docKind === "bank") {
       return "已讀取月結文字，但未能定位「存入合計／Total credits」。請確認係完整交易月結（非只封面）。";

@@ -183,6 +183,7 @@ export async function POST(req: NextRequest) {
       extract,
       textLength: plainText.length,
       textPreview,
+      extractMethod,
     });
 
     if (rawOnly) {
