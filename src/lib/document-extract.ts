@@ -1,6 +1,6 @@
 /**
  * Server-side document text extraction.
- * pdf-parse@2 + pdfjs 在 Node 需要 DOMMatrix 等 polyfill。
+ * pdf-parse@2 + pdfjs 在 Node/Vercel 需要 worker + DOM polyfill。
  */
 
 function ensurePdfDomPolyfills() {
@@ -68,6 +68,56 @@ function ensurePdfDomPolyfills() {
   }
 }
 
+async function extractPdfText(buffer: Buffer): Promise<string> {
+  ensurePdfDomPolyfills();
+
+  // 必須先載入 worker（設定 workerSrc + CanvasFactory），再載入 pdf-parse
+  // 否則 Vercel 會找 pdfjs-dist/legacy/build/pdf.worker.mjs 失敗
+  const worker = await import("pdf-parse/worker");
+  const { PDFParse } = await import("pdf-parse");
+
+  type PdfParser = {
+    getText: () => Promise<{ text?: string; total?: number; pages?: unknown[] }>;
+    destroy?: () => Promise<void>;
+  };
+
+  type PdfParseCtor = {
+    new (opts: {
+      data: Uint8Array;
+      CanvasFactory?: unknown;
+    }): PdfParser;
+    setWorker?: (src?: string) => string;
+  };
+
+  const Ctor = PDFParse as unknown as PdfParseCtor;
+  if (typeof Ctor !== "function") {
+    throw new Error("PDF_PARSER_UNAVAILABLE");
+  }
+
+  try {
+    Ctor.setWorker?.(worker.getPath());
+  } catch {
+    // serverless 路徑解析失敗時改用 inline worker data
+    Ctor.setWorker?.(worker.getData());
+  }
+
+  const parser = new Ctor({
+    data: new Uint8Array(buffer),
+    CanvasFactory: worker.CanvasFactory,
+  });
+
+  try {
+    const parsed = await parser.getText();
+    const text = (parsed.text || "").trim();
+    if (!text) {
+      throw new Error("PDF_EMPTY_TEXT");
+    }
+    return `（PDF 共 ${parsed.total ?? parsed.pages?.length ?? "?"} 頁）\n\n${text}`;
+  } finally {
+    await parser.destroy?.().catch(() => undefined);
+  }
+}
+
 export async function extractDocumentText(params: {
   buffer: Buffer;
   fileName: string;
@@ -77,30 +127,8 @@ export async function extractDocumentText(params: {
   const lower = fileName.toLowerCase();
 
   if (mimeType === "application/pdf" || lower.endsWith(".pdf")) {
-    ensurePdfDomPolyfills();
-    const mod = await import("pdf-parse");
-    const PDFParse = (
-      mod as unknown as {
-        PDFParse: new (opts: { data: Buffer | Uint8Array }) => {
-          getText: () => Promise<{ text?: string; total?: number; pages?: unknown[] }>;
-        };
-      }
-    ).PDFParse;
-
-    if (typeof PDFParse !== "function") {
-      throw new Error("PDF_PARSER_UNAVAILABLE");
-    }
-
-    const parser = new PDFParse({ data: buffer });
-    const parsed = await parser.getText();
-    const text = (parsed.text || "").trim();
-    if (!text) {
-      throw new Error("PDF_EMPTY_TEXT");
-    }
-    return {
-      text: `（PDF 共 ${parsed.total ?? parsed.pages?.length ?? "?"} 頁）\n\n${text}`,
-      method: "pdf",
-    };
+    const text = await extractPdfText(buffer);
+    return { text, method: "pdf" };
   }
 
   if (
