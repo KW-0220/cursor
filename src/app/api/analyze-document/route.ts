@@ -1,9 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { extractDocumentText } from "@/lib/document-extract";
 import {
-  FINANCIAL_EXTRACT_SYSTEM_PROMPT,
   FinancialExtractSchema,
+  buildExtractHint,
+  buildExtractSystemPrompt,
   buildFinancialExtractUserText,
+  normalizeDocKind,
   toStructuredExtractJson,
 } from "@/lib/financial-extract";
 import {
@@ -60,6 +62,7 @@ export async function POST(req: NextRequest) {
     const pastedText = String(formData.get("text") ?? "").trim();
     const companyNameHint =
       String(formData.get("companyName") ?? "").trim() || undefined;
+    const docKind = normalizeDocKind(formData.get("docKind") ?? formData.get("kind"));
 
     let fileName = "pasted-text.txt";
     let mimeType = "text/plain";
@@ -112,12 +115,14 @@ export async function POST(req: NextRequest) {
     const plainText = extractedText ? String(extractedText) : "";
     // 對 Manus 隱藏 .pdf 副檔名，避免 agent 試圖「下載／開啟檔案」而拖死
     const manusFileName = fileName.replace(/\.pdf$/i, ".txt");
+    const textPreview = plainText.slice(0, 1200);
     const userText =
       buildFinancialExtractUserText({
         fileName: manusFileName,
         pastedText: plainText,
         companyNameHint,
-      }) || "請分析這份財務報表";
+        docKind,
+      }) || "請分析這份財務文件";
 
     /**
      * Manus Responses API（OpenAI SDK compatible）
@@ -125,7 +130,7 @@ export async function POST(req: NextRequest) {
      * header: API_KEY
      */
     const manus = await manusRespond({
-      system: FINANCIAL_EXTRACT_SYSTEM_PROMPT,
+      system: buildExtractSystemPrompt(docKind),
       userText,
       imageUrl,
       maxWaitMs: 50_000,
@@ -159,6 +164,12 @@ export async function POST(req: NextRequest) {
     }
 
     const extract = toStructuredExtractJson(parsed.data);
+    const extractHint = buildExtractHint({
+      docKind,
+      extract,
+      textLength: plainText.length,
+      textPreview,
+    });
 
     if (rawOnly) {
       return NextResponse.json(extract);
@@ -239,7 +250,11 @@ export async function POST(req: NextRequest) {
       taskId: manus.id,
       fileName,
       mimeType,
+      docKind,
       extractMethod,
+      textLength: plainText.length,
+      textPreview,
+      extractHint,
       extract,
       company_name: extract.company_name,
       financial_year: extract.financial_year,

@@ -39,6 +39,9 @@ type AnalyzeItemResult = {
   message?: string;
   extract?: FinancialExtract;
   model?: string;
+  docKind?: string;
+  extractHint?: string | null;
+  textPreview?: string;
 };
 
 export function lastSixBankMonths(now = new Date()): string[] {
@@ -286,9 +289,11 @@ export function ApplyDocumentsUpload({
   async function analyzeOne(
     label: string,
     meta: UploadedMeta,
+    docKind: "br" | "nar1" | "bank",
   ): Promise<AnalyzeItemResult> {
     const form = new FormData();
     form.set("file", meta.file);
+    form.set("docKind", docKind);
     form.set("loanType", loanType);
     form.set("amountHkd", String(amountHkd));
     form.set("purpose", purpose);
@@ -305,6 +310,9 @@ export function ApplyDocumentsUpload({
       detail?: string;
       extract?: FinancialExtract;
       model?: string;
+      docKind?: string;
+      extractHint?: string | null;
+      textPreview?: string;
     };
     if (!res.ok || !data.ok) {
       const detail =
@@ -324,6 +332,9 @@ export function ApplyDocumentsUpload({
       ok: true,
       extract: toStructuredExtractJson(data.extract),
       model: data.model,
+      docKind: data.docKind,
+      extractHint: data.extractHint,
+      textPreview: data.textPreview,
     };
   }
 
@@ -336,14 +347,24 @@ export function ApplyDocumentsUpload({
     setAnalyzeError(null);
     setAnalyzeResults([]);
 
-    const queue: { label: string; meta: UploadedMeta }[] = [];
-    if (docs.br) queue.push({ label: "商業登記證 BR", meta: docs.br });
-    if (docs.nar1) queue.push({ label: "NAR1", meta: docs.nar1 });
-    // 身份證明仍須上載；AI 財務抽取以 BR／NAR1／銀行月結為主
+    // 銀行月結先抽（先有現金流），BR／NAR1 主要補公司名
+    const queue: {
+      label: string;
+      meta: UploadedMeta;
+      docKind: "br" | "nar1" | "bank";
+    }[] = [];
     months.forEach((m) => {
       const meta = docs.bank[m];
-      if (meta) queue.push({ label: `銀行月結單 ${m}`, meta });
+      if (meta) {
+        queue.push({ label: `銀行月結單 ${m}`, meta, docKind: "bank" });
+      }
     });
+    if (docs.nar1) {
+      queue.push({ label: "NAR1", meta: docs.nar1, docKind: "nar1" });
+    }
+    if (docs.br) {
+      queue.push({ label: "商業登記證 BR", meta: docs.br, docKind: "br" });
+    }
 
     const results: AnalyzeItemResult[] = [];
     try {
@@ -352,7 +373,7 @@ export function ApplyDocumentsUpload({
         setAnalyzeProgress(
           `正在分析（${i + 1}／${queue.length}）：${item.label}`,
         );
-        results.push(await analyzeOne(item.label, item.meta));
+        results.push(await analyzeOne(item.label, item.meta, item.docKind));
         setAnalyzeResults([...results]);
       }
       setAnalyzeProgress(null);
@@ -489,6 +510,11 @@ export function ApplyDocumentsUpload({
           title="AI 文件分析"
           subtitle="讀取已上載檔案 · 抽取資料／預審，不直接批核"
         />
+        <StateBanner
+          tone="info"
+          title="欄位期望"
+          description="BR／NAR1 通常只有公司名（revenue 等為 null 屬正常）。營業額／流入主要來自 6 份銀行月結；EBITDA／純利需要審計或管理帳，本清單未必有。"
+        />
         <Button
           fullWidth
           size="lg"
@@ -546,6 +572,11 @@ export function ApplyDocumentsUpload({
                   </p>
                 ) : r.extract ? (
                   <div className="mt-3 space-y-3">
+                    {r.extractHint && (
+                      <p className="rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                        {r.extractHint}
+                      </p>
+                    )}
                     <StructuredJsonBlock
                       title="結構化輸出"
                       extract={r.extract}
@@ -587,9 +618,20 @@ export function ApplyDocumentsUpload({
                           {money(r.extract.existing_debt)}
                         </dd>
                       </div>
+                      {r.textPreview && (
+                        <details className="pt-1">
+                          <summary className="cursor-pointer text-xs text-text-muted">
+                            已讀取文字預覽
+                          </summary>
+                          <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap rounded bg-white/70 p-2 text-[11px] text-text-secondary">
+                            {r.textPreview}
+                          </pre>
+                        </details>
+                      )}
                       {r.model && (
                         <p className="pt-1 text-xs text-text-muted">
                           model：{r.model}
+                          {r.docKind ? ` · kind：${r.docKind}` : ""}
                         </p>
                       )}
                     </dl>
@@ -601,9 +643,9 @@ export function ApplyDocumentsUpload({
             ))}
             <Disclaimer>
               AI
-              結果只供初步參考，不作貸款批核或利率承諾；最終由合作機構決定。輸出格式固定為
-              company_name / financial_year / revenue / EBITDA / net_profit /
-              existing_debt。
+              結果只供初步參考，不作貸款批核或利率承諾；最終由合作機構決定。null
+              ≠
+              讀取失敗：BR／NAR1 本來就多數無財務數字；合併 JSON 會加總各月銀行「存入合計」。
             </Disclaimer>
           </div>
         )}
