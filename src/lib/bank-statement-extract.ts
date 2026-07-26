@@ -3,96 +3,128 @@ import type { FinancialExtract } from "./financial-extract";
 
 /**
  * 單月銀行月結 AI 抽取 — 對應申請頁 6 大現金流資訊
+ * Schema 刻意寬鬆：Manus 常回字串數字／缺陣列。
  */
 
-const CreditSourceSchema = z.object({
-  source: z.string(),
-  total_hkd: z.number().nullable(),
-  count: z.number().nullable(),
-  frequency: z.string().nullable(),
-});
+const looseNum = z
+  .union([z.number(), z.string(), z.null(), z.undefined()])
+  .transform((v): number | null => {
+    if (v == null || v === "") return null;
+    if (typeof v === "number") return Number.isFinite(v) ? v : null;
+    const n = Number(String(v).replace(/[,$\s]|HKD|hkd/gi, ""));
+    return Number.isFinite(n) ? n : null;
+  });
 
-const AnomalySchema = z.object({
-  kind: z.string().nullable(),
-  date: z.string().nullable(),
-  description: z.string(),
-  amount_hkd: z.number().nullable(),
-});
+const looseStr = z
+  .union([z.string(), z.number(), z.null(), z.undefined()])
+  .transform((v): string | null => {
+    if (v == null || v === "") return null;
+    return String(v);
+  });
 
-const DailyBalanceSchema = z.object({
-  date: z.string(),
-  balance_hkd: z.number(),
-});
+const CreditSourceSchema = z
+  .object({
+    source: looseStr.transform((s) => s ?? "未分類"),
+    total_hkd: looseNum,
+    count: looseNum,
+    frequency: looseStr,
+  })
+  .passthrough();
 
-export const BankStatementExtractSchema = z.object({
-  month: z
-    .union([z.string(), z.number()])
-    .nullable()
-    .transform((v) => (v == null ? null : String(v))),
-  bank_name: z.string().nullable(),
-  account_holder: z.string().nullable(),
-  account_last4: z.string().nullable(),
-  opening_balance: z.number().nullable(),
-  closing_balance: z.number().nullable(),
-  average_daily_balance: z.number().nullable(),
-  min_daily_balance: z.number().nullable(),
-  total_credits: z.number().nullable(),
-  total_debits: z.number().nullable(),
-  operating_credits: z.number().nullable(),
-  credit_count: z.number().nullable(),
-  credit_days: z.number().nullable(),
-  net_cashflow: z.number().nullable(),
-  credit_sources: z.array(CreditSourceSchema).default([]),
-  anomalies: z.array(AnomalySchema).default([]),
-  daily_balances: z.array(DailyBalanceSchema).default([]),
-  cashflow_summary: z.string().nullable(),
-  repayment_capacity: z
-    .object({
-      assessment: z.string().nullable(),
-      notes: z.string().nullable(),
-    })
-    .nullable()
-    .optional(),
-});
+const AnomalySchema = z
+  .object({
+    kind: looseStr,
+    date: looseStr,
+    description: looseStr.transform((s) => s ?? ""),
+    amount_hkd: looseNum,
+  })
+  .passthrough();
+
+const DailyBalanceSchema = z
+  .object({
+    date: looseStr.transform((s) => s ?? ""),
+    balance_hkd: looseNum.transform((n) => n ?? 0),
+  })
+  .passthrough();
+
+function looseArray<T extends z.ZodTypeAny>(item: T) {
+  return z
+    .union([z.array(item), z.null(), z.undefined()])
+    .transform((v) => (Array.isArray(v) ? v : []));
+}
+
+export const BankStatementExtractSchema = z
+  .object({
+    month: looseStr,
+    bank_name: looseStr,
+    account_holder: looseStr,
+    account_last4: looseStr,
+    opening_balance: looseNum,
+    closing_balance: looseNum,
+    average_daily_balance: looseNum,
+    min_daily_balance: looseNum,
+    total_credits: looseNum,
+    total_debits: looseNum,
+    operating_credits: looseNum,
+    credit_count: looseNum,
+    credit_days: looseNum,
+    net_cashflow: looseNum,
+    credit_sources: looseArray(CreditSourceSchema),
+    anomalies: looseArray(AnomalySchema),
+    daily_balances: looseArray(DailyBalanceSchema),
+    cashflow_summary: looseStr,
+    repayment_capacity: z
+      .union([
+        z
+          .object({
+            assessment: looseStr,
+            notes: looseStr,
+          })
+          .passthrough(),
+        z.null(),
+        z.undefined(),
+      ])
+      .transform((v) => v ?? null),
+  })
+  .passthrough();
 
 export type BankStatementExtract = z.infer<typeof BankStatementExtractSchema>;
 
 export const BANK_STATEMENT_SYSTEM_PROMPT = `你是香港中小企貸款預審助手，專門閱讀銀行月結單。
 
-請從本月月結單抽取現金流資訊（只根據提供文字／影像，禁止上網）。
+只根據提供文字／影像抽取，禁止上網。立刻只回 JSON（不要 markdown 以外文字）。
 
-必須輸出 JSON（不要其他文字）：
+JSON 欄位（金額用純數字）：
 {
-  "month": "YYYY-MM" | null,
-  "bank_name": string | null,
-  "account_holder": string | null,
-  "account_last4": string | null,
-  "opening_balance": number | null,
-  "closing_balance": number | null,
-  "average_daily_balance": number | null,
-  "min_daily_balance": number | null,
-  "total_credits": number | null,
-  "total_debits": number | null,
-  "operating_credits": number | null,
-  "credit_count": number | null,
-  "credit_days": number | null,
-  "net_cashflow": number | null,
-  "credit_sources": [{"source": string, "total_hkd": number|null, "count": number|null, "frequency": string|null}],
-  "anomalies": [{"kind": string|null, "date": string|null, "description": string, "amount_hkd": number|null}],
-  "daily_balances": [{"date": "YYYY-MM-DD", "balance_hkd": number}],
-  "cashflow_summary": string | null,
-  "repayment_capacity": {"assessment": "adequate"|"tight"|"weak"|"unknown", "notes": string|null} | null
+  "month": "YYYY-MM",
+  "bank_name": string|null,
+  "account_holder": string|null,
+  "account_last4": string|null,
+  "opening_balance": number|null,
+  "closing_balance": number|null,
+  "average_daily_balance": number|null,
+  "min_daily_balance": number|null,
+  "total_credits": number|null,
+  "total_debits": number|null,
+  "operating_credits": number|null,
+  "credit_count": number|null,
+  "credit_days": number|null,
+  "net_cashflow": number|null,
+  "credit_sources": [{"source":string,"total_hkd":number|null,"count":number|null,"frequency":string|null}],
+  "anomalies": [{"kind":string|null,"date":string|null,"description":string,"amount_hkd":number|null}],
+  "daily_balances": [],
+  "cashflow_summary": string|null,
+  "repayment_capacity": {"assessment":"adequate"|"tight"|"weak"|"unknown","notes":string|null}
 }
 
-抽取指引：
-1. 公司現金流：total_credits / total_debits / net_cashflow（存入−支出；找不到就 null）+ cashflow_summary（1–2 句繁中）
-2. 每月及每日戶口結餘：opening／closing；若月結有每日結餘或可重建，填 daily_balances（最多 31 筆）及 average_daily_balance／min_daily_balance；無法計就 null
-3. 營業進帳：operating_credits＝估計營業相關存入（排除股東注資、貸款、明顯轉帳）；total_credits＝全部存入
-4. 進帳頻率及來源：credit_sources 列主要對手／來源（最多 8 個），frequency 例如「每週」「不定期」「本月3次」；credit_count／credit_days
-5. 戶口異常：退票、自動轉帳失敗、透支、扣款失敗、異常大額等 → anomalies（沒有則 []）
-6. 基本還款能力：repayment_capacity.assessment 依結餘穩定性＋淨現金流粗判（adequate／tight／weak／unknown），notes 一句；不可承諾批核
-
-金額純數字 HKD，無逗號。缺資料填 null／[]。立即回 JSON，不要研究。`;
+重點：
+1) 現金流：total_credits / total_debits / net_cashflow + cashflow_summary
+2) 結餘：opening_balance / closing_balance / average_daily_balance / min_daily_balance（daily_balances 可 []）
+3) 營業進帳：operating_credits（估）；否則用 total_credits
+4) 來源頻率：credit_sources 最多 6 個；credit_count / credit_days
+5) 異常：退票／自動轉帳失敗／透支 → anomalies，無則 []
+6) 還款能力：repayment_capacity（不可承諾批核）
+缺資料用 null／[]。`;
 
 export function buildBankStatementUserText(input: {
   fileName?: string;
@@ -101,12 +133,12 @@ export function buildBankStatementUserText(input: {
   pastedText?: string;
 }) {
   return [
-    "請分析這份銀行月結單，抽取現金流／結餘／進帳／異常／還款能力。",
+    "這是銀行月結單。請輸出銀行現金流 JSON（total_credits、opening_balance 等），不要輸出 company_name/revenue/EBITDA 那種財務報表格式。",
     input.statementMonth ? `預期月份：${input.statementMonth}` : null,
     input.fileName ? `檔名：${input.fileName}` : null,
     input.companyNameHint ? `申請公司提示：${input.companyNameHint}` : null,
     input.pastedText
-      ? `以下為月結文字／OCR（可能不完整）：\n---\n${input.pastedText.slice(0, 100_000)}\n---`
+      ? `月結文字／OCR：\n---\n${input.pastedText.slice(0, 100_000)}\n---`
       : "（無文字層，請根據附上的頁面影像辨識）",
   ]
     .filter(Boolean)
@@ -156,6 +188,75 @@ export function toBankStatementExtract(
   };
 }
 
+/** 寬鬆解析：接受銀行 schema 或誤回嘅 financial schema */
+export function parseBankStatementExtract(
+  raw: unknown,
+  monthHint?: string,
+): { ok: true; data: BankStatementExtract } | { ok: false; error: string } {
+  const parsed = BankStatementExtractSchema.safeParse(raw);
+  if (parsed.success) {
+    return {
+      ok: true,
+      data: toBankStatementExtract(parsed.data, monthHint),
+    };
+  }
+
+  // Manus 有時誤回舊 financial JSON
+  if (raw && typeof raw === "object") {
+    const o = raw as Record<string, unknown>;
+    const looksFinancial =
+      "revenue" in o || "EBITDA" in o || "company_name" in o;
+    const looksBank =
+      "total_credits" in o ||
+      "opening_balance" in o ||
+      "operating_credits" in o;
+
+    if (looksFinancial && !looksBank) {
+      const revenue = looseNum.parse(o.revenue);
+      const company = looseStr.parse(o.company_name);
+      const fy = looseStr.parse(o.financial_year);
+      return {
+        ok: true,
+        data: toBankStatementExtract(
+          {
+            month: fy ?? monthHint ?? null,
+            account_holder: company,
+            total_credits: revenue,
+            operating_credits: revenue,
+            cashflow_summary:
+              "模型誤用財務報表格式；已將 revenue 映射為本月存入／營業進帳，請覆核。",
+            repayment_capacity: {
+              assessment: "unknown",
+              notes: "回傳格式不完整，需人工覆核月結。",
+            },
+          },
+          monthHint,
+        ),
+      };
+    }
+
+    // 部分欄位 salvage
+    const salvage = BankStatementExtractSchema.safeParse({
+      ...emptyBankStatementExtract(monthHint),
+      ...(o as object),
+    });
+    if (salvage.success) {
+      return {
+        ok: true,
+        data: toBankStatementExtract(salvage.data, monthHint),
+      };
+    }
+  }
+
+  return {
+    ok: false,
+    error: parsed.error.issues
+      .slice(0, 3)
+      .map((i) => `${i.path.join(".")}: ${i.message}`)
+      .join("; "),
+  };
+}
+
 /** 兼容舊 financial extract（合併 JSON 用） */
 export function bankExtractToFinancial(
   b: BankStatementExtract,
@@ -171,7 +272,6 @@ export function bankExtractToFinancial(
 }
 
 export type BankCashflowBrief = {
-  /** 1 公司現金流 */
   cashflow: {
     months: Array<{
       month: string;
@@ -185,7 +285,6 @@ export type BankCashflowBrief = {
     sixMonthNet: number | null;
     narrative: string;
   };
-  /** 2 每月及每日戶口結餘 */
   balances: {
     months: Array<{
       month: string;
@@ -198,7 +297,6 @@ export type BankCashflowBrief = {
     sixMonthAvgDaily: number | null;
     sixMonthMinDaily: number | null;
   };
-  /** 3 營業進帳 */
   operatingInflows: {
     months: Array<{
       month: string;
@@ -208,7 +306,6 @@ export type BankCashflowBrief = {
     sixMonthOperating: number | null;
     monthlyAvgOperating: number | null;
   };
-  /** 4 進帳頻率及來源 */
   inflowPattern: {
     months: Array<{
       month: string;
@@ -222,7 +319,6 @@ export type BankCashflowBrief = {
       frequency: string | null;
     }>;
   };
-  /** 5 戶口異常紀錄 */
   anomalies: Array<{
     month: string | null;
     kind: string | null;
@@ -230,7 +326,6 @@ export type BankCashflowBrief = {
     description: string;
     amountHkd: number | null;
   }>;
-  /** 6 公司基本還款能力 */
   repaymentCapacity: {
     assessments: Array<{
       month: string;
@@ -254,9 +349,7 @@ function avgNullable(nums: Array<number | null | undefined>): number | null {
   return xs.reduce((a, b) => a + b, 0) / xs.length;
 }
 
-function rankAssessment(
-  a: string | null | undefined,
-): number {
+function rankAssessment(a: string | null | undefined): number {
   if (a === "weak") return 0;
   if (a === "tight") return 1;
   if (a === "adequate") return 2;
@@ -348,8 +441,7 @@ export function mergeBankStatementExtracts(
     .filter((r) => r >= 0);
   if (ranks.length) {
     const worst = Math.min(...ranks);
-    overall =
-      worst === 0 ? "weak" : worst === 1 ? "tight" : "adequate";
+    overall = worst === 0 ? "weak" : worst === 1 ? "tight" : "adequate";
   }
 
   const sixMonthOperating = sumNullable(
@@ -369,7 +461,7 @@ export function mergeBankStatementExtracts(
       sixMonthNet,
       narrative:
         narrativeBits.join(" ") ||
-        "已合併六個月月結現金流摘要（缺欄＝文件未見）。",
+        "已合併月結現金流摘要（缺欄＝文件未見）。",
     },
     balances: {
       months: balanceMonths,

@@ -778,9 +778,13 @@ export function ApplyDocumentsUpload({
         {analyzeResults.length > 0 && (
           <div className="space-y-3">
             {(() => {
-              const bankOk = analyzeResults.filter(
-                (r) => r.ok && r.docKind === "bank" && r.bankExtract,
+              const bankResults = analyzeResults.filter(
+                (r) => r.docKind === "bank",
               );
+              const bankOk = bankResults.filter(
+                (r) => r.ok && r.bankExtract,
+              );
+              const bankFail = bankResults.filter((r) => !r.ok);
               const brief =
                 bankOk.length > 0
                   ? mergeBankStatementExtracts(
@@ -792,22 +796,46 @@ export function ApplyDocumentsUpload({
               );
               return (
                 <>
-                  {brief && (
-                    <Card>
-                      <SectionHeader
-                        title="六個月銀行現金流預審"
-                        subtitle={`${bankOk.length}／6 份月結已分析 · 供顧問覆核`}
-                      />
-                      <BankCashflowBriefPanel brief={brief} />
-                    </Card>
-                  )}
                   <Card>
                     <SectionHeader
-                      title="申請結構化資料（JSON）"
-                      subtitle="兼容欄位合併 · 銀行 revenue≈營業／總存入"
+                      title="六個月銀行現金流預審"
+                      subtitle={
+                        bankResults.length
+                          ? `成功 ${bankOk.length}／${bankResults.length} 份月結`
+                          : "尚未分析銀行月結"
+                      }
                     />
-                    <StructuredJsonBlock extract={merged} />
+                    {bankFail.length > 0 && (
+                      <StateBanner
+                        tone="error"
+                        title={`${bankFail.length} 份月結分析失敗`}
+                        description={bankFail
+                          .map((r) => `${r.label}：${r.message || "失敗"}`)
+                          .join("；")
+                          .slice(0, 400)}
+                      />
+                    )}
+                    {brief ? (
+                      <BankCashflowBriefPanel brief={brief} />
+                    ) : (
+                      <p className="text-sm text-danger-600">
+                        未取得銀行現金流資料。下面「company_name／revenue」舊
+                        JSON 唔代表月結已讀——請睇各月結單錯誤訊息後重試。
+                      </p>
+                    )}
                   </Card>
+                  <details className="rounded-lg border border-border/60 bg-surface-2 p-3">
+                    <summary className="cursor-pointer text-sm font-medium text-navy-900">
+                      兼容欄位 JSON（BR／舊格式，非月結主結果）
+                    </summary>
+                    <p className="mt-2 text-xs text-text-muted">
+                      呢個區塊會顯示 company_name／revenue
+                      等舊欄位；月結主結果係上面六大項。
+                    </p>
+                    <div className="mt-2">
+                      <StructuredJsonBlock extract={merged} />
+                    </div>
+                  </details>
                 </>
               );
             })()}

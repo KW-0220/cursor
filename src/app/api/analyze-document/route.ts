@@ -10,10 +10,9 @@ import {
 } from "@/lib/financial-extract";
 import {
   BANK_STATEMENT_SYSTEM_PROMPT,
-  BankStatementExtractSchema,
   bankExtractToFinancial,
   buildBankStatementUserText,
-  toBankStatementExtract,
+  parseBankStatementExtract,
 } from "@/lib/bank-statement-extract";
 import {
   hasOpenAIKey,
@@ -170,19 +169,20 @@ export async function POST(req: NextRequest) {
         );
       }
 
-      const parsed = BankStatementExtractSchema.safeParse(parsedJson);
-      if (!parsed.success) {
+      const parsed = parseBankStatementExtract(parsedJson, statementMonth);
+      if (!parsed.ok) {
         return NextResponse.json(
           {
             error: "INVALID_MODEL_JSON",
             message: "銀行月結模型回傳格式不符，請重試",
-            details: parsed.error.flatten(),
+            detail: parsed.error,
+            rawPreview: manus.text.slice(0, 500),
           },
           { status: 502 },
         );
       }
 
-      const bankExtract = toBankStatementExtract(parsed.data, statementMonth);
+      const bankExtract = parsed.data;
       const extract = bankExtractToFinancial(bankExtract);
 
       if (rawOnly) {
