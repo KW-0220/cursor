@@ -1,121 +1,25 @@
 /**
  * Server-side document text extraction.
- * pdf-parse@2 + pdfjs 在 Node/Vercel 需要 worker + DOM polyfill。
+ * 用 unpdf（serverless 友善），避免 pdf-parse/pdfjs worker 在 Vercel 炸掉。
  */
 
-function ensurePdfDomPolyfills() {
-  // pdfjs 期望瀏覽器 DOM API；Node/Vercel 用最小 stub 即可抽文字
-  const g = globalThis as Record<string, unknown>;
-
-  if (!g.DOMMatrix) {
-    g.DOMMatrix = class DOMMatrix {
-      constructor(_init?: unknown) {}
-      multiplySelf() {
-        return this;
-      }
-      translateSelf() {
-        return this;
-      }
-      scaleSelf() {
-        return this;
-      }
-      inverse() {
-        return this;
-      }
-      transformPoint(p?: { x?: number; y?: number }) {
-        return p ?? { x: 0, y: 0 };
-      }
-      static fromMatrix() {
-        return new DOMMatrix();
-      }
-      static fromFloat32Array() {
-        return new DOMMatrix();
-      }
-      static fromFloat64Array() {
-        return new DOMMatrix();
-      }
-    };
-  }
-
-  if (!g.Path2D) {
-    g.Path2D = class Path2D {
-      addPath() {}
-      arc() {}
-      arcTo() {}
-      bezierCurveTo() {}
-      closePath() {}
-      ellipse() {}
-      lineTo() {}
-      moveTo() {}
-      quadraticCurveTo() {}
-      rect() {}
-      roundRect() {}
-    };
-  }
-
-  if (!g.ImageData) {
-    g.ImageData = class ImageData {
-      width: number;
-      height: number;
-      data: Uint8ClampedArray;
-      colorSpace = "srgb";
-      constructor(w: number, h: number) {
-        this.width = w;
-        this.height = h;
-        this.data = new Uint8ClampedArray(w * h * 4);
-      }
-    };
-  }
-}
-
 async function extractPdfText(buffer: Buffer): Promise<string> {
-  ensurePdfDomPolyfills();
+  const { extractText, getDocumentProxy } = await import("unpdf");
+  const pdf = await getDocumentProxy(new Uint8Array(buffer));
+  const parsed = await extractText(pdf, { mergePages: true });
+  const raw = Array.isArray(parsed.text) ? parsed.text.join("\n") : parsed.text;
+  const text = String(raw || "")
+    .replace(/\0/g, "")
+    .replace(/[ \t]+\n/g, "\n")
+    .trim();
 
-  // 必須先載入 worker（設定 workerSrc + CanvasFactory），再載入 pdf-parse
-  // 否則 Vercel 會找 pdfjs-dist/legacy/build/pdf.worker.mjs 失敗
-  const worker = await import("pdf-parse/worker");
-  const { PDFParse } = await import("pdf-parse");
-
-  type PdfParser = {
-    getText: () => Promise<{ text?: string; total?: number; pages?: unknown[] }>;
-    destroy?: () => Promise<void>;
-  };
-
-  type PdfParseCtor = {
-    new (opts: {
-      data: Uint8Array;
-      CanvasFactory?: unknown;
-    }): PdfParser;
-    setWorker?: (src?: string) => string;
-  };
-
-  const Ctor = PDFParse as unknown as PdfParseCtor;
-  if (typeof Ctor !== "function") {
-    throw new Error("PDF_PARSER_UNAVAILABLE");
+  if (!text) {
+    throw new Error("PDF_EMPTY_TEXT");
   }
 
-  try {
-    Ctor.setWorker?.(worker.getPath());
-  } catch {
-    // serverless 路徑解析失敗時改用 inline worker data
-    Ctor.setWorker?.(worker.getData());
-  }
-
-  const parser = new Ctor({
-    data: new Uint8Array(buffer),
-    CanvasFactory: worker.CanvasFactory,
-  });
-
-  try {
-    const parsed = await parser.getText();
-    const text = (parsed.text || "").trim();
-    if (!text) {
-      throw new Error("PDF_EMPTY_TEXT");
-    }
-    return `（PDF 共 ${parsed.total ?? parsed.pages?.length ?? "?"} 頁）\n\n${text}`;
-  } finally {
-    await parser.destroy?.().catch(() => undefined);
-  }
+  const clipped =
+    text.length > 80_000 ? `${text.slice(0, 80_000)}\n…(截斷)` : text;
+  return `（PDF 共 ${parsed.totalPages ?? "?"} 頁）\n\n${clipped}`;
 }
 
 export async function extractDocumentText(params: {

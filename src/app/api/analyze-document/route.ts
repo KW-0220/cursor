@@ -107,6 +107,20 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    const extractOnly = new URL(req.url).searchParams.get("extractOnly") === "1";
+    if (extractOnly) {
+      return NextResponse.json({
+        ok: true,
+        extractOnly: true,
+        fileName,
+        mimeType,
+        extractMethod,
+        textLength: extractedText.length,
+        textPreview: extractedText.slice(0, 2000),
+        hasImage: Boolean(imageUrl),
+      });
+    }
+
     const model = analyzeModel();
     const userText =
       buildFinancialExtractUserText({
@@ -120,11 +134,13 @@ export async function POST(req: NextRequest) {
      * baseURL: https://api.manus.im/v1
      * header: API_KEY
      */
+    // PDF 抽字已佔冷啟動時間；預留較多時間畀 Manus，並略為加快 poll
     const manus = await manusRespond({
       system: FINANCIAL_EXTRACT_SYSTEM_PROMPT,
       userText,
       imageUrl,
-      maxWaitMs: 55_000,
+      maxWaitMs: 50_000,
+      pollMs: 1500,
     });
 
     let parsedJson: unknown;

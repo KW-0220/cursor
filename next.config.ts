@@ -1,8 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  // pdf-parse / pdfjs / canvas 必須 external，否則 Vercel 找不到 worker.mjs
-  serverExternalPackages: ["pdf-parse", "pdfjs-dist", "@napi-rs/canvas"],
+  serverExternalPackages: ["unpdf"],
   // Allow public tunnel / LAN hosts during demo testing
   allowedDevOrigins: [
     "*.trycloudflare.com",
