@@ -1,7 +1,8 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  serverExternalPackages: ["unpdf"],
+  // PDF 抽字 + 掃描件渲頁（canvas／pdfjs 不可被 bundle 進 serverless）
+  serverExternalPackages: ["unpdf", "pdfjs-dist", "@napi-rs/canvas"],
   // Allow public tunnel / LAN hosts during demo testing
   allowedDevOrigins: [
     "*.trycloudflare.com",

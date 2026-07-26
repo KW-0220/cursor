@@ -167,6 +167,8 @@ export async function manusRespond(params: {
   system?: string;
   userText: string;
   imageUrl?: string;
+  /** 多頁 PDF 轉圖（BR／NAR1 掃描件） */
+  imageUrls?: string[];
   pollMs?: number;
   maxWaitMs?: number;
 }): Promise<{ text: string; model: string; id: string; status: string }> {
@@ -180,8 +182,14 @@ export async function manusRespond(params: {
   const content: Array<Record<string, string>> = [
     { type: "input_text", text },
   ];
-  if (params.imageUrl) {
-    content.push({ type: "input_image", image_url: params.imageUrl });
+  const images = [
+    ...(params.imageUrls ?? []),
+    ...(params.imageUrl ? [params.imageUrl] : []),
+  ].filter(Boolean);
+  // 去重；最多 3 張以免 payload 過大
+  const uniqueImages = [...new Set(images)].slice(0, 3);
+  for (const image_url of uniqueImages) {
+    content.push({ type: "input_image", image_url });
   }
 
   const agentProfile = OPENAI_MODEL.includes("manus")

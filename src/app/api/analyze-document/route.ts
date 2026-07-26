@@ -67,8 +67,14 @@ export async function POST(req: NextRequest) {
     let fileName = "pasted-text.txt";
     let mimeType = "text/plain";
     let extractedText = pastedText;
-    let extractMethod: "pdf" | "text" | "image" | "paste" = "paste";
+    let extractMethod:
+      | "pdf"
+      | "text"
+      | "image"
+      | "paste"
+      | "pdf_vision" = "paste";
     let imageUrl: string | undefined;
+    let imageUrls: string[] = [];
 
     if (file instanceof File && file.size > 0) {
       if (file.size > MAX_BYTES) {
@@ -91,16 +97,20 @@ export async function POST(req: NextRequest) {
           buffer,
           fileName,
           mimeType,
+          docKind,
         });
         extractMethod =
-          extracted.method === "image_placeholder" ? "image" : extracted.method;
+          extracted.method === "image_placeholder"
+            ? "image"
+            : extracted.method;
         extractedText = [extracted.text, pastedText]
           .filter(Boolean)
           .join("\n\n");
+        imageUrls = extracted.imageUrls;
       }
     }
 
-    if (!extractedText && !imageUrl) {
+    if (!extractedText && !imageUrl && imageUrls.length === 0) {
       return NextResponse.json(
         {
           error: "NO_CONTENT",
@@ -131,8 +141,12 @@ export async function POST(req: NextRequest) {
      */
     const manus = await manusRespond({
       system: buildExtractSystemPrompt(docKind),
-      userText,
+      userText:
+        imageUrls.length || imageUrl
+          ? `${userText}\n\n（已附文件頁面影像，請一併辨識公司名稱等欄位。）`
+          : userText,
       imageUrl,
+      imageUrls,
       maxWaitMs: 50_000,
       pollMs: 1500,
     });
@@ -268,12 +282,13 @@ export async function POST(req: NextRequest) {
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : "UNKNOWN_ERROR";
-    if (message === "PDF_EMPTY_TEXT") {
+    if (message === "PDF_EMPTY_TEXT" || message.startsWith("PDF_RENDER_FAILED")) {
       return NextResponse.json(
         {
           error: "PDF_EMPTY_TEXT",
           message:
-            "未能從 PDF 抽出文字（可能是掃描影像）。請改上清晰照片／JPG，或貼上文字內容。",
+            "此 PDF 似係掃描影像且轉圖失敗。請改上清晰 JPG／PNG 照片（BR／NAR1 建議影晒成張證），或貼上可見文字。",
+          detail: message,
         },
         { status: 422 },
       );

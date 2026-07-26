@@ -481,7 +481,7 @@ export function ApplyDocumentsUpload({
       <SingleUpload
         label="最近期公司註冊處周年申報表 NAR1"
         required
-        hint="最近期已提交完整頁面；不接受只上載封面"
+        hint="最近期已提交完整頁面。掃描 PDF 會自動轉頁面影像辨識；若失敗請改上清晰 JPG／PNG。"
         accept="application/pdf,.pdf,image/jpeg,.jpg,.jpeg,image/png,.png"
         value={docs.nar1}
         onChange={(nar1) => onChange({ ...docs, nar1 })}
@@ -491,7 +491,7 @@ export function ApplyDocumentsUpload({
       <SingleUpload
         label="商業登記證 BR"
         required
-        hint="最新及有效副本；公司名稱及商業登記號碼須清晰可見"
+        hint="最新有效副本；公司名稱及商業登記號碼須清晰。掃描 PDF 可自動 Vision；最穩係上 JPG／PNG 成張證。"
         accept="application/pdf,.pdf,image/jpeg,.jpg,.jpeg,image/png,.png"
         value={docs.br}
         onChange={(br) => onChange({ ...docs, br })}
