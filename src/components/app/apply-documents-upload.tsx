@@ -26,6 +26,8 @@ import {
 } from "@/lib/bank-statement-extract";
 import type { BrExtract } from "@/lib/br-extract";
 import { toBrExtract } from "@/lib/br-extract";
+import type { Nar1Extract } from "@/lib/nar1-extract";
+import { toNar1Extract } from "@/lib/nar1-extract";
 import { formatHKD } from "@/lib/utils";
 
 export type UploadedMeta = {
@@ -51,12 +53,118 @@ type AnalyzeItemResult = {
   extract?: FinancialExtract;
   bankExtract?: BankStatementExtract;
   brExtract?: BrExtract;
+  nar1Extract?: Nar1Extract;
   model?: string;
   docKind?: string;
   extractHint?: string | null;
   textPreview?: string;
   statementMonth?: string;
 };
+
+function Nar1ExtractPanel({ n }: { n: Nar1Extract }) {
+  const sec = n.company_secretary;
+  const cap = n.issued_share_capital;
+  return (
+    <div className="space-y-3 text-sm">
+      <dl className="space-y-2">
+        {(
+          [
+            ["公司名稱", n.company_name],
+            ["公司註冊編號", n.company_number],
+            ["註冊辦事處地址", n.registered_office_address],
+            ["周年申報日期", n.annual_return_date],
+          ] as [string, string | null][]
+        ).map(([label, value]) => (
+          <div
+            key={label}
+            className="flex flex-col gap-0.5 sm:flex-row sm:justify-between sm:gap-3"
+          >
+            <dt className="shrink-0 text-text-secondary">{label}</dt>
+            <dd className="font-medium text-navy-900 sm:text-right">
+              {value?.trim() ? value : "—"}
+            </dd>
+          </div>
+        ))}
+      </dl>
+
+      <div>
+        <p className="text-xs font-semibold text-navy-900">董事姓名</p>
+        {n.directors.length ? (
+          <ul className="mt-1 list-inside list-disc text-text-secondary">
+            {n.directors.map((d, i) => (
+              <li key={`${d.name}-${i}`}>
+                {d.name || "—"}
+                {d.role ? `（${d.role}）` : ""}
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="mt-1 text-text-muted">—</p>
+        )}
+      </div>
+
+      <div>
+        <p className="text-xs font-semibold text-navy-900">公司秘書資料</p>
+        {sec?.name || sec?.address ? (
+          <p className="mt-1 text-text-secondary">
+            {[sec.name, sec.type, sec.address].filter(Boolean).join(" · ") ||
+              "—"}
+          </p>
+        ) : (
+          <p className="mt-1 text-text-muted">—</p>
+        )}
+      </div>
+
+      <div>
+        <p className="text-xs font-semibold text-navy-900">
+          股東姓名／持股數量或比例
+        </p>
+        {n.shareholders.length ? (
+          <ul className="mt-1 space-y-1 text-text-secondary">
+            {n.shareholders.map((s, i) => (
+              <li
+                key={`${s.name}-${i}`}
+                className="flex flex-wrap justify-between gap-2"
+              >
+                <span>{s.name || "—"}</span>
+                <span className="tabular text-xs">
+                  {s.shares != null ? `${s.shares} 股` : "—"}
+                  {s.shareholding_pct != null
+                    ? ` · ${s.shareholding_pct}%`
+                    : ""}
+                </span>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="mt-1 text-text-muted">—</p>
+        )}
+      </div>
+
+      <div>
+        <p className="text-xs font-semibold text-navy-900">已發行股本資料</p>
+        {cap ? (
+          <p className="mt-1 text-text-secondary">
+            {[
+              cap.currency && cap.amount != null
+                ? `${cap.currency} ${cap.amount.toLocaleString("en-HK")}`
+                : cap.amount != null
+                  ? String(cap.amount)
+                  : null,
+              cap.shares != null ? `${cap.shares} 股` : null,
+              cap.class_of_shares,
+              cap.details,
+            ]
+              .filter(Boolean)
+              .join(" · ") || "—"}
+          </p>
+        ) : (
+          <p className="mt-1 text-text-muted">—</p>
+        )}
+      </div>
+    </div>
+  );
+}
 
 function BrExtractPanel({ br }: { br: BrExtract }) {
   const rows: [string, string | null][] = [
@@ -543,6 +651,7 @@ export function ApplyDocumentsUpload({
       extract?: FinancialExtract;
       bankExtract?: BankStatementExtract;
       brExtract?: BrExtract;
+      nar1Extract?: Nar1Extract;
       model?: string;
       docKind?: string;
       extractHint?: string | null;
@@ -571,6 +680,8 @@ export function ApplyDocumentsUpload({
           ? toBankStatementExtract(data.bankExtract, statementMonth)
           : undefined,
       brExtract: docKind === "br" ? toBrExtract(data.brExtract) : undefined,
+      nar1Extract:
+        docKind === "nar1" ? toNar1Extract(data.nar1Extract) : undefined,
       model: data.model,
       docKind: data.docKind,
       extractHint: data.extractHint,
@@ -742,7 +853,7 @@ export function ApplyDocumentsUpload({
       <SingleUpload
         label="最近期公司註冊處周年申報表 NAR1"
         required
-        hint="最近期已提交完整頁面。掃描 PDF 會自動轉頁面影像辨識；若失敗請改上清晰 JPG／PNG。"
+        hint="最近期已提交完整頁面（含董事／股東／股本）。掃描 PDF 會轉頁面影像；失敗請改清晰 JPG／PNG。"
         accept="application/pdf,.pdf,image/jpeg,.jpg,.jpeg,image/png,.png"
         value={docs.nar1}
         onChange={(nar1) => onChange({ ...docs, nar1 })}
@@ -774,7 +885,7 @@ export function ApplyDocumentsUpload({
         <StateBanner
           tone="info"
           title="各文件讀取重點"
-          description="銀行月結：現金流／結餘／進帳／異常／還款能力。BR：中英文名、登記號碼、地址、業務性質、生效／屆滿日。NAR1：公司名等。"
+          description="銀行月結：現金流六大項。BR：中英文名／登記號碼／地址／性質／日期。NAR1：公司名／註冊編號／地址／申報日／董事／秘書／股東持股／已發行股本。"
         />
         <Button
           fullWidth
@@ -829,6 +940,12 @@ export function ApplyDocumentsUpload({
               const brFail = analyzeResults.find(
                 (r) => r.docKind === "br" && !r.ok,
               );
+              const nar1Result = analyzeResults.find(
+                (r) => r.docKind === "nar1" && r.ok && r.nar1Extract,
+              );
+              const nar1Fail = analyzeResults.find(
+                (r) => r.docKind === "nar1" && !r.ok,
+              );
 
               return (
                 <>
@@ -859,6 +976,40 @@ export function ApplyDocumentsUpload({
                     ) : (
                       !brFail && (
                         <p className="text-sm text-text-muted">尚未取得 BR 資料。</p>
+                      )
+                    )}
+                  </Card>
+                  <Card>
+                    <SectionHeader
+                      title="周年申報表（NAR1）"
+                      subtitle="公司名 · 註冊編號 · 地址 · 董事／秘書／股東 · 股本"
+                    />
+                    {nar1Fail && (
+                      <StateBanner
+                        tone="error"
+                        title="NAR1 分析失敗"
+                        description={
+                          nar1Fail.message || "請上完整頁或清晰 JPG／PNG"
+                        }
+                      />
+                    )}
+                    {nar1Result?.nar1Extract ? (
+                      <>
+                        {nar1Result.extractHint && (
+                          <p className="mb-3 rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                            {nar1Result.extractHint}
+                          </p>
+                        )}
+                        <Nar1ExtractPanel n={nar1Result.nar1Extract} />
+                        <pre className="mt-3 overflow-auto rounded bg-white/70 p-2 text-[11px] text-text-secondary">
+                          {JSON.stringify(nar1Result.nar1Extract, null, 2)}
+                        </pre>
+                      </>
+                    ) : (
+                      !nar1Fail && (
+                        <p className="text-sm text-text-muted">
+                          尚未取得 NAR1 資料。
+                        </p>
                       )
                     )}
                   </Card>
@@ -926,6 +1077,20 @@ export function ApplyDocumentsUpload({
                     {r.model && (
                       <p className="pt-1 text-xs text-text-muted">
                         model：{r.model} · br
+                      </p>
+                    )}
+                  </div>
+                ) : r.nar1Extract ? (
+                  <div className="mt-3 space-y-2">
+                    {r.extractHint && (
+                      <p className="rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                        {r.extractHint}
+                      </p>
+                    )}
+                    <Nar1ExtractPanel n={r.nar1Extract} />
+                    {r.model && (
+                      <p className="pt-1 text-xs text-text-muted">
+                        model：{r.model} · nar1
                       </p>
                     )}
                   </div>

@@ -22,6 +22,13 @@ import {
   parseBrExtract,
 } from "@/lib/br-extract";
 import {
+  NAR1_EXTRACT_SYSTEM_PROMPT,
+  buildNar1ExtractUserText,
+  nar1ExtractHint,
+  nar1ExtractToFinancial,
+  parseNar1Extract,
+} from "@/lib/nar1-extract";
+import {
   hasOpenAIKey,
   manusRespond,
   parseModelJsonObject,
@@ -49,6 +56,7 @@ function analyzeModel() {
  *
  * docKind=bank → bankExtract（現金流 6 大項）+ 兼容 extract
  * docKind=br → brExtract（中／英文名、登記號碼、地址、性質、生效／屆滿）
+ * docKind=nar1 → nar1Extract（公司名／CR No.／地址／董事／秘書／股東／股本）
  * 其他 → extract：company_name / financial_year / revenue / EBITDA / net_profit / existing_debt
  *
  * formData: file / text / companyName / docKind / statementMonth
@@ -334,6 +342,108 @@ export async function POST(req: NextRequest) {
             .join(" · "),
           applicantFacingMessage:
             "已完成商業登記證初步抽取，供顧問覆核。AI 不直接決定批出貸款。",
+        },
+        disclaimer:
+          "此建議只供初步參考，實際貸款條件及批核結果由相關貸款機構決定。",
+      });
+    }
+
+    /** —— 周年申報表 NAR1 —— */
+    if (docKind === "nar1") {
+      const nar1User = buildNar1ExtractUserText({
+        fileName: manusFileName,
+        companyNameHint,
+        pastedText: plainText,
+      });
+      const manus = await manusRespond({
+        system: NAR1_EXTRACT_SYSTEM_PROMPT,
+        userText: hasVision
+          ? `${nar1User}\n\n（已附 NAR1 頁面影像，請一併辨識公司名、註冊編號、董事、股東、股本。）`
+          : nar1User,
+        imageUrl,
+        imageUrls,
+        maxWaitMs: 50_000,
+        pollMs: 1500,
+      });
+
+      let parsedJson: unknown;
+      try {
+        parsedJson = parseModelJsonObject(manus.text);
+      } catch {
+        return NextResponse.json(
+          {
+            error: "INVALID_MODEL_JSON",
+            message: "NAR1 模型回傳格式不符，請重試",
+            detail: manus.text.slice(0, 500),
+          },
+          { status: 502 },
+        );
+      }
+
+      const parsed = parseNar1Extract(parsedJson);
+      if (!parsed.ok) {
+        return NextResponse.json(
+          {
+            error: "INVALID_MODEL_JSON",
+            message: "NAR1 模型回傳格式不符，請重試",
+            detail: parsed.error,
+            rawPreview: manus.text.slice(0, 500),
+          },
+          { status: 502 },
+        );
+      }
+
+      const nar1Extract = parsed.data;
+      const extract = nar1ExtractToFinancial(nar1Extract);
+
+      if (rawOnly) {
+        return NextResponse.json(nar1Extract);
+      }
+
+      return NextResponse.json({
+        ok: true,
+        model: manus.model || model,
+        provider: "manus",
+        taskId: manus.id,
+        fileName,
+        mimeType,
+        docKind,
+        extractMethod,
+        textLength: plainText.length,
+        textPreview,
+        extractHint: nar1ExtractHint(nar1Extract),
+        nar1Extract,
+        extract,
+        company_name: extract.company_name,
+        financial_year: extract.financial_year,
+        revenue: extract.revenue,
+        EBITDA: extract.EBITDA,
+        net_profit: extract.net_profit,
+        existing_debt: extract.existing_debt,
+        company_number: nar1Extract.company_number,
+        registered_office_address: nar1Extract.registered_office_address,
+        annual_return_date: nar1Extract.annual_return_date,
+        directors: nar1Extract.directors,
+        company_secretary: nar1Extract.company_secretary,
+        shareholders: nar1Extract.shareholders,
+        issued_share_capital: nar1Extract.issued_share_capital,
+        analysis: {
+          documentType: "nar1" as const,
+          overall: "amber" as const,
+          summary: [
+            nar1Extract.company_name,
+            nar1Extract.company_number,
+            nar1Extract.directors.length
+              ? `董事 ${nar1Extract.directors.length}`
+              : null,
+            nar1Extract.shareholders.length
+              ? `股東 ${nar1Extract.shareholders.length}`
+              : null,
+          ]
+            .filter(Boolean)
+            .join(" · "),
+          applicantFacingMessage:
+            "已完成 NAR1 初步抽取，供顧問覆核。AI 不直接決定批出貸款。",
         },
         disclaimer:
           "此建議只供初步參考，實際貸款條件及批核結果由相關貸款機構決定。",

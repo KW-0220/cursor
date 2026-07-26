@@ -180,14 +180,16 @@ export async function extractDocumentText(params: {
       text = "";
     }
 
-    // BR 幾乎都係掃描證：有文字都一併轉頁面圖，提高中文名／登記號碼／日期辨識率
+    // BR／NAR1 掃描件：有文字都一併轉頁面圖，提高中文／表格辨識率
     const needsVision =
-      docKind === "br" || pdfTextLooksWeak(text, docKind);
+      docKind === "br" ||
+      docKind === "nar1" ||
+      pdfTextLooksWeak(text, docKind);
     if (!needsVision) {
       return { text, method: "pdf", imageUrls: [], pageCount };
     }
 
-    const maxPages = docKind === "nar1" ? 2 : docKind === "bank" ? 3 : 1;
+    const maxPages = docKind === "nar1" ? 3 : docKind === "bank" ? 3 : 1;
     try {
       const rendered = await renderPdfPagesAsJpegDataUrls(buffer, {
         maxPages,
