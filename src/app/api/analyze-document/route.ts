@@ -107,7 +107,8 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const extractOnly = new URL(req.url).searchParams.get("extractOnly") === "1";
+    const url = new URL(req.url);
+    const extractOnly = url.searchParams.get("extractOnly") === "1";
     if (extractOnly) {
       return NextResponse.json({
         ok: true,
@@ -121,11 +122,43 @@ export async function POST(req: NextRequest) {
       });
     }
 
+    // 除錯：PDF 抽字後立即用固定短 prompt 打 Manus，確認 unpdf 有冇污染 fetch
+    if (url.searchParams.get("traceManus") === "1") {
+      const t0 = Date.now();
+      try {
+        const ping = await manusRespond({
+          system: '只回 JSON：{"company_name":"X","financial_year":null,"revenue":null,"EBITDA":null,"net_profit":null,"existing_debt":null}',
+          userText: `ping after ${extractMethod}; textLen=${extractedText.length}`,
+          maxWaitMs: 45_000,
+          pollMs: 1500,
+        });
+        return NextResponse.json({
+          ok: true,
+          traceManus: true,
+          extractMethod,
+          ms: Date.now() - t0,
+          taskId: ping.id,
+          status: ping.status,
+          text: ping.text.slice(0, 300),
+        });
+      } catch (e) {
+        return NextResponse.json({
+          ok: false,
+          traceManus: true,
+          extractMethod,
+          ms: Date.now() - t0,
+          error: e instanceof Error ? e.message : "UNKNOWN",
+        });
+      }
+    }
+
     const model = analyzeModel();
+    // 切斷與 PDF parser 的引用，避免異常物件進入 prompt
+    const plainText = extractedText ? String(extractedText) : "";
     const userText =
       buildFinancialExtractUserText({
         fileName,
-        pastedText: extractedText,
+        pastedText: plainText,
         companyNameHint,
       }) || "請分析這份財務報表";
 
@@ -134,7 +167,6 @@ export async function POST(req: NextRequest) {
      * baseURL: https://api.manus.im/v1
      * header: API_KEY
      */
-    // PDF 抽字已佔冷啟動時間；預留較多時間畀 Manus，並略為加快 poll
     const manus = await manusRespond({
       system: FINANCIAL_EXTRACT_SYSTEM_PROMPT,
       userText,

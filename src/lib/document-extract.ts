@@ -5,21 +5,28 @@
 
 async function extractPdfText(buffer: Buffer): Promise<string> {
   const { extractText, getDocumentProxy } = await import("unpdf");
-  const pdf = await getDocumentProxy(new Uint8Array(buffer));
-  const parsed = await extractText(pdf, { mergePages: true });
-  const raw = Array.isArray(parsed.text) ? parsed.text.join("\n") : parsed.text;
-  const text = String(raw || "")
-    .replace(/\0/g, "")
-    .replace(/[ \t]+\n/g, "\n")
-    .trim();
+  const bytes = new Uint8Array(buffer);
+  const pdf = await getDocumentProxy(bytes);
+  try {
+    const parsed = await extractText(pdf, { mergePages: true });
+    const raw = Array.isArray(parsed.text) ? parsed.text.join("\n") : parsed.text;
+    const text = String(raw || "")
+      .replace(/\0/g, "")
+      .replace(/[ \t]+\n/g, "\n")
+      .trim();
 
-  if (!text) {
-    throw new Error("PDF_EMPTY_TEXT");
+    if (!text) {
+      throw new Error("PDF_EMPTY_TEXT");
+    }
+
+    const clipped =
+      text.length > 80_000 ? `${text.slice(0, 80_000)}\n…(截斷)` : text;
+    // 用全新 string，切斷與 pdfjs 內部 buffer 的潛在連結
+    return `（PDF 共 ${parsed.totalPages ?? "?"} 頁）\n\n${clipped}`.slice(0);
+  } finally {
+    const anyPdf = pdf as { cleanup?: () => Promise<void> | void };
+    await Promise.resolve(anyPdf.cleanup?.()).catch(() => undefined);
   }
-
-  const clipped =
-    text.length > 80_000 ? `${text.slice(0, 80_000)}\n…(截斷)` : text;
-  return `（PDF 共 ${parsed.totalPages ?? "?"} 頁）\n\n${clipped}`;
 }
 
 export async function extractDocumentText(params: {
