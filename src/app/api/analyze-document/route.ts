@@ -286,10 +286,14 @@ export async function POST(req: NextRequest) {
       );
     }
     console.error("[analyze-document]", err);
+    const looksLikePdfRuntime =
+      /DOMMatrix|pdf\.worker|fake worker|pdfjs|pdf-parse/i.test(message);
     return NextResponse.json(
       {
         error: "ANALYZE_FAILED",
-        message: "分析失敗，請稍後重試或聯絡顧問。",
+        message: looksLikePdfRuntime
+          ? "無法讀取此 PDF（伺服器解析失敗）。請改上清晰 JPG／PNG，或貼上文字內容後再分析。"
+          : "分析失敗，請稍後重試或聯絡顧問。",
         detail: message,
       },
       { status: 500 },
