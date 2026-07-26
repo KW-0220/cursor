@@ -24,6 +24,8 @@ import {
   mergeBankStatementExtracts,
   toBankStatementExtract,
 } from "@/lib/bank-statement-extract";
+import type { BrExtract } from "@/lib/br-extract";
+import { toBrExtract } from "@/lib/br-extract";
 import { formatHKD } from "@/lib/utils";
 
 export type UploadedMeta = {
@@ -48,12 +50,37 @@ type AnalyzeItemResult = {
   message?: string;
   extract?: FinancialExtract;
   bankExtract?: BankStatementExtract;
+  brExtract?: BrExtract;
   model?: string;
   docKind?: string;
   extractHint?: string | null;
   textPreview?: string;
   statementMonth?: string;
 };
+
+function BrExtractPanel({ br }: { br: BrExtract }) {
+  const rows: [string, string | null][] = [
+    ["公司中文名稱", br.company_name_zh],
+    ["公司英文名稱", br.company_name_en],
+    ["商業登記號碼", br.br_number],
+    ["業務地址", br.business_address],
+    ["業務性質", br.business_nature],
+    ["生效日期", br.effective_date],
+    ["屆滿日期", br.expiry_date],
+  ];
+  return (
+    <dl className="space-y-2 text-sm">
+      {rows.map(([label, value]) => (
+        <div key={label} className="flex flex-col gap-0.5 sm:flex-row sm:justify-between sm:gap-3">
+          <dt className="shrink-0 text-text-secondary">{label}</dt>
+          <dd className="font-medium text-navy-900 sm:text-right">
+            {value?.trim() ? value : "—"}
+          </dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
 
 function assessmentLabel(a: string | null | undefined) {
   if (a === "adequate") return "尚可";
@@ -515,6 +542,7 @@ export function ApplyDocumentsUpload({
       detail?: string;
       extract?: FinancialExtract;
       bankExtract?: BankStatementExtract;
+      brExtract?: BrExtract;
       model?: string;
       docKind?: string;
       extractHint?: string | null;
@@ -542,6 +570,7 @@ export function ApplyDocumentsUpload({
         docKind === "bank"
           ? toBankStatementExtract(data.bankExtract, statementMonth)
           : undefined,
+      brExtract: docKind === "br" ? toBrExtract(data.brExtract) : undefined,
       model: data.model,
       docKind: data.docKind,
       extractHint: data.extractHint,
@@ -744,8 +773,8 @@ export function ApplyDocumentsUpload({
         />
         <StateBanner
           tone="info"
-          title="銀行月結會讀取"
-          description="公司現金流、每月／每日戶口結餘、營業進帳、進帳頻率及來源、戶口異常、基本還款能力。BR／NAR1 主要補公司名。"
+          title="各文件讀取重點"
+          description="銀行月結：現金流／結餘／進帳／異常／還款能力。BR：中英文名、登記號碼、地址、業務性質、生效／屆滿日。NAR1：公司名等。"
         />
         <Button
           fullWidth
@@ -794,8 +823,45 @@ export function ApplyDocumentsUpload({
               const merged = mergeFinancialExtracts(
                 analyzeResults.filter((r) => r.ok).map((r) => r.extract),
               );
+              const brResult = analyzeResults.find(
+                (r) => r.docKind === "br" && r.ok && r.brExtract,
+              );
+              const brFail = analyzeResults.find(
+                (r) => r.docKind === "br" && !r.ok,
+              );
+
               return (
                 <>
+                  <Card>
+                    <SectionHeader
+                      title="商業登記證（BR）"
+                      subtitle="中／英文名 · 登記號碼 · 地址 · 性質 · 生效／屆滿"
+                    />
+                    {brFail && (
+                      <StateBanner
+                        tone="error"
+                        title="BR 分析失敗"
+                        description={brFail.message || "請重試或改上清晰 JPG"}
+                      />
+                    )}
+                    {brResult?.brExtract ? (
+                      <>
+                        {brResult.extractHint && (
+                          <p className="mb-3 rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                            {brResult.extractHint}
+                          </p>
+                        )}
+                        <BrExtractPanel br={brResult.brExtract} />
+                        <pre className="mt-3 overflow-auto rounded bg-white/70 p-2 text-[11px] text-text-secondary">
+                          {JSON.stringify(brResult.brExtract, null, 2)}
+                        </pre>
+                      </>
+                    ) : (
+                      !brFail && (
+                        <p className="text-sm text-text-muted">尚未取得 BR 資料。</p>
+                      )
+                    )}
+                  </Card>
                   <Card>
                     <SectionHeader
                       title="六個月銀行現金流預審"
@@ -826,11 +892,10 @@ export function ApplyDocumentsUpload({
                   </Card>
                   <details className="rounded-lg border border-border/60 bg-surface-2 p-3">
                     <summary className="cursor-pointer text-sm font-medium text-navy-900">
-                      兼容欄位 JSON（BR／舊格式，非月結主結果）
+                      兼容欄位 JSON（舊格式，非 BR／月結主結果）
                     </summary>
                     <p className="mt-2 text-xs text-text-muted">
-                      呢個區塊會顯示 company_name／revenue
-                      等舊欄位；月結主結果係上面六大項。
+                      僅作下游兼容；BR／月結請睇上面專用區塊。
                     </p>
                     <div className="mt-2">
                       <StructuredJsonBlock extract={merged} />
@@ -850,6 +915,20 @@ export function ApplyDocumentsUpload({
                   <p className="mt-2 text-sm text-danger-600">
                     {r.message || "失敗"}
                   </p>
+                ) : r.brExtract ? (
+                  <div className="mt-3 space-y-2">
+                    {r.extractHint && (
+                      <p className="rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                        {r.extractHint}
+                      </p>
+                    )}
+                    <BrExtractPanel br={r.brExtract} />
+                    {r.model && (
+                      <p className="pt-1 text-xs text-text-muted">
+                        model：{r.model} · br
+                      </p>
+                    )}
+                  </div>
                 ) : r.bankExtract ? (
                   <div className="mt-3 space-y-2 text-sm">
                     {r.extractHint && (

@@ -180,7 +180,9 @@ export async function extractDocumentText(params: {
       text = "";
     }
 
-    const needsVision = pdfTextLooksWeak(text, docKind);
+    // BR 幾乎都係掃描證：有文字都一併轉頁面圖，提高中文名／登記號碼／日期辨識率
+    const needsVision =
+      docKind === "br" || pdfTextLooksWeak(text, docKind);
     if (!needsVision) {
       return { text, method: "pdf", imageUrls: [], pageCount };
     }

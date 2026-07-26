@@ -15,6 +15,13 @@ import {
   parseBankStatementExtract,
 } from "@/lib/bank-statement-extract";
 import {
+  BR_EXTRACT_SYSTEM_PROMPT,
+  brExtractHint,
+  brExtractToFinancial,
+  buildBrExtractUserText,
+  parseBrExtract,
+} from "@/lib/br-extract";
+import {
   hasOpenAIKey,
   manusRespond,
   parseModelJsonObject,
@@ -41,6 +48,7 @@ function analyzeModel() {
  * Backend-only Manus Responses API（禁止 Frontend 直連）
  *
  * docKind=bank → bankExtract（現金流 6 大項）+ 兼容 extract
+ * docKind=br → brExtract（中／英文名、登記號碼、地址、性質、生效／屆滿）
  * 其他 → extract：company_name / financial_year / revenue / EBITDA / net_profit / existing_debt
  *
  * formData: file / text / companyName / docKind / statementMonth
@@ -228,6 +236,104 @@ export async function POST(req: NextRequest) {
             .join(" · "),
           applicantFacingMessage:
             "已完成銀行月結初步現金流抽取，供顧問覆核。AI 不直接決定批出貸款。",
+        },
+        disclaimer:
+          "此建議只供初步參考，實際貸款條件及批核結果由相關貸款機構決定。",
+      });
+    }
+
+    /** —— 商業登記證 BR —— */
+    if (docKind === "br") {
+      const brUser = buildBrExtractUserText({
+        fileName: manusFileName,
+        companyNameHint,
+        pastedText: plainText,
+      });
+      const manus = await manusRespond({
+        system: BR_EXTRACT_SYSTEM_PROMPT,
+        userText: hasVision
+          ? `${brUser}\n\n（已附 BR 頁面影像，請一併辨識中英文名稱、登記號碼、地址、日期。）`
+          : brUser,
+        imageUrl,
+        imageUrls,
+        maxWaitMs: 50_000,
+        pollMs: 1500,
+      });
+
+      let parsedJson: unknown;
+      try {
+        parsedJson = parseModelJsonObject(manus.text);
+      } catch {
+        return NextResponse.json(
+          {
+            error: "INVALID_MODEL_JSON",
+            message: "BR 模型回傳格式不符，請重試",
+            detail: manus.text.slice(0, 500),
+          },
+          { status: 502 },
+        );
+      }
+
+      const parsed = parseBrExtract(parsedJson);
+      if (!parsed.ok) {
+        return NextResponse.json(
+          {
+            error: "INVALID_MODEL_JSON",
+            message: "BR 模型回傳格式不符，請重試",
+            detail: parsed.error,
+            rawPreview: manus.text.slice(0, 500),
+          },
+          { status: 502 },
+        );
+      }
+
+      const brExtract = parsed.data;
+      const extract = brExtractToFinancial(brExtract);
+
+      if (rawOnly) {
+        return NextResponse.json(brExtract);
+      }
+
+      return NextResponse.json({
+        ok: true,
+        model: manus.model || model,
+        provider: "manus",
+        taskId: manus.id,
+        fileName,
+        mimeType,
+        docKind,
+        extractMethod,
+        textLength: plainText.length,
+        textPreview,
+        extractHint: brExtractHint(brExtract),
+        brExtract,
+        extract,
+        company_name: extract.company_name,
+        financial_year: extract.financial_year,
+        revenue: extract.revenue,
+        EBITDA: extract.EBITDA,
+        net_profit: extract.net_profit,
+        existing_debt: extract.existing_debt,
+        // 頂層亦放 BR 欄位，方便前端直接讀
+        company_name_zh: brExtract.company_name_zh,
+        company_name_en: brExtract.company_name_en,
+        br_number: brExtract.br_number,
+        business_address: brExtract.business_address,
+        business_nature: brExtract.business_nature,
+        effective_date: brExtract.effective_date,
+        expiry_date: brExtract.expiry_date,
+        analysis: {
+          documentType: "br" as const,
+          overall: "amber" as const,
+          summary: [
+            brExtract.company_name_en || brExtract.company_name_zh,
+            brExtract.br_number,
+            brExtract.expiry_date ? `屆滿 ${brExtract.expiry_date}` : null,
+          ]
+            .filter(Boolean)
+            .join(" · "),
+          applicantFacingMessage:
+            "已完成商業登記證初步抽取，供顧問覆核。AI 不直接決定批出貸款。",
         },
         disclaimer:
           "此建議只供初步參考，實際貸款條件及批核結果由相關貸款機構決定。",
