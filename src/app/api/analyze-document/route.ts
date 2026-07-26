@@ -253,9 +253,18 @@ export async function POST(req: NextRequest) {
         {
           error: "PDF_EMPTY_TEXT",
           message:
-            "未能從 PDF 抽出文字（可能是掃描影像）。請改上清晰照片，或貼上文字內容。",
+            "未能從 PDF 抽出文字（可能是掃描影像）。請改上清晰照片／JPG，或貼上文字內容。",
         },
         { status: 422 },
+      );
+    }
+    if (message === "PDF_PARSER_UNAVAILABLE") {
+      return NextResponse.json(
+        {
+          error: "PDF_PARSER_UNAVAILABLE",
+          message: "PDF 解析模組未能載入，請稍後再試或改上 JPG／PNG。",
+        },
+        { status: 500 },
       );
     }
     if (message === "UNSUPPORTED_FILE_TYPE") {

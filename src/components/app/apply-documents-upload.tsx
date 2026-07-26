@@ -302,15 +302,20 @@ export function ApplyDocumentsUpload({
       ok?: boolean;
       message?: string;
       error?: string;
+      detail?: string;
       extract?: FinancialExtract;
       model?: string;
     };
     if (!res.ok || !data.ok) {
+      const detail =
+        typeof data.detail === "string" && data.detail.length < 180
+          ? `（${data.detail}）`
+          : "";
       return {
         label,
         fileName: meta.name,
         ok: false,
-        message: data.message || data.error || "分析失敗",
+        message: `${data.message || data.error || "分析失敗"}${detail}`,
       };
     }
     return {
