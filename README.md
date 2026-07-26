@@ -118,7 +118,7 @@ curl -X POST http://localhost:3000/api/analyze-document \
 
 - Next.js 16 + TypeScript + Tailwind 4
 - OpenAI SDK + Zod JSON Schema
-- pdf-parse（文字型 PDF）；圖片走 Vision
+- unpdf（文字型 PDF）；圖片走 Vision
 
 ## 下一步
 
