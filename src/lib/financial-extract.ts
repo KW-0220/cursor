@@ -191,7 +191,7 @@ export function buildExtractHint(input: {
       return "已讀到 BR。通常只有公司名，不會有 revenue／EBITDA／純利；財務數字要睇銀行月結或審計報告。";
     }
     if (!extract.company_name && usedVision) {
-      return "已用頁面影像辨識，但仍未見到清晰公司名。請改上更清楚�辨識，但仍未見到清晰公司名。請改上更清楚嘅 JPG／PNG（成張證、唔好反光）。";
+      return "已用頁面影像辨識，但仍未見到清晰公司名。請改上更清楚嘅 JPG／PNG（成張證、唔好反光）。";
     }
   }
 
