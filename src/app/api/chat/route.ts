@@ -4,11 +4,13 @@ import {
   buildRagContextBlock,
   getRagKnowledgeBase,
 } from "@/lib/integrations/rag";
-import { getOpenAI, hasOpenAIKey, OPENAI_MODEL } from "@/lib/openai";
+import { hasOpenAIKey, manusRespond, OPENAI_MODEL } from "@/lib/openai";
 
 export const runtime = "nodejs";
 export const preferredRegion = ["sin1", "iad1"];
 export const maxDuration = 60;
+
+const bodySchema = z.object({
   message: z.string().min(1).optional(),
   messages: z
     .array(
@@ -180,40 +182,30 @@ export async function POST(req: Request) {
       });
     }
 
-    const openai = getOpenAI();
     const model = OPENAI_MODEL;
     const userMessage = lastUser;
 
     try {
-      const completion = await openai.chat.completions.create({
-        model,
-        messages: [
-          {
-            role: "system",
-            content: systemWithRag,
-          },
-          {
-            role: "user",
-            content: userMessage,
-          },
-        ],
+      const manus = await manusRespond({
+        system: systemWithRag,
+        userText: userMessage,
+        maxWaitMs: 55_000,
       });
-
-      const reply =
-        completion.choices[0]?.message?.content?.trim() ||
-        localFallback(lastUser).reply;
+      const reply = manus.text.trim() || localFallback(lastUser).reply;
 
       return NextResponse.json({
         reply,
         actions: inferActions(`${lastUser}\n${reply}`),
         disclaimer,
-        model,
+        model: manus.model || model,
+        provider: "manus",
+        taskId: manus.id,
         rag: { provider: rag.provider, mode: rag.mode, hits: rag.chunks.length },
       });
     } catch (openaiErr) {
       const fb = localFallback(lastUser);
       const detail =
-        openaiErr instanceof Error ? openaiErr.message : "OpenAI error";
+        openaiErr instanceof Error ? openaiErr.message : "Manus error";
       return NextResponse.json({
         reply: fb.reply,
         actions: fb.actions,

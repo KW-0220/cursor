@@ -9,7 +9,11 @@ import { z } from "zod";
  */
 export const FinancialExtractSchema = z.object({
   company_name: z.string().nullable(),
-  financial_year: z.string().nullable(),
+  // Manus 有時回 number；統一成 string
+  financial_year: z
+    .union([z.string(), z.number()])
+    .nullable()
+    .transform((v) => (v == null ? null : String(v))),
   revenue: z.number().nullable(),
   EBITDA: z.number().nullable(),
   net_profit: z.number().nullable(),

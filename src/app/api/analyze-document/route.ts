@@ -1,31 +1,36 @@
 import { NextRequest, NextResponse } from "next/server";
-import type OpenAI from "openai";
 import { extractDocumentText } from "@/lib/document-extract";
 import {
   FINANCIAL_EXTRACT_SYSTEM_PROMPT,
   FinancialExtractSchema,
   buildFinancialExtractUserText,
-  financialExtractJsonSchema,
   toStructuredExtractJson,
 } from "@/lib/financial-extract";
-import { getOpenAI, hasOpenAIKey } from "@/lib/openai";
+import {
+  hasOpenAIKey,
+  manusRespond,
+  parseModelJsonObject,
+} from "@/lib/openai";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
-/** OpenAI 不支援 hkg1；強制在新加坡執行 */
+/** OpenAI/Manus 不支援 hkg1；強制在新加坡執行 */
 export const preferredRegion = ["sin1", "iad1"];
-
 
 const MAX_BYTES = 12 * 1024 * 1024;
 
-/** 文件分析預設 gpt-5（可用 OPENAI_ANALYZE_MODEL 覆寫） */
+/** 文件分析模型（Manus agent profile） */
 function analyzeModel() {
-  return process.env.OPENAI_ANALYZE_MODEL?.trim() || "gpt-5";
+  return (
+    process.env.OPENAI_ANALYZE_MODEL?.trim() ||
+    process.env.OPENAI_MODEL?.trim() ||
+    "manus-1.6"
+  );
 }
 
 /**
  * POST /api/analyze-document
- * Backend-only OpenAI（禁止 Frontend 直連）
+ * Backend-only Manus Responses API（禁止 Frontend 直連）
  *
  * 成功時 extract（及頂層欄位）固定為：
  * {
@@ -42,7 +47,7 @@ export async function POST(req: NextRequest) {
         {
           error: "MISSING_OPENAI_API_KEY",
           message:
-            "OPENAI_API_KEY 必須放 Backend（.env.local 或 Vercel Environment Variables），不可用 NEXT_PUBLIC_",
+            "MANUS_API_KEY / OPENAI_API_KEY 必須放 Backend（.env.local 或 Vercel Environment Variables），不可用 NEXT_PUBLIC_",
         },
         { status: 503 },
       );
@@ -102,64 +107,41 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const client = getOpenAI();
     const model = analyzeModel();
-
-    // 對齊：user content = text + 可選 image_url
-    const userContent: Array<OpenAI.Chat.ChatCompletionContentPart> = [
-      {
-        type: "text",
-        text:
-          buildFinancialExtractUserText({
-            fileName,
-            pastedText: extractedText,
-            companyNameHint,
-          }) || "請分析這份財務報表",
-      },
-    ];
-
-    if (imageUrl) {
-      userContent.push({
-        type: "image_url",
-        image_url: { url: imageUrl },
-      });
-    }
+    const userText =
+      buildFinancialExtractUserText({
+        fileName,
+        pastedText: extractedText,
+        companyNameHint,
+      }) || "請分析這份財務報表";
 
     /**
-     * import OpenAI from "openai"
-     * const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
-     * model: "gpt-5"
-     * system: 香港中小企貸款審批助手 + 6 欄抽取
-     * user: text + image_url
-     * + json_schema 強制結構化輸出
+     * Manus Responses API（OpenAI SDK compatible）
+     * baseURL: https://api.manus.im/v1
+     * header: API_KEY
      */
-    const response = await client.chat.completions.create({
-      model,
-      messages: [
-        {
-          role: "system",
-          content: FINANCIAL_EXTRACT_SYSTEM_PROMPT,
-        },
-        {
-          role: "user",
-          content: userContent,
-        },
-      ],
-      response_format: {
-        type: "json_schema",
-        json_schema: financialExtractJsonSchema,
-      },
+    const manus = await manusRespond({
+      system: FINANCIAL_EXTRACT_SYSTEM_PROMPT,
+      userText,
+      imageUrl,
+      maxWaitMs: 55_000,
     });
 
-    const raw = response.choices[0]?.message?.content;
-    if (!raw) {
+    let parsedJson: unknown;
+    try {
+      parsedJson = parseModelJsonObject(manus.text);
+    } catch {
       return NextResponse.json(
-        { error: "EMPTY_MODEL_RESPONSE", message: "模型沒有回傳內容" },
+        {
+          error: "INVALID_MODEL_JSON",
+          message: "模型回傳格式不符，請重試",
+          detail: manus.text.slice(0, 500),
+        },
         { status: 502 },
       );
     }
 
-    const parsed = FinancialExtractSchema.safeParse(JSON.parse(raw));
+    const parsed = FinancialExtractSchema.safeParse(parsedJson);
     if (!parsed.success) {
       return NextResponse.json(
         {
@@ -173,7 +155,6 @@ export async function POST(req: NextRequest) {
 
     const extract = toStructuredExtractJson(parsed.data);
 
-    // ?raw=1 → 只回指定 JSON
     if (rawOnly) {
       return NextResponse.json(extract);
     }
@@ -248,12 +229,13 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({
       ok: true,
-      model,
+      model: manus.model || model,
+      provider: "manus",
+      taskId: manus.id,
       fileName,
       mimeType,
       extractMethod,
       extract,
-      // 扁平欄位 = 指定 JSON
       company_name: extract.company_name,
       financial_year: extract.financial_year,
       revenue: extract.revenue,
@@ -261,7 +243,6 @@ export async function POST(req: NextRequest) {
       net_profit: extract.net_profit,
       existing_debt: extract.existing_debt,
       analysis,
-      usage: response.usage ?? null,
       disclaimer:
         "此建議只供初步參考，實際貸款條件及批核結果由相關貸款機構決定。",
     });
@@ -284,6 +265,15 @@ export async function POST(req: NextRequest) {
           message: "暫支援 PDF、文字檔、圖片（JPG/PNG/WEBP）。",
         },
         { status: 415 },
+      );
+    }
+    if (message === "MANUS_TIMEOUT") {
+      return NextResponse.json(
+        {
+          error: "MANUS_TIMEOUT",
+          message: "Manus 分析逾時，請稍後再試。",
+        },
+        { status: 504 },
       );
     }
     console.error("[analyze-document]", err);
