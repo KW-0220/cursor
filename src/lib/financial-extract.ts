@@ -59,7 +59,10 @@ export const FINANCIAL_EXTRACT_SYSTEM_PROMPT = `你是一個香港中小企貸�
 5. Net Profit（net_profit）
 6. Existing Debt（existing_debt）
 
-不要猜測不存在的資料。文件沒有的欄位必須填 null。
+重要規則：
+- 只根據使用者訊息內提供的文字／圖片抽取，禁止上網搜尋、禁止開啟或下載任何外部檔案。
+- 不要猜測不存在的資料。文件沒有的欄位必須填 null。
+- 即使資料很少，也要立即回傳 JSON（缺欄位用 null），不要繼續研究。
 
 只以 JSON 輸出（不要加其他文字）：
 {
