@@ -15,6 +15,15 @@ import {
   mergeFinancialExtracts,
   toStructuredExtractJson,
 } from "@/lib/financial-extract";
+import type {
+  BankCashflowBrief,
+  BankStatementExtract,
+} from "@/lib/bank-statement-extract";
+import {
+  formatHkd,
+  mergeBankStatementExtracts,
+  toBankStatementExtract,
+} from "@/lib/bank-statement-extract";
 import { formatHKD } from "@/lib/utils";
 
 export type UploadedMeta = {
@@ -38,11 +47,205 @@ type AnalyzeItemResult = {
   ok: boolean;
   message?: string;
   extract?: FinancialExtract;
+  bankExtract?: BankStatementExtract;
   model?: string;
   docKind?: string;
   extractHint?: string | null;
   textPreview?: string;
+  statementMonth?: string;
 };
+
+function assessmentLabel(a: string | null | undefined) {
+  if (a === "adequate") return "尚可";
+  if (a === "tight") return "偏緊";
+  if (a === "weak") return "偏弱";
+  return "未知";
+}
+
+function BankCashflowBriefPanel({ brief }: { brief: BankCashflowBrief }) {
+  return (
+    <div className="space-y-4">
+      <section className="space-y-2">
+        <h4 className="text-sm font-semibold text-navy-900">1. 公司現金流</h4>
+        <p className="text-xs text-text-secondary">{brief.cashflow.narrative}</p>
+        <dl className="grid grid-cols-1 gap-1 text-sm sm:grid-cols-3">
+          <div className="flex justify-between gap-2 sm:block">
+            <dt className="text-text-muted">六個月總存入</dt>
+            <dd className="tabular font-medium">
+              {formatHkd(brief.cashflow.sixMonthTotalCredits)}
+            </dd>
+          </div>
+          <div className="flex justify-between gap-2 sm:block">
+            <dt className="text-text-muted">六個月總支出</dt>
+            <dd className="tabular font-medium">
+              {formatHkd(brief.cashflow.sixMonthTotalDebits)}
+            </dd>
+          </div>
+          <div className="flex justify-between gap-2 sm:block">
+            <dt className="text-text-muted">六個月淨現金流</dt>
+            <dd className="tabular font-medium">
+              {formatHkd(brief.cashflow.sixMonthNet)}
+            </dd>
+          </div>
+        </dl>
+        <ul className="space-y-1 text-xs text-text-secondary">
+          {brief.cashflow.months.map((m) => (
+            <li key={m.month} className="flex flex-wrap justify-between gap-2">
+              <span>{m.month}</span>
+              <span className="tabular">
+                存入 {formatHkd(m.totalCredits)} · 淨額{" "}
+                {formatHkd(m.netCashflow)}
+              </span>
+            </li>
+          ))}
+        </ul>
+      </section>
+
+      <section className="space-y-2">
+        <h4 className="text-sm font-semibold text-navy-900">
+          2. 每月及每日戶口結餘
+        </h4>
+        <dl className="grid grid-cols-1 gap-1 text-sm sm:grid-cols-2">
+          <div className="flex justify-between gap-2">
+            <dt className="text-text-muted">六個月平均每日結餘</dt>
+            <dd className="tabular font-medium">
+              {formatHkd(brief.balances.sixMonthAvgDaily)}
+            </dd>
+          </div>
+          <div className="flex justify-between gap-2">
+            <dt className="text-text-muted">六個月最低每日結餘</dt>
+            <dd className="tabular font-medium">
+              {formatHkd(brief.balances.sixMonthMinDaily)}
+            </dd>
+          </div>
+        </dl>
+        <ul className="space-y-1 text-xs text-text-secondary">
+          {brief.balances.months.map((m) => (
+            <li key={m.month} className="flex flex-wrap justify-between gap-2">
+              <span>{m.month}</span>
+              <span className="tabular">
+                開 {formatHkd(m.opening)} / 收 {formatHkd(m.closing)} · ADB{" "}
+                {formatHkd(m.averageDaily)} · 最低 {formatHkd(m.minDaily)}
+                {m.dailyCount ? ` · ${m.dailyCount} 日` : ""}
+              </span>
+            </li>
+          ))}
+        </ul>
+      </section>
+
+      <section className="space-y-2">
+        <h4 className="text-sm font-semibold text-navy-900">3. 營業進帳</h4>
+        <dl className="grid grid-cols-1 gap-1 text-sm sm:grid-cols-2">
+          <div className="flex justify-between gap-2">
+            <dt className="text-text-muted">六個月營業進帳</dt>
+            <dd className="tabular font-medium">
+              {formatHkd(brief.operatingInflows.sixMonthOperating)}
+            </dd>
+          </div>
+          <div className="flex justify-between gap-2">
+            <dt className="text-text-muted">每月平均營業進帳</dt>
+            <dd className="tabular font-medium">
+              {formatHkd(brief.operatingInflows.monthlyAvgOperating)}
+            </dd>
+          </div>
+        </dl>
+        <ul className="space-y-1 text-xs text-text-secondary">
+          {brief.operatingInflows.months.map((m) => (
+            <li key={m.month} className="flex flex-wrap justify-between gap-2">
+              <span>{m.month}</span>
+              <span className="tabular">
+                營業 {formatHkd(m.operatingCredits)} · 總存入{" "}
+                {formatHkd(m.totalCredits)}
+              </span>
+            </li>
+          ))}
+        </ul>
+      </section>
+
+      <section className="space-y-2">
+        <h4 className="text-sm font-semibold text-navy-900">
+          4. 進帳頻率及來源
+        </h4>
+        <ul className="space-y-1 text-xs text-text-secondary">
+          {brief.inflowPattern.months.map((m) => (
+            <li key={m.month} className="flex flex-wrap justify-between gap-2">
+              <span>{m.month}</span>
+              <span>
+                {m.creditCount ?? "—"} 筆 · {m.creditDays ?? "—"} 個進帳日
+              </span>
+            </li>
+          ))}
+        </ul>
+        {brief.inflowPattern.sources.length > 0 ? (
+          <ul className="mt-2 space-y-1 text-sm">
+            {brief.inflowPattern.sources.map((s) => (
+              <li
+                key={s.source}
+                className="flex flex-wrap items-baseline justify-between gap-2"
+              >
+                <span className="font-medium text-navy-900">{s.source}</span>
+                <span className="tabular text-xs text-text-secondary">
+                  {formatHkd(s.totalHkd)} · {s.sharePct.toFixed(1)}%
+                  {s.frequency ? ` · ${s.frequency}` : ""}
+                </span>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="text-xs text-text-muted">未能分辨主要進帳來源。</p>
+        )}
+      </section>
+
+      <section className="space-y-2">
+        <h4 className="text-sm font-semibold text-navy-900">5. 戶口異常紀錄</h4>
+        {brief.anomalies.length === 0 ? (
+          <p className="text-xs text-text-muted">未見明顯異常紀錄（或文件未列）。</p>
+        ) : (
+          <ul className="space-y-2 text-sm">
+            {brief.anomalies.map((a, i) => (
+              <li
+                key={`${a.date}-${i}`}
+                className="rounded-md bg-amber-50 px-3 py-2 text-amber-950"
+              >
+                <p className="text-xs text-amber-800">
+                  {[a.month, a.date, a.kind].filter(Boolean).join(" · ")}
+                </p>
+                <p className="mt-0.5">{a.description}</p>
+                {a.amountHkd != null && (
+                  <p className="mt-0.5 tabular text-xs">
+                    {formatHkd(a.amountHkd)}
+                  </p>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+      <section className="space-y-2">
+        <h4 className="text-sm font-semibold text-navy-900">
+          6. 公司基本還款能力
+        </h4>
+        <p className="text-sm font-medium text-navy-900">
+          整體：{assessmentLabel(brief.repaymentCapacity.overall)}
+        </p>
+        <p className="text-xs text-text-secondary">
+          {brief.repaymentCapacity.narrative}
+        </p>
+        <ul className="space-y-1 text-xs text-text-secondary">
+          {brief.repaymentCapacity.assessments.map((a) => (
+            <li key={a.month} className="flex flex-wrap justify-between gap-2">
+              <span>
+                {a.month} · {assessmentLabel(a.assessment)}
+              </span>
+              <span>{a.notes || "—"}</span>
+            </li>
+          ))}
+        </ul>
+      </section>
+    </div>
+  );
+}
 
 export function lastSixBankMonths(now = new Date()): string[] {
   const d = new Date(now.getFullYear(), now.getMonth(), 1);
@@ -290,6 +493,7 @@ export function ApplyDocumentsUpload({
     label: string,
     meta: UploadedMeta,
     docKind: "br" | "nar1" | "bank",
+    statementMonth?: string,
   ): Promise<AnalyzeItemResult> {
     const form = new FormData();
     form.set("file", meta.file);
@@ -297,6 +501,7 @@ export function ApplyDocumentsUpload({
     form.set("loanType", loanType);
     form.set("amountHkd", String(amountHkd));
     form.set("purpose", purpose);
+    if (statementMonth) form.set("statementMonth", statementMonth);
     if (companyName.trim()) form.set("companyName", companyName.trim());
 
     const res = await fetch("/api/analyze-document", {
@@ -309,10 +514,12 @@ export function ApplyDocumentsUpload({
       error?: string;
       detail?: string;
       extract?: FinancialExtract;
+      bankExtract?: BankStatementExtract;
       model?: string;
       docKind?: string;
       extractHint?: string | null;
       textPreview?: string;
+      statementMonth?: string;
     };
     if (!res.ok || !data.ok) {
       const detail =
@@ -331,10 +538,15 @@ export function ApplyDocumentsUpload({
       fileName: meta.name,
       ok: true,
       extract: toStructuredExtractJson(data.extract),
+      bankExtract:
+        docKind === "bank"
+          ? toBankStatementExtract(data.bankExtract, statementMonth)
+          : undefined,
       model: data.model,
       docKind: data.docKind,
       extractHint: data.extractHint,
       textPreview: data.textPreview,
+      statementMonth: data.statementMonth ?? statementMonth,
     };
   }
 
@@ -347,24 +559,37 @@ export function ApplyDocumentsUpload({
     setAnalyzeError(null);
     setAnalyzeResults([]);
 
-    // 銀行月結先抽（先有現金流），BR／NAR1 主要補公司名
-    const queue: {
+    // 銀行月結先抽（現金流六大項），BR／NAR1 補公司名
+    const bankQueue = months.flatMap((m) => {
+      const meta = docs.bank[m];
+      return meta
+        ? [
+            {
+              label: `銀行月結單 ${m}`,
+              meta,
+              docKind: "bank" as const,
+              statementMonth: m,
+            },
+          ]
+        : [];
+    });
+    const otherQueue: {
       label: string;
       meta: UploadedMeta;
-      docKind: "br" | "nar1" | "bank";
+      docKind: "br" | "nar1";
+      statementMonth?: undefined;
     }[] = [];
-    months.forEach((m) => {
-      const meta = docs.bank[m];
-      if (meta) {
-        queue.push({ label: `銀行月結單 ${m}`, meta, docKind: "bank" });
-      }
-    });
     if (docs.nar1) {
-      queue.push({ label: "NAR1", meta: docs.nar1, docKind: "nar1" });
+      otherQueue.push({ label: "NAR1", meta: docs.nar1, docKind: "nar1" });
     }
     if (docs.br) {
-      queue.push({ label: "商業登記證 BR", meta: docs.br, docKind: "br" });
+      otherQueue.push({
+        label: "商業登記證 BR",
+        meta: docs.br,
+        docKind: "br",
+      });
     }
+    const queue = [...bankQueue, ...otherQueue];
 
     const results: AnalyzeItemResult[] = [];
     try {
@@ -373,7 +598,14 @@ export function ApplyDocumentsUpload({
         setAnalyzeProgress(
           `正在分析（${i + 1}／${queue.length}）：${item.label}`,
         );
-        results.push(await analyzeOne(item.label, item.meta, item.docKind));
+        results.push(
+          await analyzeOne(
+            item.label,
+            item.meta,
+            item.docKind,
+            item.statementMonth,
+          ),
+        );
         setAnalyzeResults([...results]);
       }
       setAnalyzeProgress(null);
@@ -512,8 +744,8 @@ export function ApplyDocumentsUpload({
         />
         <StateBanner
           tone="info"
-          title="欄位期望"
-          description="BR／NAR1 通常只有公司名（revenue 等為 null 屬正常）。營業額／流入主要來自 6 份銀行月結；EBITDA／純利需要審計或管理帳，本清單未必有。"
+          title="銀行月結會讀取"
+          description="公司現金流、每月／每日戶口結餘、營業進帳、進帳頻率及來源、戶口異常、基本還款能力。BR／NAR1 主要補公司名。"
         />
         <Button
           fullWidth
@@ -546,17 +778,37 @@ export function ApplyDocumentsUpload({
         {analyzeResults.length > 0 && (
           <div className="space-y-3">
             {(() => {
+              const bankOk = analyzeResults.filter(
+                (r) => r.ok && r.docKind === "bank" && r.bankExtract,
+              );
+              const brief =
+                bankOk.length > 0
+                  ? mergeBankStatementExtracts(
+                      bankOk.map((r) => r.bankExtract!),
+                    )
+                  : null;
               const merged = mergeFinancialExtracts(
                 analyzeResults.filter((r) => r.ok).map((r) => r.extract),
               );
               return (
-                <Card>
-                  <SectionHeader
-                    title="申請結構化資料（JSON）"
-                    subtitle="AI 讀取後合併輸出 · 缺欄＝null"
-                  />
-                  <StructuredJsonBlock extract={merged} />
-                </Card>
+                <>
+                  {brief && (
+                    <Card>
+                      <SectionHeader
+                        title="六個月銀行現金流預審"
+                        subtitle={`${bankOk.length}／6 份月結已分析 · 供顧問覆核`}
+                      />
+                      <BankCashflowBriefPanel brief={brief} />
+                    </Card>
+                  )}
+                  <Card>
+                    <SectionHeader
+                      title="申請結構化資料（JSON）"
+                      subtitle="兼容欄位合併 · 銀行 revenue≈營業／總存入"
+                    />
+                    <StructuredJsonBlock extract={merged} />
+                  </Card>
+                </>
               );
             })()}
 
@@ -570,6 +822,66 @@ export function ApplyDocumentsUpload({
                   <p className="mt-2 text-sm text-danger-600">
                     {r.message || "失敗"}
                   </p>
+                ) : r.bankExtract ? (
+                  <div className="mt-3 space-y-2 text-sm">
+                    {r.extractHint && (
+                      <p className="rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                        {r.extractHint}
+                      </p>
+                    )}
+                    <dl className="space-y-1">
+                      <div className="flex justify-between gap-2">
+                        <dt className="text-text-secondary">月份／銀行</dt>
+                        <dd>
+                          {r.bankExtract.month ?? "—"} ·{" "}
+                          {r.bankExtract.bank_name ?? "—"}
+                        </dd>
+                      </div>
+                      <div className="flex justify-between gap-2">
+                        <dt className="text-text-secondary">開／收結餘</dt>
+                        <dd className="tabular">
+                          {formatHkd(r.bankExtract.opening_balance)} /{" "}
+                          {formatHkd(r.bankExtract.closing_balance)}
+                        </dd>
+                      </div>
+                      <div className="flex justify-between gap-2">
+                        <dt className="text-text-secondary">存入／營業進帳</dt>
+                        <dd className="tabular">
+                          {formatHkd(r.bankExtract.total_credits)} /{" "}
+                          {formatHkd(r.bankExtract.operating_credits)}
+                        </dd>
+                      </div>
+                      <div className="flex justify-between gap-2">
+                        <dt className="text-text-secondary">淨現金流</dt>
+                        <dd className="tabular">
+                          {formatHkd(r.bankExtract.net_cashflow)}
+                        </dd>
+                      </div>
+                      <div className="flex justify-between gap-2">
+                        <dt className="text-text-secondary">異常／還款能力</dt>
+                        <dd>
+                          {r.bankExtract.anomalies?.length ?? 0} 項 ·{" "}
+                          {assessmentLabel(
+                            r.bankExtract.repayment_capacity?.assessment
+                              ? String(
+                                  r.bankExtract.repayment_capacity.assessment,
+                                )
+                              : null,
+                          )}
+                        </dd>
+                      </div>
+                    </dl>
+                    {r.bankExtract.cashflow_summary && (
+                      <p className="text-xs text-text-secondary">
+                        {r.bankExtract.cashflow_summary}
+                      </p>
+                    )}
+                    {r.model && (
+                      <p className="pt-1 text-xs text-text-muted">
+                        model：{r.model} · bank
+                      </p>
+                    )}
+                  </div>
                 ) : r.extract ? (
                   <div className="mt-3 space-y-3">
                     {r.extractHint && (
@@ -589,45 +901,11 @@ export function ApplyDocumentsUpload({
                         </dd>
                       </div>
                       <div className="flex justify-between gap-2">
-                        <dt className="text-text-secondary">financial_year</dt>
-                        <dd className="font-medium">
-                          {r.extract.financial_year ?? "null"}
-                        </dd>
-                      </div>
-                      <div className="flex justify-between gap-2">
                         <dt className="text-text-secondary">revenue</dt>
                         <dd className="tabular font-medium">
                           {money(r.extract.revenue)}
                         </dd>
                       </div>
-                      <div className="flex justify-between gap-2">
-                        <dt className="text-text-secondary">EBITDA</dt>
-                        <dd className="tabular font-medium">
-                          {money(r.extract.EBITDA)}
-                        </dd>
-                      </div>
-                      <div className="flex justify-between gap-2">
-                        <dt className="text-text-secondary">net_profit</dt>
-                        <dd className="tabular font-medium">
-                          {money(r.extract.net_profit)}
-                        </dd>
-                      </div>
-                      <div className="flex justify-between gap-2">
-                        <dt className="text-text-secondary">existing_debt</dt>
-                        <dd className="tabular font-medium">
-                          {money(r.extract.existing_debt)}
-                        </dd>
-                      </div>
-                      {r.textPreview && (
-                        <details className="pt-1">
-                          <summary className="cursor-pointer text-xs text-text-muted">
-                            已讀取文字預覽
-                          </summary>
-                          <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap rounded bg-white/70 p-2 text-[11px] text-text-secondary">
-                            {r.textPreview}
-                          </pre>
-                        </details>
-                      )}
                       {r.model && (
                         <p className="pt-1 text-xs text-text-muted">
                           model：{r.model}
@@ -643,9 +921,8 @@ export function ApplyDocumentsUpload({
             ))}
             <Disclaimer>
               AI
-              結果只供初步參考，不作貸款批核或利率承諾；最終由合作機構決定。null
-              ≠
-              讀取失敗：BR／NAR1 本來就多數無財務數字；合併 JSON 會加總各月銀行「存入合計」。
+              結果只供初步參考，不作貸款批核或利率承諾；最終由合作機構決定。銀行六大項由
+              6 份月結合併；缺欄＝文件未見，唔等於讀取失敗。
             </Disclaimer>
           </div>
         )}

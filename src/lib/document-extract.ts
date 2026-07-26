@@ -185,11 +185,11 @@ export async function extractDocumentText(params: {
       return { text, method: "pdf", imageUrls: [], pageCount };
     }
 
-    const maxPages = docKind === "nar1" ? 2 : docKind === "bank" ? 2 : 1;
+    const maxPages = docKind === "nar1" ? 2 : docKind === "bank" ? 3 : 1;
     try {
       const rendered = await renderPdfPagesAsJpegDataUrls(buffer, {
         maxPages,
-        scale: docKind === "bank" ? 1.2 : 1.5,
+        scale: docKind === "bank" ? 1.15 : 1.5,
       });
       return {
         text:

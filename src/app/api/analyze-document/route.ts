@@ -9,6 +9,13 @@ import {
   toStructuredExtractJson,
 } from "@/lib/financial-extract";
 import {
+  BANK_STATEMENT_SYSTEM_PROMPT,
+  BankStatementExtractSchema,
+  bankExtractToFinancial,
+  buildBankStatementUserText,
+  toBankStatementExtract,
+} from "@/lib/bank-statement-extract";
+import {
   hasOpenAIKey,
   manusRespond,
   parseModelJsonObject,
@@ -34,13 +41,11 @@ function analyzeModel() {
  * POST /api/analyze-document
  * Backend-only Manus Responses API（禁止 Frontend 直連）
  *
- * 成功時 extract（及頂層欄位）固定為：
- * {
- *   company_name, financial_year, revenue, EBITDA, net_profit, existing_debt
- * }
+ * docKind=bank → bankExtract（現金流 6 大項）+ 兼容 extract
+ * 其他 → extract：company_name / financial_year / revenue / EBITDA / net_profit / existing_debt
  *
- * formData: file / text / companyName
- * Query: ?raw=1 → 只回上述 JSON（無 wrapper）
+ * formData: file / text / companyName / docKind / statementMonth
+ * Query: ?raw=1 → 只回主 JSON（無 wrapper）
  */
 export async function POST(req: NextRequest) {
   try {
@@ -62,7 +67,11 @@ export async function POST(req: NextRequest) {
     const pastedText = String(formData.get("text") ?? "").trim();
     const companyNameHint =
       String(formData.get("companyName") ?? "").trim() || undefined;
-    const docKind = normalizeDocKind(formData.get("docKind") ?? formData.get("kind"));
+    const docKind = normalizeDocKind(
+      formData.get("docKind") ?? formData.get("kind"),
+    );
+    const statementMonth =
+      String(formData.get("statementMonth") ?? "").trim() || undefined;
 
     let fileName = "pasted-text.txt";
     let mimeType = "text/plain";
@@ -126,6 +135,105 @@ export async function POST(req: NextRequest) {
     // 對 Manus 隱藏 .pdf 副檔名，避免 agent 試圖「下載／開啟檔案」而拖死
     const manusFileName = fileName.replace(/\.pdf$/i, ".txt");
     const textPreview = plainText.slice(0, 1200);
+    const hasVision = Boolean(imageUrls.length || imageUrl);
+
+    /** —— 銀行月結：現金流 6 大項 —— */
+    if (docKind === "bank") {
+      const bankUser = buildBankStatementUserText({
+        fileName: manusFileName,
+        statementMonth,
+        companyNameHint,
+        pastedText: plainText,
+      });
+      const manus = await manusRespond({
+        system: BANK_STATEMENT_SYSTEM_PROMPT,
+        userText: hasVision
+          ? `${bankUser}\n\n（已附月結頁面影像，請一併辨識結餘／進帳／異常。）`
+          : bankUser,
+        imageUrl,
+        imageUrls,
+        maxWaitMs: 50_000,
+        pollMs: 1500,
+      });
+
+      let parsedJson: unknown;
+      try {
+        parsedJson = parseModelJsonObject(manus.text);
+      } catch {
+        return NextResponse.json(
+          {
+            error: "INVALID_MODEL_JSON",
+            message: "銀行月結模型回傳格式不符，請重試",
+            detail: manus.text.slice(0, 500),
+          },
+          { status: 502 },
+        );
+      }
+
+      const parsed = BankStatementExtractSchema.safeParse(parsedJson);
+      if (!parsed.success) {
+        return NextResponse.json(
+          {
+            error: "INVALID_MODEL_JSON",
+            message: "銀行月結模型回傳格式不符，請重試",
+            details: parsed.error.flatten(),
+          },
+          { status: 502 },
+        );
+      }
+
+      const bankExtract = toBankStatementExtract(parsed.data, statementMonth);
+      const extract = bankExtractToFinancial(bankExtract);
+
+      if (rawOnly) {
+        return NextResponse.json(bankExtract);
+      }
+
+      return NextResponse.json({
+        ok: true,
+        model: manus.model || model,
+        provider: "manus",
+        taskId: manus.id,
+        fileName,
+        mimeType,
+        docKind,
+        statementMonth: bankExtract.month ?? statementMonth ?? null,
+        extractMethod,
+        textLength: plainText.length,
+        textPreview,
+        extractHint:
+          bankExtract.total_credits == null &&
+          bankExtract.opening_balance == null
+            ? "已讀月結，但未能定位結餘／進帳。請確認係完整交易月結（非只封面）。"
+            : "已抽取本月現金流／結餘／進帳／異常／還款能力（供六個月合併）。",
+        bankExtract,
+        extract,
+        company_name: extract.company_name,
+        financial_year: extract.financial_year,
+        revenue: extract.revenue,
+        EBITDA: extract.EBITDA,
+        net_profit: extract.net_profit,
+        existing_debt: extract.existing_debt,
+        analysis: {
+          documentType: "bank_statement" as const,
+          overall: "amber" as const,
+          summary: [
+            bankExtract.month,
+            bankExtract.bank_name,
+            bankExtract.total_credits != null
+              ? `存入 ${bankExtract.total_credits}`
+              : null,
+          ]
+            .filter(Boolean)
+            .join(" · "),
+          applicantFacingMessage:
+            "已完成銀行月結初步現金流抽取，供顧問覆核。AI 不直接決定批出貸款。",
+        },
+        disclaimer:
+          "此建議只供初步參考，實際貸款條件及批核結果由相關貸款機構決定。",
+      });
+    }
+
     const userText =
       buildFinancialExtractUserText({
         fileName: manusFileName,
@@ -141,10 +249,9 @@ export async function POST(req: NextRequest) {
      */
     const manus = await manusRespond({
       system: buildExtractSystemPrompt(docKind),
-      userText:
-        imageUrls.length || imageUrl
-          ? `${userText}\n\n（已附文件頁面影像，請一併辨識公司名稱等欄位。）`
-          : userText,
+      userText: hasVision
+        ? `${userText}\n\n（已附文件頁面影像，請一併辨識公司名稱等欄位。）`
+        : userText,
       imageUrl,
       imageUrls,
       maxWaitMs: 50_000,
