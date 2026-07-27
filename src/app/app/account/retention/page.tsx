@@ -31,7 +31,7 @@ export default function RetentionPage() {
       </Card>
 
       <Disclaimer>
-        本頁不提供「撤回同意及刪除帳戶」一鍵刪除。若需行使查閱、更正或刪除權利，請聯絡貸款顧問或透過正式私隱查詢渠道處理。
+        若需行使查閱、更正或刪除個人資料的權利，請聯絡貸款顧問或透過正式私隱查詢渠道處理。
       </Disclaimer>
 
       <div className="mt-4 space-y-2">
