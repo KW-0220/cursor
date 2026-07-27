@@ -71,6 +71,15 @@ export default function ConsentsPage() {
     setMessage(null);
   }
 
+  function agreeAll() {
+    const next = emptyConsentSelections();
+    for (const item of CONSENT_ITEMS) next[item.id] = true;
+    setSelections(next);
+    setMessage(
+      "已勾選全部項目。向指定銀行／機構分享仍須另於「授權分享申請資料」確認。",
+    );
+  }
+
   function save() {
     const now = new Date().toISOString();
     const records: ConsentRecord[] = CONSENT_ITEMS.map((item) => ({
@@ -105,7 +114,7 @@ export default function ConsentsPage() {
         資料用途分項同意
       </h1>
       <p className="mt-2 text-sm text-text-secondary">
-        不可只使用一個「全部同意」。每項獨立勾選；選擇性用途不會預先勾選，亦不會與貸款必須同意綑綁。
+        可一鍵勾選全部項目後再儲存；各項仍可單獨取消。選擇性用途預設不勾選，不會與必須同意綑綁。
       </p>
 
       <StateBanner
@@ -117,6 +126,12 @@ export default function ConsentsPage() {
             : "尚未儲存本裝置上的同意紀錄"
         }
       />
+
+      <div className="mt-3">
+        <Button fullWidth variant="outline" onClick={agreeAll}>
+          一鍵同意全部
+        </Button>
+      </div>
 
       <SectionHeader title="同意項目" />
       <div className="space-y-3">
@@ -179,6 +194,9 @@ export default function ConsentsPage() {
       </Disclaimer>
 
       <div className="mt-4 space-y-2">
+        <Button fullWidth variant="outline" onClick={agreeAll}>
+          一鍵同意全部
+        </Button>
         <Button fullWidth onClick={save}>
           儲存同意紀錄
         </Button>
