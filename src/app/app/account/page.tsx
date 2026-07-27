@@ -25,34 +25,6 @@ type Me = {
   profileCompleted: boolean;
 };
 
-const privacyLinks = [
-  {
-    href: "/app/account/data-use",
-    title: "我們將如何使用你的資料",
-    desc: "公司、銀行、身份及補充文件用途說明",
-  },
-  {
-    href: "/app/account/consents",
-    title: "資料用途分項同意",
-    desc: "必須／選擇性用途獨立勾選，記錄版本及時間",
-  },
-  {
-    href: "/app/account/third-party",
-    title: "授權分享申請資料",
-    desc: "向指定第三方分享前的個案授權",
-  },
-  {
-    href: "/app/account/third-party-records",
-    title: "第三方分享授權紀錄",
-    desc: "已確認的分享授權歷史",
-  },
-  {
-    href: "/app/account/retention",
-    title: "資料保留期限",
-    desc: "申請資料保存及刪除安排概要",
-  },
-] as const;
-
 export default function AccountPage() {
   const router = useRouter();
   const [user, setUser] = useState<Me | null>(null);
@@ -88,7 +60,7 @@ export default function AccountPage() {
     <main className="px-4 py-5 pb-28">
       <h1 className="text-xl font-bold text-navy-900">我的帳戶</h1>
       <p className="mt-1 text-sm text-text-secondary">
-        登入狀態、公司資料、私隱及資料授權
+        登入狀態、公司資料、私隱及授權管理
       </p>
 
       {loading ? (
@@ -103,12 +75,6 @@ export default function AccountPage() {
           {user.phone && (
             <p className="mt-1 text-sm text-text-secondary">{user.phone}</p>
           )}
-          <p className="mt-2 text-xs text-text-muted">
-            資料狀態：
-            {user.profileCompleted
-              ? "已完成身份／公司登記"
-              : "尚未完成資料填寫"}
-          </p>
           {!user.profileCompleted && (
             <Link href="/register/identity" className="mt-3 block">
               <Button fullWidth>繼續填寫登記資料</Button>
@@ -120,7 +86,7 @@ export default function AccountPage() {
           <StateBanner
             tone="warning"
             title="尚未登入"
-            description="請先註冊或登入，以保存申請進度及同意紀錄。"
+            description="請先註冊或登入，以保存申請進度及授權紀錄。"
           />
           <Link href="/auth/login">
             <Button fullWidth>前往註冊／登入</Button>
@@ -128,39 +94,43 @@ export default function AccountPage() {
         </div>
       )}
 
-      <SectionHeader title="私隱與資料使用" />
+      <SectionHeader title="私隱及授權管理" />
       <StateBanner
         tone={consentOk ? "info" : "warning"}
-        title={consentOk ? "必須同意項目已記錄" : "尚未完成必須同意"}
-        description={
-          consentOk
-            ? `政策版本 ${PRIVACY_CONSENT_POLICY_VERSION} · 第三方授權紀錄 ${authCount} 筆`
-            : "請先閱讀資料用途，並在「資料用途分項同意」完成必須項目。"
-        }
+        title={consentOk ? "必須同意已記錄" : "尚未完成必須同意"}
+        description={`政策 ${PRIVACY_CONSENT_POLICY_VERSION} · 分享授權 ${authCount} 筆`}
       />
-
-      <div className="mt-3 space-y-2">
-        {privacyLinks.map((item) => (
-          <Link
-            key={item.href}
-            href={item.href}
-            className="flex w-full items-center justify-between rounded-2xl border border-border bg-surface-1 px-4 py-3 text-left"
-          >
-            <span>
-              <span className="block text-sm font-medium text-navy-900">
-                {item.title}
-              </span>
-              <span className="mt-0.5 block text-xs text-text-muted">
-                {item.desc}
-              </span>
-            </span>
-            <span className="text-text-muted">›</span>
-          </Link>
-        ))}
-      </div>
+      <Link
+        href="/app/account/privacy"
+        className="mt-3 flex w-full items-center justify-between rounded-2xl border border-border bg-surface-1 px-4 py-3 text-left"
+      >
+        <span>
+          <span className="block text-sm font-medium text-navy-900">
+            進入私隱及授權管理
+          </span>
+          <span className="mt-0.5 block text-xs text-text-muted">
+            資料用途說明 · 分項同意 · 第三方授權 · 分享紀錄
+          </span>
+        </span>
+        <span className="text-text-muted">›</span>
+      </Link>
+      <Link
+        href="/app/account/share-records"
+        className="mt-2 flex w-full items-center justify-between rounded-2xl border border-border bg-surface-1 px-4 py-3 text-left"
+      >
+        <span>
+          <span className="block text-sm font-medium text-navy-900">
+            資料分享及授權紀錄
+          </span>
+          <span className="mt-0.5 block text-xs text-text-muted">
+            我的帳戶 → 私隱及授權管理 → 分享紀錄
+          </span>
+        </span>
+        <span className="text-text-muted">›</span>
+      </Link>
 
       <Disclaimer>
-        一般資料使用同意，不代表已授權將資料分享給所有銀行、財務機構或服務供應商。每次向新的第三方傳送資料前，系統會另行取得清晰授權。
+        避免「同意所有用途／任何第三方／一經同意不可撤回」等表述。授權≠實際分享；撤回≠刪除全部資料。
       </Disclaimer>
 
       <div className="mt-4 space-y-2">
@@ -169,9 +139,9 @@ export default function AccountPage() {
             登出
           </Button>
         )}
-        <Link href="/admin">
+        <Link href="/admin/privacy-audit">
           <Button fullWidth variant="outline">
-            切換至內部控制台（示範）
+            內部控制台 · 授權審計（示範）
           </Button>
         </Link>
         <Link href="/">

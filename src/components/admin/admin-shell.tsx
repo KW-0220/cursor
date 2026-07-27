@@ -24,6 +24,9 @@ const nav = [
   { href: "/admin/supplements", label: "補件管理", icon: ClipboardList },
   { href: "/admin/rules", label: "初篩規則", icon: Settings2 },
   { href: "/admin/audit", label: "審計紀錄", icon: Shield },
+  { href: "/admin/privacy-audit", label: "授權審計", icon: Shield },
+  { href: "/admin/privacy-transfers", label: "資料傳送紀錄", icon: FileSearch },
+  { href: "/admin/privacy-versions", label: "授權版本", icon: ClipboardList },
 ];
 
 export function AdminShell({ children }: { children: React.ReactNode }) {
