@@ -19,6 +19,7 @@ export default function LoginPage() {
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [nameZh, setNameZh] = useState("");
   const [phone, setPhone] = useState("+852 ");
 
@@ -52,13 +53,25 @@ export default function LoginPage() {
     setError(null);
     setHint(null);
     if (!asAdmin && intent === "register") {
+      if (!nameZh.trim()) {
+        setError("請輸入中文姓名");
+        return;
+      }
+      if (password.length < 8) {
+        setError("密碼至少 8 位");
+        return;
+      }
+      if (!confirmPassword) {
+        setError("請再次輸入確認密碼");
+        return;
+      }
+      if (password !== confirmPassword) {
+        setError("兩次輸入的密碼不一致");
+        return;
+      }
       const digits = phone.replace(/\D/g, "");
       if (digits.length < 8) {
         setError("請輸入有效手機號碼（含區號，例如 +852 9123 4567）");
-        return;
-      }
-      if (!nameZh.trim()) {
-        setError("請輸入中文姓名");
         return;
       }
     }
@@ -232,6 +245,17 @@ export default function LoginPage() {
                 }
               />
             </Field>
+            {intent === "register" && (
+              <Field label="確認密碼" required>
+                <Input
+                  type="password"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  placeholder="再次輸入密碼"
+                  autoComplete="new-password"
+                />
+              </Field>
+            )}
             {intent === "register" && (
               <Field label="手機號碼" required hint="含區號，例如 +852 9123 4567">
                 <Input
