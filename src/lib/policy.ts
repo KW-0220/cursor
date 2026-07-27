@@ -128,16 +128,24 @@ export function computeOverall(items: PolicyItemResult[]): ScreeningResult {
   return "green";
 }
 
+import {
+  annualDebtServiceFromMonthly,
+  dscr as dscrFormula,
+  ebitdaFromComponents,
+  gearingRatio,
+  newLoanLtv,
+  tangibleNetWorth,
+  yoyChange as yoyChangeFormula,
+} from "./formulas";
+
 export function computeTangibleNetWorth(a: AuditExtract) {
-  if (a.equityHkd == null) return null;
-  return a.equityHkd - (a.intangibleHkd ?? 0) - (a.goodwillHkd ?? 0);
+  return tangibleNetWorth(a.equityHkd, a.intangibleHkd, a.goodwillHkd);
 }
 
 export function computeGearing(a: AuditExtract) {
   const tnw = computeTangibleNetWorth(a);
-  if (a.totalLiabilitiesHkd == null || tnw == null) return { gearing: null, tnw };
-  if (tnw <= 0) return { gearing: Infinity, tnw };
-  return { gearing: a.totalLiabilitiesHkd / tnw, tnw };
+  const gearing = gearingRatio(a.totalLiabilitiesHkd, tnw);
+  return { gearing, tnw };
 }
 
 export function computeEbitda(a: AuditExtract): EbitdaBreakdown {
@@ -153,13 +161,13 @@ export function computeEbitda(a: AuditExtract): EbitdaBreakdown {
       note: "報告直接披露 EBITDA。",
     };
   }
-  const parts = [
+  const ebitda = ebitdaFromComponents(
     a.profitBeforeTaxHkd,
     a.financeCostsHkd,
     a.depreciationHkd,
     a.amortisationHkd,
-  ];
-  if (parts.some((p) => p == null)) {
+  );
+  if (ebitda == null) {
     return {
       mode: "incomplete",
       ebitdaHkd: null,
@@ -171,11 +179,6 @@ export function computeEbitda(a: AuditExtract): EbitdaBreakdown {
       note: "未能從文件確認完整 EBITDA 組成，需要人工覆核。",
     };
   }
-  const ebitda =
-    (a.profitBeforeTaxHkd ?? 0) +
-    (a.financeCostsHkd ?? 0) +
-    (a.depreciationHkd ?? 0) +
-    (a.amortisationHkd ?? 0);
   return {
     mode: "computed",
     ebitdaHkd: ebitda,
@@ -184,7 +187,7 @@ export function computeEbitda(a: AuditExtract): EbitdaBreakdown {
     depreciationHkd: a.depreciationHkd,
     amortisationHkd: a.amortisationHkd,
     sourcePages: a.sourcePages,
-    note: "EBITDA＝除稅前溢利＋融資成本＋折舊＋攤銷。",
+    note: "EBITDA＝除稅前溢利＋融資成本＋折舊＋攤銷（系統公式）。",
   };
 }
 
@@ -193,12 +196,11 @@ export function annualDebtService(debts: DeclaredDebt[]) {
   if (debts.some((d) => d.monthlyPaymentHkd == null || d.unknownPayment)) {
     return null;
   }
-  return debts.reduce((s, d) => s + (d.monthlyPaymentHkd ?? 0) * 12, 0);
+  return annualDebtServiceFromMonthly(debts.map((d) => d.monthlyPaymentHkd));
 }
 
 export function yoyChange(prev: number, next: number) {
-  if (prev === 0) return null;
-  return (next - prev) / prev;
+  return yoyChangeFormula(prev, next);
 }
 
 export function evaluatePolicy(input: PolicyEvaluationInput): PolicyEvaluation {
@@ -299,8 +301,8 @@ export function evaluatePolicy(input: PolicyEvaluationInput): PolicyEvaluation {
       dscrReason = "已申報債務年度支出為零。";
       dscrAction = "通過";
     } else if (annualDebt != null && annualDebt > 0) {
-      dscr = ebitda.ebitdaHkd / annualDebt;
-      if (dscr >= 1) {
+      dscr = dscrFormula(ebitda.ebitdaHkd, annualDebt);
+      if (dscr != null && dscr >= 1) {
         dscrStatus = "green";
         dscrReason = "EBITDA 足以覆蓋一年已申報債務支出。";
         dscrAction = "通過";
@@ -602,7 +604,7 @@ export function evaluatePolicy(input: PolicyEvaluationInput): PolicyEvaluation {
     };
   } else {
     const value = input.declarations.collateralValueHkd;
-    const ltv = value && value > 0 ? input.amountHkd / value : null;
+    const ltv = newLoanLtv(input.amountHkd, value ?? 0);
     const formalValuation = input.declarations.acceptValuation === true;
     let status: PolicyItemStatus = "amber";
     let reason = "尚未取得正式估值。";
@@ -666,11 +668,10 @@ export function evaluatePolicy(input: PolicyEvaluationInput): PolicyEvaluation {
     tangibleNetWorthHkd: tnw,
     avgMonthlyRevenueHkd: avgMonthly,
     unsecuredMultiple: multiple,
-    ltv:
-      input.declarations.collateralValueHkd &&
-      input.declarations.collateralValueHkd > 0
-        ? input.amountHkd / input.declarations.collateralValueHkd
-        : null,
+    ltv: newLoanLtv(
+      input.amountHkd,
+      input.declarations.collateralValueHkd ?? 0,
+    ),
     items,
     followUpTasks,
   };

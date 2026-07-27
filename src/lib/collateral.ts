@@ -1,3 +1,8 @@
+import {
+  propertyNetEquity,
+  totalLtv,
+} from "./formulas";
+
 /**
  * 有抵押貸款｜抵押品管理模組
  * 共同必須文件之外，按抵押品類型顯示專屬文件／資料欄位。
@@ -526,17 +531,15 @@ export function existingCharge(item: CollateralItem): number {
 }
 
 export function preliminaryNetValue(item: CollateralItem): number {
-  return Math.max(0, declaredValue(item) - existingCharge(item));
+  return propertyNetEquity(declaredValue(item), existingCharge(item));
 }
 
-/** 總 LTV＝（現有按揭＋新申請）÷ 估值；僅初步 */
+/** 總 LTV＝（現有按揭＋新申請）÷ 估值；僅初步（見 formulas.totalLtv） */
 export function preliminaryLtv(
   item: CollateralItem,
   newLoanAmount: number,
 ): number | null {
-  const value = declaredValue(item);
-  if (!value) return null;
-  return (existingCharge(item) + newLoanAmount) / value;
+  return totalLtv(existingCharge(item), newLoanAmount, declaredValue(item));
 }
 
 export type CollateralAnalysis = {

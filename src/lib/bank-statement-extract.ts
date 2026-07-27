@@ -1,5 +1,13 @@
 import { z } from "zod";
 import type { FinancialExtract } from "./financial-extract";
+import {
+  applyHardcodedBankFormulas,
+  avgNumbers,
+  avgMonthlyTurnover,
+  netCashflow,
+  sharePct,
+  sumNumbers,
+} from "./formulas";
 
 /**
  * 單月銀行月結 AI 抽取 — 對應申請頁 6 大現金流資訊
@@ -118,13 +126,13 @@ JSON 欄位（金額用純數字）：
 }
 
 重點：
-1) 現金流：total_credits / total_debits / net_cashflow + cashflow_summary
-2) 結餘：opening_balance / closing_balance / average_daily_balance / min_daily_balance（daily_balances 可 []）
-3) 營業進帳：operating_credits（估）；否則用 total_credits
-4) 來源頻率：credit_sources 最多 6 個；credit_count / credit_days
+1) 現金流：只抽取文件上的 total_credits／total_debits；net_cashflow 由系統公式重算（credits−debits），你可填 null
+2) 結餘：opening_balance／closing_balance；若可見日結餘請填 daily_balances。average_daily_balance／min_daily_balance 由系統用日結餘公式重算，無日結餘則可填文件列示值或 null——勿自行估算
+3) 營業進帳 operating_credits：只填可合理歸類為營業相關入賬；唔好估；唔確定就 null
+4) 來源頻率：credit_sources 最多 6 個；credit_count／credit_days
 5) 異常：退票／自動轉帳失敗／透支 → anomalies，無則 []
 6) 還款能力：repayment_capacity（不可承諾批核）
-缺資料用 null／[]。`;
+缺資料用 null／[]。禁止把審計報告 revenue／EBITDA 當月結數字。`;
 
 export function buildBankStatementUserText(input: {
   fileName?: string;
@@ -177,7 +185,7 @@ export function toBankStatementExtract(
 ): BankStatementExtract {
   const base = emptyBankStatementExtract(monthHint);
   if (!raw) return base;
-  return {
+  const merged: BankStatementExtract = {
     ...base,
     ...raw,
     month: raw.month ?? monthHint ?? null,
@@ -186,6 +194,8 @@ export function toBankStatementExtract(
     daily_balances: raw.daily_balances ?? [],
     repayment_capacity: raw.repayment_capacity ?? null,
   };
+  // 衍生指標一律硬編碼重算，唔信 AI 估數
+  return applyHardcodedBankFormulas(merged);
 }
 
 /** 寬鬆解析：接受銀行 schema 或誤回嘅 financial schema */
@@ -212,26 +222,11 @@ export function parseBankStatementExtract(
       "operating_credits" in o;
 
     if (looksFinancial && !looksBank) {
-      const revenue = looseNum.parse(o.revenue);
-      const company = looseStr.parse(o.company_name);
-      const fy = looseStr.parse(o.financial_year);
+      // 禁止把審計 revenue 映射成月結存入——會嚴重扭曲營業額／ADB
       return {
-        ok: true,
-        data: toBankStatementExtract(
-          {
-            month: fy ?? monthHint ?? null,
-            account_holder: company,
-            total_credits: revenue,
-            operating_credits: revenue,
-            cashflow_summary:
-              "模型誤用財務報表格式；已將 revenue 映射為本月存入／營業進帳，請覆核。",
-            repayment_capacity: {
-              assessment: "unknown",
-              notes: "回傳格式不完整，需人工覆核月結。",
-            },
-          },
-          monthHint,
-        ),
+        ok: false,
+        error:
+          "模型回傳財務報表格式（revenue／EBITDA），而非銀行月結現金流。請重試或改上清晰月結 PDF。",
       };
     }
 
@@ -337,18 +332,6 @@ export type BankCashflowBrief = {
   };
 };
 
-function sumNullable(nums: Array<number | null | undefined>): number | null {
-  const xs = nums.filter((n): n is number => n != null);
-  if (!xs.length) return null;
-  return xs.reduce((a, b) => a + b, 0);
-}
-
-function avgNullable(nums: Array<number | null | undefined>): number | null {
-  const xs = nums.filter((n): n is number => n != null);
-  if (!xs.length) return null;
-  return xs.reduce((a, b) => a + b, 0) / xs.length;
-}
-
 function rankAssessment(a: string | null | undefined): number {
   if (a === "weak") return 0;
   if (a === "tight") return 1;
@@ -367,18 +350,15 @@ export function mergeBankStatementExtracts(
     month: m.month ?? "—",
     totalCredits: m.total_credits,
     totalDebits: m.total_debits,
-    netCashflow: m.net_cashflow,
+    netCashflow: netCashflow(m.total_credits, m.total_debits) ?? m.net_cashflow,
     summary: m.cashflow_summary,
   }));
 
-  const sixMonthTotalCredits = sumNullable(
-    months.map((m) => m.total_credits),
-  );
-  const sixMonthTotalDebits = sumNullable(months.map((m) => m.total_debits));
+  const sixMonthTotalCredits = sumNumbers(months.map((m) => m.total_credits));
+  const sixMonthTotalDebits = sumNumbers(months.map((m) => m.total_debits));
   const sixMonthNet =
-    sixMonthTotalCredits != null && sixMonthTotalDebits != null
-      ? sixMonthTotalCredits - sixMonthTotalDebits
-      : sumNullable(months.map((m) => m.net_cashflow));
+    netCashflow(sixMonthTotalCredits, sixMonthTotalDebits) ??
+    sumNumbers(months.map((m) => m.net_cashflow));
 
   const balanceMonths = months.map((m) => ({
     month: m.month ?? "—",
@@ -411,7 +391,7 @@ export function mergeBankStatementExtracts(
     .map(([source, v]) => ({
       source,
       totalHkd: v.total,
-      sharePct: totalSource > 0 ? (v.total / totalSource) * 100 : 0,
+      sharePct: sharePct(v.total, totalSource),
       frequency: v.frequency,
     }))
     .sort((a, b) => b.totalHkd - a.totalHkd)
@@ -444,7 +424,7 @@ export function mergeBankStatementExtracts(
     overall = worst === 0 ? "weak" : worst === 1 ? "tight" : "adequate";
   }
 
-  const sixMonthOperating = sumNullable(
+  const sixMonthOperating = sumNumbers(
     months.map((m) => m.operating_credits ?? m.total_credits),
   );
 
@@ -461,13 +441,11 @@ export function mergeBankStatementExtracts(
       sixMonthNet,
       narrative:
         narrativeBits.join(" ") ||
-        "已合併月結現金流摘要（缺欄＝文件未見）。",
+        "已合併月結現金流摘要（淨額／ADB 由系統公式重算；缺欄＝文件未見）。",
     },
     balances: {
       months: balanceMonths,
-      sixMonthAvgDaily: avgNullable(
-        months.map((m) => m.average_daily_balance),
-      ),
+      sixMonthAvgDaily: avgNumbers(months.map((m) => m.average_daily_balance)),
       sixMonthMinDaily: mins.length ? Math.min(...mins) : null,
     },
     operatingInflows: {
@@ -477,10 +455,9 @@ export function mergeBankStatementExtracts(
         totalCredits: m.total_credits,
       })),
       sixMonthOperating,
-      monthlyAvgOperating:
-        sixMonthOperating != null && months.length
-          ? sixMonthOperating / months.length
-          : null,
+      monthlyAvgOperating: avgMonthlyTurnover(
+        months.map((m) => m.operating_credits ?? m.total_credits),
+      ),
     },
     inflowPattern: {
       months: months.map((m) => ({

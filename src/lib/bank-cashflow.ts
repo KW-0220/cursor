@@ -1,6 +1,7 @@
 import type { ScreeningResult } from "./types";
 import type { CashflowRuleSet } from "./cashflow-rules";
 import { DEFAULT_CASHFLOW_RULES, evaluateThreshold } from "./cashflow-rules";
+import { adbFromDailyBalances, minDailyFromBalances } from "./formulas";
 
 /** 單筆銀行交易（AI 抽取） */
 export interface BankTransaction {
@@ -152,11 +153,12 @@ export function computeAverageDailyBalance(input: {
   const { month, openingBalanceHkd, dailyLedgerBalances, transactions } = input;
 
   if (dailyLedgerBalances && dailyLedgerBalances.length > 0) {
-    const sum = dailyLedgerBalances.reduce((s, d) => s + d.balanceHkd, 0);
-    const min = Math.min(...dailyLedgerBalances.map((d) => d.balanceHkd));
+    const mapped = dailyLedgerBalances.map((d) => ({
+      balanceHkd: d.balanceHkd,
+    }));
     return {
-      averageDailyBalanceHkd: sum / dailyLedgerBalances.length,
-      minDailyBalanceHkd: min,
+      averageDailyBalanceHkd: adbFromDailyBalances(mapped),
+      minDailyBalanceHkd: minDailyFromBalances(mapped),
       calcStatus: "ok",
     };
   }
@@ -217,8 +219,12 @@ export function computeAverageDailyBalance(input: {
   }
 
   return {
-    averageDailyBalanceHkd: daily.reduce((s, v) => s + v, 0) / daily.length,
-    minDailyBalanceHkd: Math.min(...daily),
+    averageDailyBalanceHkd: adbFromDailyBalances(
+      daily.map((balanceHkd) => ({ balanceHkd })),
+    ),
+    minDailyBalanceHkd: minDailyFromBalances(
+      daily.map((balanceHkd) => ({ balanceHkd })),
+    ),
     calcStatus: "ok",
   };
 }

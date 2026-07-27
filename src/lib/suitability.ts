@@ -1,5 +1,14 @@
 export type SuitabilityStatus = "Suitable" | "NotSuitable" | "Incomplete";
 
+/** 初步負債比率（非正式 gearing）= 現有負債 ÷ 月營業額 × 100 */
+export function preliminaryDebtRatioPct(
+  existingDebtHkd: number,
+  monthlyRevenueHkd: number,
+): number | null {
+  if (monthlyRevenueHkd <= 0) return null;
+  return (existingDebtHkd / monthlyRevenueHkd) * 100;
+}
+
 export interface SuitabilityInput {
   /** 公司營運年期（年） */
   companyAge: number | null;
@@ -85,7 +94,7 @@ function resolveDebtRatio(input: SuitabilityInput): {
   ) {
     // 簡化：現有負債 ÷ 月營業額 × 100（初步參考，非正式 gearing）
     return {
-      debtRatio: (existingDebtHkd / input.monthlyRevenue) * 100,
+      debtRatio: preliminaryDebtRatioPct(existingDebtHkd, input.monthlyRevenue),
       existingDebtHkd,
     };
   }

@@ -1,4 +1,5 @@
 import type { ScreeningResult } from "./types";
+import { avgMonthlyTurnover } from "./formulas";
 
 export type PrescreenDocStatus =
   | "missing"
@@ -68,12 +69,17 @@ export interface PrescreenResult {
 
 export function computeAvgMonthlyTurnover(months: BankStatementMonth[]) {
   if (!months.length) {
-    return { totalCreditsHkd: null, avgMonthlyTurnoverHkd: null, monthsCovered: 0 };
+    return {
+      totalCreditsHkd: null,
+      avgMonthlyTurnoverHkd: null,
+      monthsCovered: 0,
+    };
   }
-  const totalCreditsHkd = months.reduce((s, m) => s + m.totalCreditsHkd, 0);
+  const credits = months.map((m) => m.totalCreditsHkd);
+  const totalCreditsHkd = credits.reduce((s, m) => s + m, 0);
   return {
     totalCreditsHkd,
-    avgMonthlyTurnoverHkd: totalCreditsHkd / months.length,
+    avgMonthlyTurnoverHkd: avgMonthlyTurnover(credits),
     monthsCovered: months.length,
   };
 }
