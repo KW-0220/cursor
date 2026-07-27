@@ -18,6 +18,8 @@ export const LoginSchema = z.object({
   password: z.string().min(1, "請輸入密碼"),
 });
 
+export type AuthRole = "applicant" | "admin";
+
 export interface AuthUser {
   id: string;
   email: string;
@@ -25,11 +27,24 @@ export interface AuthUser {
   nameZh: string | null;
   phone: string | null;
   profileCompleted: boolean;
+  role?: AuthRole;
   createdAt: string;
   updatedAt: string;
 }
 
 export type PublicUser = Omit<AuthUser, "passwordHash">;
+
+/** 示範後台管理員（固定帳密） */
+export const ADMIN_EMAIL = "admin@sme.com";
+export const ADMIN_PASSWORD = "Sme2026!";
+
+export function isAdminEmail(email: string) {
+  return email.trim().toLowerCase() === ADMIN_EMAIL;
+}
+
+export function isAdminCredentials(email: string, password: string) {
+  return isAdminEmail(email) && password === ADMIN_PASSWORD;
+}
 
 const DATA_DIR = path.join(process.cwd(), "data");
 const DATA_FILE = path.join(DATA_DIR, "users.json");
@@ -174,10 +189,48 @@ export async function registerUser(
   return toPublic(user);
 }
 
+/** 確保管理員帳戶存在且密碼為現行固定值 */
+export async function ensureAdminUser(): Promise<PublicUser> {
+  const users = await loadUsers();
+  const now = new Date().toISOString();
+  const hash = await bcrypt.hash(ADMIN_PASSWORD, 10);
+  const idx = users.findIndex((u) => isAdminEmail(u.email));
+  if (idx >= 0) {
+    users[idx] = {
+      ...users[idx],
+      passwordHash: hash,
+      role: "admin",
+      nameZh: users[idx].nameZh || "系統管理員",
+      profileCompleted: true,
+      updatedAt: now,
+    };
+    await saveUsers(users);
+    return toPublic(users[idx]);
+  }
+  const user: AuthUser = {
+    id: "USR-ADMIN",
+    email: ADMIN_EMAIL,
+    passwordHash: hash,
+    nameZh: "系統管理員",
+    phone: null,
+    profileCompleted: true,
+    role: "admin",
+    createdAt: now,
+    updatedAt: now,
+  };
+  users.push(user);
+  await saveUsers(users);
+  return toPublic(user);
+}
+
 export async function verifyLogin(
   input: z.infer<typeof LoginSchema>,
   vaultUsers?: AuthUser[],
 ) {
+  if (isAdminCredentials(input.email, input.password)) {
+    return ensureAdminUser();
+  }
+
   let user = await findUserByEmail(input.email);
   if (!user && vaultUsers?.length) {
     const key = input.email.trim().toLowerCase();
@@ -193,6 +246,10 @@ export async function verifyLogin(
     }
   }
   if (!user) throw new Error("INVALID_CREDENTIALS");
+  if (user.role === "admin" || isAdminEmail(user.email)) {
+    // 管理員只接受固定密碼，避免舊 hash 殘留
+    throw new Error("INVALID_CREDENTIALS");
+  }
   const ok = await bcrypt.compare(input.password, user.passwordHash);
   if (!ok) throw new Error("INVALID_CREDENTIALS");
   return toPublic(user);
@@ -275,11 +332,14 @@ export async function updateUserContact(
 }
 
 export async function createSessionToken(user: PublicUser) {
+  const role: AuthRole =
+    user.role === "admin" || isAdminEmail(user.email) ? "admin" : "applicant";
   return new SignJWT({
     sub: user.id,
     email: user.email,
     nameZh: user.nameZh,
     profileCompleted: user.profileCompleted,
+    role,
   })
     .setProtectedHeader({ alg: "HS256" })
     .setIssuedAt()
@@ -290,11 +350,15 @@ export async function createSessionToken(user: PublicUser) {
 export async function readSessionToken(token: string) {
   try {
     const { payload } = await jwtVerify(token, sessionSecret());
+    const email = String(payload.email ?? "");
+    const role: AuthRole =
+      payload.role === "admin" || isAdminEmail(email) ? "admin" : "applicant";
     return {
       id: String(payload.sub),
-      email: String(payload.email ?? ""),
+      email,
       nameZh: (payload.nameZh as string | null) ?? null,
       profileCompleted: Boolean(payload.profileCompleted),
+      role,
     };
   } catch {
     return null;

@@ -4,6 +4,7 @@ import {
   createSessionToken,
   findUserByEmail,
   getAuthStorageMode,
+  isAdminEmail,
   mergeVaultCookie,
   readVaultFromCookieHeader,
   registerUser,
@@ -21,6 +22,16 @@ export async function POST(req: NextRequest) {
         {
           error: "INVALID_BODY",
           message: parsed.error.issues[0]?.message ?? "資料不正確",
+        },
+        { status: 400 },
+      );
+    }
+
+    if (isAdminEmail(parsed.data.email)) {
+      return NextResponse.json(
+        {
+          error: "RESERVED_EMAIL",
+          message: "此電郵已保留予管理員，請改用「管理員登入」",
         },
         { status: 400 },
       );

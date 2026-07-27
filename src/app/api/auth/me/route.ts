@@ -4,6 +4,7 @@ import {
   clearVaultCookie,
   getSessionFromCookieHeader,
   findUserByEmail,
+  isAdminEmail,
   readVaultFromCookieHeader,
   upsertUserIntoStore,
 } from "@/lib/auth";
@@ -29,6 +30,13 @@ export async function GET(req: NextRequest) {
     }
   }
 
+  const role =
+    full?.role === "admin" ||
+    session.role === "admin" ||
+    isAdminEmail(session.email)
+      ? "admin"
+      : "applicant";
+
   return NextResponse.json({
     ok: true,
     user: full
@@ -38,9 +46,10 @@ export async function GET(req: NextRequest) {
           nameZh: full.nameZh,
           phone: full.phone,
           profileCompleted: full.profileCompleted,
+          role,
           createdAt: full.createdAt,
         }
-      : session,
+      : { ...session, role },
   });
 }
 

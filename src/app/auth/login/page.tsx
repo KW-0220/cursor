@@ -7,8 +7,10 @@ import { Button } from "@/components/ui/button";
 import { Field, Input } from "@/components/ui/field";
 import { PageHeader, Disclaimer, StateBanner } from "@/components/ui/layout";
 
-type Mode = "email" | "phone";
+type Mode = "email" | "phone" | "admin";
 type Intent = "register" | "login";
+
+const ADMIN_EMAIL_PREFILL = "admin@sme.com";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -42,16 +44,32 @@ export default function LoginPage() {
     })();
   }, []);
 
-  async function submitEmail() {
+  function enterAdminMode() {
+    setMode("admin");
+    setIntent("login");
+    setEmail(ADMIN_EMAIL_PREFILL);
+    setPassword("");
+    setError(null);
+    setHint(null);
+  }
+
+  async function submitEmail(asAdmin = false) {
     setError(null);
     setHint(null);
     setBusy(true);
     try {
       const endpoint =
-        intent === "register" ? "/api/auth/register" : "/api/auth/login";
+        !asAdmin && intent === "register"
+          ? "/api/auth/register"
+          : "/api/auth/login";
       const body =
-        intent === "register"
-          ? { email, password, nameZh: nameZh || undefined, phone: phone.trim() || undefined }
+        !asAdmin && intent === "register"
+          ? {
+              email,
+              password,
+              nameZh: nameZh || undefined,
+              phone: phone.trim() || undefined,
+            }
           : { email, password };
 
       const res = await fetch(endpoint, {
@@ -64,8 +82,15 @@ export default function LoginPage() {
         setError(data.message || data.error || "操作失敗");
         return;
       }
-      setHint(intent === "register" ? "註冊成功，正在進入資料填寫…" : "登入成功");
-      router.push(data.next || "/register/identity");
+      if (asAdmin || data.next === "/admin") {
+        setHint("管理員登入成功，正在進入後台…");
+        router.push("/admin");
+      } else {
+        setHint(
+          intent === "register" ? "註冊成功，正在進入資料填寫…" : "登入成功",
+        );
+        router.push(data.next || "/register/identity");
+      }
       router.refresh();
     } catch {
       setError("網絡錯誤，請稍後再試");
@@ -150,7 +175,7 @@ export default function LoginPage() {
     <MobileShell>
       <PageHeader title="登入／註冊" subtitle="SME LoanFlow" backHref="/" />
       <main className="flex flex-1 flex-col gap-5 px-4 py-5 pb-28">
-        <div className="grid grid-cols-2 rounded-xl bg-surface-2 p-1">
+        <div className="grid grid-cols-3 rounded-xl bg-surface-2 p-1">
           <button
             type="button"
             className={`rounded-lg py-2 text-sm font-medium ${mode === "email" ? "bg-surface-1 text-navy-900 shadow-sm" : "text-text-secondary"}`}
@@ -170,6 +195,13 @@ export default function LoginPage() {
             }}
           >
             手機驗證碼
+          </button>
+          <button
+            type="button"
+            className={`rounded-lg py-2 text-sm font-medium ${mode === "admin" ? "bg-surface-1 text-navy-900 shadow-sm" : "text-text-secondary"}`}
+            onClick={enterAdminMode}
+          >
+            管理員登入
           </button>
         </div>
 
@@ -206,7 +238,41 @@ export default function LoginPage() {
           />
         )}
 
-        {mode === "email" ? (
+        {mode === "admin" ? (
+          <div className="space-y-4">
+            <StateBanner
+              tone="info"
+              title="內部審批控制台"
+              description="使用管理員帳號登入後台。一般客戶請改用「電郵帳戶」或「手機驗證碼」。"
+            />
+            <Field label="管理員電郵" required>
+              <Input
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder={ADMIN_EMAIL_PREFILL}
+                autoComplete="username"
+              />
+            </Field>
+            <Field label="密碼" required>
+              <Input
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="••••••••"
+                autoComplete="current-password"
+              />
+            </Field>
+            <Button
+              fullWidth
+              size="lg"
+              disabled={busy}
+              onClick={() => void submitEmail(true)}
+            >
+              {busy ? "登入中…" : "登入後台管理"}
+            </Button>
+          </div>
+        ) : mode === "email" ? (
           <div className="space-y-4">
             {intent === "register" && (
               <Field label="中文姓名" required>
@@ -264,6 +330,13 @@ export default function LoginPage() {
                   ? "建立帳戶並繼續"
                   : "登入"}
             </Button>
+            <button
+              type="button"
+              className="w-full text-center text-sm font-medium text-teal-700 hover:underline"
+              onClick={enterAdminMode}
+            >
+              管理員登入 → 後台管理
+            </button>
           </div>
         ) : (
           <div className="space-y-4">
@@ -323,7 +396,7 @@ export default function LoginPage() {
 
         <Disclaimer>
           電郵註冊會即時建立真實帳戶（密碼經加密儲存，登入狀態以安全 Cookie
-          保存）。完成後請填寫身份及公司資料；資料會寫入後台客戶登記資料庫。
+          保存）。完成後請填寫身份及公司資料；資料會寫入後台客戶登記資料庫。管理員登入僅供內部審批使用。
         </Disclaimer>
       </main>
     </MobileShell>

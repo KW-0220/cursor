@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
 import {
   Bot,
   Database,
@@ -11,6 +12,7 @@ import {
   Shield,
   ClipboardList,
 } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 const nav = [
@@ -32,6 +34,43 @@ const nav = [
 
 export function AdminShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+  const router = useRouter();
+  const [checking, setChecking] = useState(true);
+  const [adminEmail, setAdminEmail] = useState<string | null>(null);
+  const [adminName, setAdminName] = useState<string | null>(null);
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        const res = await fetch("/api/auth/me");
+        const data = await res.json();
+        if (!res.ok || !data.user || data.user.role !== "admin") {
+          router.replace("/auth/login");
+          return;
+        }
+        setAdminEmail(data.user.email);
+        setAdminName(data.user.nameZh);
+        setChecking(false);
+      } catch {
+        router.replace("/auth/login");
+      }
+    })();
+  }, [router]);
+
+  async function logout() {
+    await fetch("/api/auth/me", { method: "DELETE" });
+    router.push("/auth/login");
+    router.refresh();
+  }
+
+  if (checking) {
+    return (
+      <div className="flex min-h-dvh items-center justify-center bg-surface-2 text-sm text-text-muted">
+        正在驗證管理員身分…
+      </div>
+    );
+  }
+
   return (
     <div className="admin-shell flex min-h-dvh">
       <aside className="sticky top-0 hidden h-dvh w-60 shrink-0 flex-col border-r border-border bg-navy-950 text-white lg:flex">
@@ -39,7 +78,7 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
           <p className="text-xs text-white/50">SME LoanFlow</p>
           <h1 className="mt-1 text-lg font-semibold">內部審批控制台</h1>
         </div>
-        <nav className="flex-1 space-y-1 p-3">
+        <nav className="flex-1 space-y-1 overflow-y-auto p-3">
           {nav.map(({ href, label, icon: Icon }) => {
             const active =
               href === "/admin"
@@ -63,8 +102,19 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
           })}
         </nav>
         <div className="border-t border-white/10 p-4 text-xs text-white/50">
-          <p>角色：顧問 · 李美欣</p>
-          <Link href="/app" className="mt-2 inline-block text-teal-500 hover:underline">
+          <p>角色：管理員</p>
+          <p className="mt-1 truncate text-white/80">
+            {adminName || "系統管理員"}
+          </p>
+          <p className="truncate">{adminEmail}</p>
+          <button
+            type="button"
+            className="mt-2 text-teal-500 hover:underline"
+            onClick={() => void logout()}
+          >
+            登出
+          </button>
+          <Link href="/app" className="mt-2 block text-teal-500 hover:underline">
             ← 返回客戶端 App
           </Link>
         </div>
@@ -76,15 +126,15 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
             <p className="font-semibold text-navy-900">內部控制台</p>
           </div>
           <div className="hidden text-sm text-text-secondary lg:block">
-            Desktop Web 優先 · 角色權限控管
+            Desktop Web 優先 · 管理員已驗證
           </div>
           <div className="flex items-center gap-2 text-xs">
             <span className="rounded-full bg-success-100 px-2.5 py-1 text-success-600">
-              已登入
+              {adminEmail || "已登入"}
             </span>
-            <span className="rounded-full bg-surface-2 px-2.5 py-1 text-text-secondary">
-              Audit Log 啟用
-            </span>
+            <Button size="sm" variant="outline" onClick={() => void logout()}>
+              登出
+            </Button>
           </div>
         </header>
         <div className="flex-1 px-4 py-5 lg:px-8">{children}</div>

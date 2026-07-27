@@ -4,6 +4,7 @@ import {
   createSessionToken,
   findUserByEmail,
   getAuthStorageMode,
+  isAdminEmail,
   mergeVaultCookie,
   readVaultFromCookieHeader,
   sessionCookie,
@@ -30,11 +31,16 @@ export async function POST(req: NextRequest) {
     const user = await verifyLogin(parsed.data, vault);
     const full = await findUserByEmail(user.email);
     const token = await createSessionToken(user);
+    const isAdmin = user.role === "admin" || isAdminEmail(user.email);
     const res = NextResponse.json({
       ok: true,
       user,
       storage: getAuthStorageMode(),
-      next: user.profileCompleted ? "/app" : "/register/identity",
+      next: isAdmin
+        ? "/admin"
+        : user.profileCompleted
+          ? "/app"
+          : "/register/identity",
     });
     res.headers.append("Set-Cookie", sessionCookie(token));
     if (full) {
