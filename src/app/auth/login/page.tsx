@@ -51,6 +51,17 @@ export default function LoginPage() {
   async function submitEmail(asAdmin = false) {
     setError(null);
     setHint(null);
+    if (!asAdmin && intent === "register") {
+      const digits = phone.replace(/\D/g, "");
+      if (digits.length < 8) {
+        setError("請輸入有效手機號碼（含區號，例如 +852 9123 4567）");
+        return;
+      }
+      if (!nameZh.trim()) {
+        setError("請輸入中文姓名");
+        return;
+      }
+    }
     setBusy(true);
     try {
       const endpoint =
@@ -62,8 +73,8 @@ export default function LoginPage() {
           ? {
               email,
               password,
-              nameZh: nameZh || undefined,
-              phone: phone.trim() || undefined,
+              nameZh: nameZh.trim(),
+              phone: phone.trim(),
             }
           : { email, password };
 
@@ -222,12 +233,13 @@ export default function LoginPage() {
               />
             </Field>
             {intent === "register" && (
-              <Field label="手機號碼（選填）">
+              <Field label="手機號碼" required hint="含區號，例如 +852 9123 4567">
                 <Input
                   value={phone}
                   onChange={(e) => setPhone(e.target.value)}
                   placeholder="+852 9123 4567"
                   inputMode="tel"
+                  autoComplete="tel"
                 />
               </Field>
             )}
