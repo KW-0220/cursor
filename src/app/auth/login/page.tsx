@@ -12,6 +12,51 @@ type Intent = "register" | "login";
 
 const ADMIN_EMAIL_PREFILL = "admin@sme.com";
 
+function PasswordField({
+  label,
+  required,
+  hint,
+  value,
+  onChange,
+  placeholder,
+  autoComplete,
+}: {
+  label: string;
+  required?: boolean;
+  hint?: string;
+  value: string;
+  onChange: (value: string) => void;
+  placeholder?: string;
+  autoComplete?: string;
+}) {
+  const [show, setShow] = useState(false);
+  return (
+    <div className="block space-y-1.5">
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-sm font-medium text-text-primary">
+          {label}
+          {required && <span className="ml-0.5 text-danger-600">*</span>}
+        </span>
+        <button
+          type="button"
+          className="shrink-0 text-xs font-medium text-teal-700 hover:underline"
+          onClick={() => setShow((v) => !v)}
+        >
+          {show ? "隱藏密碼" : "顯示密碼"}
+        </button>
+      </div>
+      <Input
+        type={show ? "text" : "password"}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        autoComplete={autoComplete}
+      />
+      {hint && <span className="block text-xs text-text-muted">{hint}</span>}
+    </div>
+  );
+}
+
 export default function LoginPage() {
   const router = useRouter();
   const [mode, setMode] = useState<Mode>("email");
@@ -191,15 +236,14 @@ export default function LoginPage() {
                 autoComplete="username"
               />
             </Field>
-            <Field label="密碼" required>
-              <Input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="••••••••"
-                autoComplete="current-password"
-              />
-            </Field>
+            <PasswordField
+              label="密碼"
+              required
+              value={password}
+              onChange={setPassword}
+              placeholder="••••••••"
+              autoComplete="current-password"
+            />
             <Button
               fullWidth
               size="lg"
@@ -230,34 +274,33 @@ export default function LoginPage() {
                 autoComplete="email"
               />
             </Field>
-            <Field
+            <PasswordField
               label="密碼"
               required
               hint={intent === "register" ? "至少 8 位" : undefined}
-            >
-              <Input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="••••••••"
-                autoComplete={
-                  intent === "register" ? "new-password" : "current-password"
-                }
-              />
-            </Field>
+              value={password}
+              onChange={setPassword}
+              placeholder="••••••••"
+              autoComplete={
+                intent === "register" ? "new-password" : "current-password"
+              }
+            />
             {intent === "register" && (
-              <Field label="確認密碼" required>
-                <Input
-                  type="password"
-                  value={confirmPassword}
-                  onChange={(e) => setConfirmPassword(e.target.value)}
-                  placeholder="再次輸入密碼"
-                  autoComplete="new-password"
-                />
-              </Field>
+              <PasswordField
+                label="確認密碼"
+                required
+                value={confirmPassword}
+                onChange={setConfirmPassword}
+                placeholder="再次輸入密碼"
+                autoComplete="new-password"
+              />
             )}
             {intent === "register" && (
-              <Field label="手機號碼" required hint="含區號，例如 +852 9123 4567">
+              <Field
+                label="手機號碼"
+                required
+                hint="含區號，例如 +852 9123 4567"
+              >
                 <Input
                   value={phone}
                   onChange={(e) => setPhone(e.target.value)}
