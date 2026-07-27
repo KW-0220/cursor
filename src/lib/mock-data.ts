@@ -335,15 +335,19 @@ export const adminKpis = [
 
 export const documentRequirements = {
   secured: [
-    { name: "最近三年審計報告", requirement: "PDF", status: "completed" as const },
-    { name: "最近六個月銀行結單", requirement: "PDF 或清晰照片", status: "needs_attention" as const },
-    { name: "公司業務及營運簡介", requirement: "填寫表格或上載文件", status: "completed" as const },
-    { name: "物業證明文件", requirement: "按合作機構要求", status: "pending" as const },
-    { name: "現有按揭資料", requirement: "結單或授信文件", status: "completed" as const },
+    { name: "商業登記證 BR", requirement: "PDF", status: "completed" as const },
+    { name: "最近期 NAR1", requirement: "PDF", status: "completed" as const },
+    { name: "最近六個月銀行月結單", requirement: "PDF", status: "needs_attention" as const },
+    { name: "董事／股東／擔保人身份證明", requirement: "PDF 或清晰照片", status: "completed" as const },
+    { name: "物業業權證明", requirement: "樓契／查冊", status: "pending" as const },
+    { name: "現有按揭文件（如適用）", requirement: "合約及月結", status: "pending" as const },
+    { name: "租約及租金證明（如已出租）", requirement: "按條件必須", status: "pending" as const },
   ],
   unsecured: [
-    { name: "最近三年審計報告", requirement: "PDF", status: "completed" as const },
-    { name: "最近六個月銀行結單", requirement: "PDF 或清晰照片", status: "needs_attention" as const },
+    { name: "商業登記證 BR", requirement: "PDF", status: "completed" as const },
+    { name: "最近期 NAR1", requirement: "PDF", status: "completed" as const },
+    { name: "最近六個月銀行月結單", requirement: "PDF", status: "needs_attention" as const },
+    { name: "董事／股東／擔保人身份證明", requirement: "PDF 或清晰照片", status: "completed" as const },
     { name: "現有銀行授信信", requirement: "每間貸款機構分開上載", status: "completed" as const },
     { name: "其他財務資料", requirement: "按個案要求", status: "pending" as const },
   ],
