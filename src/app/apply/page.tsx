@@ -57,11 +57,15 @@ const BANK_MONTHS = lastSixBankMonths();
 export default function ApplyWizardPage() {
   const [step, setStep] = useState(0);
   const [loanType, setLoanType] = useState<LoanType | null>(null);
-  const [amount, setAmount] = useState(1500000);
-  const [purpose, setPurpose] = useState("營運資金");
-  const [hasExistingLoan, setHasExistingLoan] = useState(false);
+  const [amount, setAmount] = useState<number | "">("");
+  const [purpose, setPurpose] = useState("");
+  const [tenureYears, setTenureYears] = useState("");
+  const [fundingDate, setFundingDate] = useState("");
+  const [targetBank, setTargetBank] = useState("");
+  const [extraNotes, setExtraNotes] = useState("");
+  const [hasExistingLoan, setHasExistingLoan] = useState<boolean | null>(null);
   const [lender, setLender] = useState("");
-  const [debtType, setDebtType] = useState("營運貸款");
+  const [debtType, setDebtType] = useState("");
   const [facility, setFacility] = useState("");
   const [outstanding, setOutstanding] = useState("");
   const [collateralItems, setCollateralItems] = useState<CollateralItem[]>([]);
@@ -92,6 +96,10 @@ export default function ApplyWizardPage() {
     setCollateralItems(next);
     saveCollateralItems(next, userKey);
   }
+
+  const amountHkd = typeof amount === "number" ? amount : 0;
+  const step1Ok =
+    amountHkd > 0 && purpose.trim().length > 0 && tenureYears !== "";
 
   const progress = ((step + 1) / steps.length) * 100;
   const docsComplete = isApplyDocsComplete(docs, BANK_MONTHS);
@@ -146,8 +154,11 @@ export default function ApplyWizardPage() {
       const record = {
         id,
         loanType,
-        amount,
+        amount: amountHkd,
         purpose,
+        tenureYears: tenureYears ? Number(tenureYears) : null,
+        fundingDate: fundingDate || null,
+        targetBank: targetBank || null,
         hasExistingLoan,
         docsPct,
         bankCount: docsSummary.bankCount,
@@ -246,7 +257,12 @@ export default function ApplyWizardPage() {
                 type="number"
                 className="tabular"
                 value={amount}
-                onChange={(e) => setAmount(Number(e.target.value))}
+                placeholder="請輸入金額"
+                onChange={(e) =>
+                  setAmount(
+                    e.target.value === "" ? "" : Number(e.target.value),
+                  )
+                }
               />
             </Field>
             <div className="flex flex-wrap gap-2">
@@ -270,17 +286,22 @@ export default function ApplyWizardPage() {
                 value={purpose}
                 onChange={(e) => setPurpose(e.target.value)}
               >
-                <option>營運資金</option>
-                <option>出糧／支付供應商</option>
-                <option>購買貨物</option>
-                <option>公司擴充</option>
-                <option>購買商業物業</option>
-                <option>現有貸款再融資</option>
-                <option>其他用途</option>
+                <option value="">請選擇</option>
+                <option value="營運資金">營運資金</option>
+                <option value="出糧／支付供應商">出糧／支付供應商</option>
+                <option value="購買貨物">購買貨物</option>
+                <option value="公司擴充">公司擴充</option>
+                <option value="購買商業物業">購買商業物業</option>
+                <option value="現有貸款再融資">現有貸款再融資</option>
+                <option value="其他用途">其他用途</option>
               </Select>
             </Field>
             <Field label="希望還款年期" required>
-              <Select defaultValue="3">
+              <Select
+                value={tenureYears}
+                onChange={(e) => setTenureYears(e.target.value)}
+              >
+                <option value="">請選擇</option>
                 <option value="1">1 年</option>
                 <option value="2">2 年</option>
                 <option value="3">3 年</option>
@@ -289,13 +310,25 @@ export default function ApplyWizardPage() {
               </Select>
             </Field>
             <Field label="希望何時取得資金">
-              <Input type="date" />
+              <Input
+                type="date"
+                value={fundingDate}
+                onChange={(e) => setFundingDate(e.target.value)}
+              />
             </Field>
             <Field label="是否已有目標銀行" hint="選填">
-              <Input placeholder="例如：某銀行商業貸款部" />
+              <Input
+                value={targetBank}
+                onChange={(e) => setTargetBank(e.target.value)}
+                placeholder="例如：某銀行商業貸款部"
+              />
             </Field>
             <Field label="其他補充資料">
-              <Textarea placeholder="可補充業務季節性、近期訂單等" />
+              <Textarea
+                value={extraNotes}
+                onChange={(e) => setExtraNotes(e.target.value)}
+                placeholder="可補充業務季節性、近期訂單等"
+              />
             </Field>
             <Disclaimer>
               此階段不會顯示「保證批核」或「即時批出」等字眼。AI
@@ -314,7 +347,7 @@ export default function ApplyWizardPage() {
             <CollateralManager
               items={collateralItems}
               onChange={updateCollateral}
-              newLoanAmount={amount}
+              newLoanAmount={amountHkd}
               showDocs
               showAnalysis
             />
@@ -326,14 +359,23 @@ export default function ApplyWizardPage() {
             <SectionHeader title="現有貸款情況" subtitle="可新增多項" />
             <Field label="現時是否有銀行貸款" required>
               <Select
-                value={hasExistingLoan ? "是" : "否"}
-                onChange={(e) => setHasExistingLoan(e.target.value === "是")}
+                value={
+                  hasExistingLoan === null ? "" : hasExistingLoan ? "是" : "否"
+                }
+                onChange={(e) => {
+                  if (e.target.value === "") {
+                    setHasExistingLoan(null);
+                    return;
+                  }
+                  setHasExistingLoan(e.target.value === "是");
+                }}
               >
-                <option>是</option>
-                <option>否</option>
+                <option value="">請選擇</option>
+                <option value="是">是</option>
+                <option value="否">否</option>
               </Select>
             </Field>
-            {hasExistingLoan && (
+            {hasExistingLoan === true && (
               <>
                 <Card>
                   <p className="text-sm font-semibold text-navy-900">貸款 #1</p>
@@ -349,7 +391,7 @@ export default function ApplyWizardPage() {
                       <Input
                         value={debtType}
                         onChange={(e) => setDebtType(e.target.value)}
-                        placeholder="營運貸款"
+                        placeholder="例如：營運貸款"
                       />
                     </Field>
                     <div className="grid grid-cols-2 gap-3">
@@ -400,14 +442,14 @@ export default function ApplyWizardPage() {
               docs={docs}
               onChange={setDocs}
               loanType={loanType ?? "unsecured"}
-              amountHkd={amount}
-              purpose={purpose}
+              amountHkd={amountHkd}
+              purpose={purpose || "營運資金"}
             />
             {loanType === "secured" && (
               <CollateralDocsSection
                 items={collateralItems}
                 onChange={updateCollateral}
-                newLoanAmount={amount}
+                newLoanAmount={amountHkd}
               />
             )}
           </>
@@ -512,7 +554,7 @@ export default function ApplyWizardPage() {
             {[
               [
                 "貸款需要",
-                `${loanType === "secured" ? "有抵押" : "無抵押"} · ${formatHKD(amount)} · ${purpose}`,
+                `${loanType === "secured" ? "有抵押" : "無抵押"} · ${amountHkd > 0 ? formatHKD(amountHkd) : "—"} · ${purpose || "—"}`,
               ],
               [
                 "抵押物／現有貸款",
@@ -520,9 +562,11 @@ export default function ApplyWizardPage() {
                   ? collateralItems.length
                     ? `${collateralItems.length} 項抵押品 · 初步合計淨值 ${formatHKD(totalCollateralNet)}`
                     : "尚未新增抵押品"
-                  : hasExistingLoan
+                  : hasExistingLoan === true
                     ? `已申報現有銀行貸款${lender ? `（${lender}）` : ""}`
-                    : "沒有現有銀行貸款",
+                    : hasExistingLoan === false
+                      ? "沒有現有銀行貸款"
+                      : "尚未選擇",
               ],
               [
                 "文件完成狀態",
@@ -539,7 +583,7 @@ export default function ApplyWizardPage() {
                 <CollateralAnalysisCard
                   key={item.id}
                   item={item}
-                  newLoanAmount={amount}
+                  newLoanAmount={amountHkd}
                 />
               ))}
             <Disclaimer>
@@ -626,16 +670,19 @@ export default function ApplyWizardPage() {
                 className="flex-1"
                 disabled={
                   (step === 0 && !loanType) ||
+                  (step === 1 && !step1Ok) ||
                   (step === 2 && loanType === "secured" && !collateralOk) ||
                   (step === 3 && !docsComplete)
                 }
                 onClick={next}
               >
-                {step === 2 && loanType === "secured" && !collateralOk
-                  ? "請先完成抵押品基本資料"
-                  : step === 3 && !docsComplete
-                    ? "請先完成必須文件"
-                    : "下一步"}
+                {step === 1 && !step1Ok
+                  ? "請先填寫金額、用途及年期"
+                  : step === 2 && loanType === "secured" && !collateralOk
+                    ? "請先完成抵押品基本資料"
+                    : step === 3 && !docsComplete
+                      ? "請先完成必須文件"
+                      : "下一步"}
               </Button>
             )}
           </div>
