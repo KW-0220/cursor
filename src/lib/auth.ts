@@ -10,10 +10,7 @@ export const RegisterSchema = z.object({
   email: z.string().email("請輸入有效電郵"),
   password: z.string().min(8, "密碼至少 8 位"),
   nameZh: z.string().min(1, "請輸入姓名").optional(),
-  phone: z
-    .string({ required_error: "請輸入手機號碼" })
-    .trim()
-    .min(8, "請輸入有效手機號碼（含區號）"),
+  phone: z.string().trim().min(8, "請輸入有效手機號碼（含區號）"),
 });
 
 export const LoginSchema = z.object({
