@@ -139,11 +139,6 @@ export default function AccountPage() {
             登出
           </Button>
         )}
-        <Link href="/admin/privacy-audit">
-          <Button fullWidth variant="outline">
-            內部控制台 · 授權審計（示範）
-          </Button>
-        </Link>
         <Link href="/">
           <Button fullWidth variant="ghost">
             返回首頁
