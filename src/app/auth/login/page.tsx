@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Field, Input } from "@/components/ui/field";
 import { PageHeader, Disclaimer, StateBanner } from "@/components/ui/layout";
 
-type Mode = "email" | "phone" | "admin";
+type Mode = "email" | "admin";
 type Intent = "register" | "login";
 
 const ADMIN_EMAIL_PREFILL = "admin@sme.com";
@@ -21,15 +21,11 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [nameZh, setNameZh] = useState("");
   const [phone, setPhone] = useState("+852 ");
-  const [otp, setOtp] = useState("");
-  const [sent, setSent] = useState(false);
-  const [cooldown, setCooldown] = useState(0);
 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [hint, setHint] = useState<string | null>(null);
   const [storageWarning, setStorageWarning] = useState<string | null>(null);
-  const [twilioReady, setTwilioReady] = useState(false);
 
   useEffect(() => {
     void (async () => {
@@ -37,7 +33,6 @@ export default function LoginPage() {
         const res = await fetch("/api/auth/status");
         const data = await res.json();
         if (data.warning) setStorageWarning(data.warning);
-        setTwilioReady(Boolean(data.twilio));
       } catch {
         // ignore
       }
@@ -99,83 +94,11 @@ export default function LoginPage() {
     }
   }
 
-  async function sendOtp() {
-    setError(null);
-    setHint(null);
-    const digits = phone.replace(/\D/g, "");
-    if (digits.length < 8) {
-      setError("請輸入有效手機號碼（含區號，例如 +852 9123 4567）");
-      return;
-    }
-    setBusy(true);
-    try {
-      const res = await fetch("/api/auth/otp/send", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ phone: phone.trim() }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        setError(data.message || "無法發送驗證碼");
-        if (data.error === "SMS_NOT_CONFIGURED") {
-          setMode("email");
-          setIntent("register");
-        }
-        return;
-      }
-      setSent(true);
-      setCooldown(60);
-      setHint("驗證碼已經短訊發送，請查收並輸入");
-      const timer = setInterval(() => {
-        setCooldown((c) => {
-          if (c <= 1) {
-            clearInterval(timer);
-            return 0;
-          }
-          return c - 1;
-        });
-      }, 1000);
-    } catch {
-      setError("網絡錯誤，請稍後再試");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function verifyOtp() {
-    setError(null);
-    setBusy(true);
-    try {
-      const res = await fetch("/api/auth/otp/verify", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          phone: phone.trim(),
-          code: otp.trim(),
-          email: email.trim() || undefined,
-          password: password || undefined,
-          nameZh: nameZh || undefined,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        setError(data.message || "驗證失敗");
-        return;
-      }
-      router.push(data.next || "/register/identity");
-      router.refresh();
-    } catch {
-      setError("網絡錯誤，請稍後再試");
-    } finally {
-      setBusy(false);
-    }
-  }
-
   return (
     <MobileShell>
       <PageHeader title="登入／註冊" subtitle="SME LoanFlow" backHref="/" />
       <main className="flex flex-1 flex-col gap-5 px-4 py-5 pb-28">
-        <div className="grid grid-cols-3 rounded-xl bg-surface-2 p-1">
+        <div className="grid grid-cols-2 rounded-xl bg-surface-2 p-1">
           <button
             type="button"
             className={`rounded-lg py-2 text-sm font-medium ${mode === "email" ? "bg-surface-1 text-navy-900 shadow-sm" : "text-text-secondary"}`}
@@ -185,16 +108,6 @@ export default function LoginPage() {
             }}
           >
             電郵帳戶
-          </button>
-          <button
-            type="button"
-            className={`rounded-lg py-2 text-sm font-medium ${mode === "phone" ? "bg-surface-1 text-navy-900 shadow-sm" : "text-text-secondary"}`}
-            onClick={() => {
-              setMode("phone");
-              setError(null);
-            }}
-          >
-            手機驗證碼
           </button>
           <button
             type="button"
@@ -243,7 +156,7 @@ export default function LoginPage() {
             <StateBanner
               tone="info"
               title="內部審批控制台"
-              description="使用管理員帳號登入後台。一般客戶請改用「電郵帳戶」或「手機驗證碼」。"
+              description="使用管理員帳號登入後台。一般客戶請改用「電郵帳戶」。"
             />
             <Field label="管理員電郵" required>
               <Input
@@ -272,7 +185,7 @@ export default function LoginPage() {
               {busy ? "登入中…" : "登入後台管理"}
             </Button>
           </div>
-        ) : mode === "email" ? (
+        ) : (
           <div className="space-y-4">
             {intent === "register" && (
               <Field label="中文姓名" required>
@@ -337,60 +250,6 @@ export default function LoginPage() {
             >
               管理員登入 → 後台管理
             </button>
-          </div>
-        ) : (
-          <div className="space-y-4">
-            <StateBanner
-              tone={twilioReady ? "success" : "info"}
-              title={twilioReady ? "手機短訊驗證已啟用" : "手機短訊驗證"}
-              description={
-                twilioReady
-                  ? "輸入香港手機號碼（+852）後按「發送驗證碼」，查收 SMS 後輸入 6 位碼即可繼續。"
-                  : "需已設定 Twilio Verify。若尚未啟用，請改用「電郵帳戶」註冊（可立即使用）。"
-              }
-            />
-            <Field label="手機號碼" required>
-              <Input
-                value={phone}
-                onChange={(e) => setPhone(e.target.value)}
-                placeholder="+852 9123 4567"
-                inputMode="tel"
-                autoComplete="tel"
-              />
-            </Field>
-            <Button
-              fullWidth
-              variant="outline"
-              disabled={busy || cooldown > 0}
-              onClick={() => void sendOtp()}
-            >
-              {cooldown > 0 ? `重新發送（${cooldown}s）` : sent ? "重新發送驗證碼" : "發送驗證碼"}
-            </Button>
-            <Field label="驗證碼" required>
-              <Input
-                value={otp}
-                onChange={(e) => setOtp(e.target.value)}
-                placeholder="6 位數字"
-                inputMode="numeric"
-                autoComplete="one-time-code"
-              />
-            </Field>
-            <Field label="電郵（建議填寫，方便之後登入）">
-              <Input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="you@company.com"
-              />
-            </Field>
-            <Button
-              fullWidth
-              size="lg"
-              disabled={busy || !sent}
-              onClick={() => void verifyOtp()}
-            >
-              {busy ? "核對中…" : "驗證並繼續"}
-            </Button>
           </div>
         )}
 
