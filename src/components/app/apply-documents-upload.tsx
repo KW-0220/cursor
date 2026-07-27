@@ -10,11 +10,7 @@ import {
   StateBanner,
 } from "@/components/ui/layout";
 import type { FinancialExtract } from "@/lib/financial-extract";
-import {
-  formatStructuredExtractJson,
-  mergeFinancialExtracts,
-  toStructuredExtractJson,
-} from "@/lib/financial-extract";
+import { toStructuredExtractJson } from "@/lib/financial-extract";
 import type {
   BankCashflowBrief,
   BankStatementExtract,
@@ -449,33 +445,6 @@ function formatBytes(n: number) {
 
 function money(n: number | null | undefined) {
   return n == null ? "—" : formatHKD(n);
-}
-
-function StructuredJsonBlock({
-  title,
-  extract,
-}: {
-  title?: string;
-  extract: FinancialExtract;
-}) {
-  const json = formatStructuredExtractJson(extract);
-  return (
-    <div className="space-y-2">
-      {title && (
-        <p className="text-xs font-medium text-text-muted">{title}</p>
-      )}
-      <pre className="overflow-x-auto rounded-xl bg-navy-900 p-3 text-xs leading-relaxed text-teal-100">
-        {json}
-      </pre>
-      <button
-        type="button"
-        className="text-xs text-teal-700 underline"
-        onClick={() => void navigator.clipboard?.writeText(json)}
-      >
-        複製 JSON
-      </button>
-    </div>
-  );
 }
 
 function FileRow({
@@ -931,9 +900,6 @@ export function ApplyDocumentsUpload({
                       bankOk.map((r) => r.bankExtract!),
                     )
                   : null;
-              const merged = mergeFinancialExtracts(
-                analyzeResults.filter((r) => r.ok).map((r) => r.extract),
-              );
               const brResult = analyzeResults.find(
                 (r) => r.docKind === "br" && r.ok && r.brExtract,
               );
@@ -969,9 +935,6 @@ export function ApplyDocumentsUpload({
                           </p>
                         )}
                         <BrExtractPanel br={brResult.brExtract} />
-                        <pre className="mt-3 overflow-auto rounded bg-white/70 p-2 text-[11px] text-text-secondary">
-                          {JSON.stringify(brResult.brExtract, null, 2)}
-                        </pre>
                       </>
                     ) : (
                       !brFail && (
@@ -1001,9 +964,6 @@ export function ApplyDocumentsUpload({
                           </p>
                         )}
                         <Nar1ExtractPanel n={nar1Result.nar1Extract} />
-                        <pre className="mt-3 overflow-auto rounded bg-white/70 p-2 text-[11px] text-text-secondary">
-                          {JSON.stringify(nar1Result.nar1Extract, null, 2)}
-                        </pre>
                       </>
                     ) : (
                       !nar1Fail && (
@@ -1036,22 +996,10 @@ export function ApplyDocumentsUpload({
                       <BankCashflowBriefPanel brief={brief} />
                     ) : (
                       <p className="text-sm text-danger-600">
-                        未取得銀行現金流資料。下面「company_name／revenue」舊
-                        JSON 唔代表月結已讀——請睇各月結單錯誤訊息後重試。
+                        未取得銀行現金流資料。請查看各月結單錯誤訊息後重試。
                       </p>
                     )}
                   </Card>
-                  <details className="rounded-lg border border-border/60 bg-surface-2 p-3">
-                    <summary className="cursor-pointer text-sm font-medium text-navy-900">
-                      兼容欄位 JSON（舊格式，非 BR／月結主結果）
-                    </summary>
-                    <p className="mt-2 text-xs text-text-muted">
-                      僅作下游兼容；BR／月結請睇上面專用區塊。
-                    </p>
-                    <div className="mt-2">
-                      <StructuredJsonBlock extract={merged} />
-                    </div>
-                  </details>
                 </>
               );
             })()}
@@ -1074,11 +1022,6 @@ export function ApplyDocumentsUpload({
                       </p>
                     )}
                     <BrExtractPanel br={r.brExtract} />
-                    {r.model && (
-                      <p className="pt-1 text-xs text-text-muted">
-                        model：{r.model} · br
-                      </p>
-                    )}
                   </div>
                 ) : r.nar1Extract ? (
                   <div className="mt-3 space-y-2">
@@ -1088,11 +1031,6 @@ export function ApplyDocumentsUpload({
                       </p>
                     )}
                     <Nar1ExtractPanel n={r.nar1Extract} />
-                    {r.model && (
-                      <p className="pt-1 text-xs text-text-muted">
-                        model：{r.model} · nar1
-                      </p>
-                    )}
                   </div>
                 ) : r.bankExtract ? (
                   <div className="mt-3 space-y-2 text-sm">
@@ -1148,11 +1086,6 @@ export function ApplyDocumentsUpload({
                         {r.bankExtract.cashflow_summary}
                       </p>
                     )}
-                    {r.model && (
-                      <p className="pt-1 text-xs text-text-muted">
-                        model：{r.model} · bank
-                      </p>
-                    )}
                   </div>
                 ) : r.extract ? (
                   <div className="mt-3 space-y-3">
@@ -1161,29 +1094,19 @@ export function ApplyDocumentsUpload({
                         {r.extractHint}
                       </p>
                     )}
-                    <StructuredJsonBlock
-                      title="結構化輸出"
-                      extract={r.extract}
-                    />
                     <dl className="space-y-2 text-sm">
                       <div className="flex justify-between gap-2">
-                        <dt className="text-text-secondary">company_name</dt>
+                        <dt className="text-text-secondary">公司名稱</dt>
                         <dd className="font-medium text-navy-900">
-                          {r.extract.company_name ?? "null"}
+                          {r.extract.company_name ?? "—"}
                         </dd>
                       </div>
                       <div className="flex justify-between gap-2">
-                        <dt className="text-text-secondary">revenue</dt>
+                        <dt className="text-text-secondary">營業額</dt>
                         <dd className="tabular font-medium">
                           {money(r.extract.revenue)}
                         </dd>
                       </div>
-                      {r.model && (
-                        <p className="pt-1 text-xs text-text-muted">
-                          model：{r.model}
-                          {r.docKind ? ` · kind：${r.docKind}` : ""}
-                        </p>
-                      )}
                     </dl>
                   </div>
                 ) : (

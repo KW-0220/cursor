@@ -2,10 +2,7 @@
 
 import { useState } from "react";
 import type { EligibilityAnalysis } from "@/lib/eligibility";
-import {
-  formatStructuredExtractJson,
-  type FinancialExtract,
-} from "@/lib/financial-extract";
+import type { FinancialExtract } from "@/lib/financial-extract";
 import { Button } from "@/components/ui/button";
 import { Field, Input, Select, Textarea } from "@/components/ui/field";
 import {
@@ -175,7 +172,7 @@ export function DocumentAnalyzeForm({
           <StateBanner
             tone="success"
             title="文件分析完成"
-            description={`${result?.fileName} · ${result?.extractMethod} · ${result?.model}`}
+            description={result?.fileName || "已完成讀取"}
           />
 
           {extract && (
@@ -187,30 +184,25 @@ export function DocumentAnalyzeForm({
               <dl className="space-y-3">
                 {(
                   [
-                    ["company_name", extract.company_name ?? "—"],
-                    ["financial_year", extract.financial_year ?? "—"],
-                    ["revenue", money(extract.revenue)],
+                    ["公司名稱", extract.company_name ?? "—"],
+                    ["財政年度", extract.financial_year ?? "—"],
+                    ["營業額", money(extract.revenue)],
                     ["EBITDA", money(extract.EBITDA)],
-                    ["net_profit", money(extract.net_profit)],
-                    ["existing_debt", money(extract.existing_debt)],
+                    ["純利", money(extract.net_profit)],
+                    ["現有債務", money(extract.existing_debt)],
                   ] as const
                 ).map(([label, value]) => (
                   <div
                     key={label}
                     className="flex items-baseline justify-between gap-3 border-b border-border/60 pb-2 last:border-0"
                   >
-                    <dt className="font-mono text-xs text-text-secondary">
-                      {label}
-                    </dt>
+                    <dt className="text-xs text-text-secondary">{label}</dt>
                     <dd className="text-right text-sm font-semibold tabular text-navy-900">
                       {value}
                     </dd>
                   </div>
                 ))}
               </dl>
-              <pre className="mt-4 overflow-x-auto rounded-xl bg-navy-900 p-3 text-xs leading-relaxed text-teal-100">
-                {formatStructuredExtractJson(extract)}
-              </pre>
             </Card>
           )}
 
