@@ -11,6 +11,7 @@ export const RegisterSchema = z.object({
   password: z.string().min(8, "密碼至少 8 位"),
   nameZh: z.string().min(1, "請輸入姓名").optional(),
   phone: z.string().trim().min(8, "請輸入有效手機號碼（含區號）"),
+  idNumber: z.string().trim().min(5, "請輸入身份證／護照號碼"),
 });
 
 export const LoginSchema = z.object({
@@ -26,6 +27,7 @@ export interface AuthUser {
   passwordHash: string;
   nameZh: string | null;
   phone: string | null;
+  idNumber: string | null;
   profileCompleted: boolean;
   role?: AuthRole;
   createdAt: string;
@@ -180,6 +182,7 @@ export async function registerUser(
     passwordHash: await bcrypt.hash(input.password, 10),
     nameZh: input.nameZh?.trim() || null,
     phone: input.phone.trim() || null,
+    idNumber: input.idNumber.trim(),
     profileCompleted: false,
     createdAt: now,
     updatedAt: now,
@@ -213,6 +216,7 @@ export async function ensureAdminUser(): Promise<PublicUser> {
     passwordHash: hash,
     nameZh: "系統管理員",
     phone: null,
+    idNumber: null,
     profileCompleted: true,
     role: "admin",
     createdAt: now,

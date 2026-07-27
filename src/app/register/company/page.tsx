@@ -47,8 +47,15 @@ export default function CompanyPage() {
   useEffect(() => {
     try {
       const raw = sessionStorage.getItem(IDENTITY_KEY);
-      if (!raw) return;
+      if (!raw) {
+        setIdentity(null);
+        return;
+      }
       const draft = JSON.parse(raw) as IdentityDraft;
+      if (!draft.idNumber?.trim() || draft.idNumber.trim().length < 5) {
+        setIdentity(null);
+        return;
+      }
       setIdentity(draft);
       if (draft.applicantNameZh) setContactPerson(draft.applicantNameZh);
     } catch {
@@ -60,17 +67,12 @@ export default function CompanyPage() {
     setSaving(true);
     setError(null);
     try {
-      const identityPayload =
-        identity ??
-        ({
-          applicantNameZh: contactPerson,
-          applicantNameEn: contactPerson,
-          idNumber: "UNKNOWN",
-          phone: "",
-          email: `unknown+${Date.now()}@example.com`,
-          title: "董事",
-          relation: "董事",
-        } satisfies IdentityDraft);
+      if (!identity?.idNumber?.trim() || identity.idNumber.trim().length < 5) {
+        setError("必須先填寫身份證號碼。請返回身份確認頁完成註冊資料。");
+        setSaving(false);
+        return;
+      }
+      const identityPayload = identity;
 
       const res = await fetch("/api/admin/customers", {
         method: "POST",
@@ -137,9 +139,9 @@ export default function CompanyPage() {
         />
         {!identity && (
           <StateBanner
-            tone="warning"
-            title="未找到身份步驟資料"
-            description="建議返回身份確認頁重填；仍可繼續提交公司資料。"
+            tone="error"
+            title="未完成身份資料"
+            description="必須填寫身份證號碼後才能完成註冊。請返回身份確認頁。"
           />
         )}
         {error && (
@@ -208,9 +210,23 @@ export default function CompanyPage() {
           按「完成」會將申請人及公司資料儲存至後台客戶登記資料庫，並可供 Excel 下載。
         </Disclaimer>
 
-        <Button fullWidth size="lg" disabled={saving} onClick={() => void submit()}>
+        <Button
+          fullWidth
+          size="lg"
+          disabled={saving || !identity}
+          onClick={() => void submit()}
+        >
           {saving ? "儲存中…" : "完成並進入首頁"}
         </Button>
+        {!identity && (
+          <Button
+            fullWidth
+            variant="outline"
+            onClick={() => router.push("/register/identity")}
+          >
+            返回填寫身份證號碼
+          </Button>
+        )}
       </main>
     </MobileShell>
   );

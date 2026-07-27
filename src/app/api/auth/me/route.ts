@@ -45,6 +45,7 @@ export async function GET(req: NextRequest) {
           email: full.email,
           nameZh: full.nameZh,
           phone: full.phone,
+          idNumber: full.idNumber ?? null,
           profileCompleted: full.profileCompleted,
           role,
           createdAt: full.createdAt,

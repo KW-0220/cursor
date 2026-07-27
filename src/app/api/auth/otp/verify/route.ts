@@ -23,6 +23,7 @@ const bodySchema = z.object({
   email: z.string().email().optional(),
   password: z.string().min(8).optional(),
   nameZh: z.string().optional(),
+  idNumber: z.string().trim().min(5, "請輸入身份證／護照號碼"),
 });
 
 /** 核對 Twilio Verify OTP；成功後建立／登入帳戶 */
@@ -86,6 +87,7 @@ export async function POST(req: NextRequest) {
       email: existing.email,
       nameZh: existing.nameZh,
       phone: e164,
+      idNumber: existing.idNumber ?? parsed.data.idNumber,
       profileCompleted: existing.profileCompleted,
       createdAt: existing.createdAt,
       updatedAt: existing.updatedAt,
@@ -96,6 +98,7 @@ export async function POST(req: NextRequest) {
       password,
       nameZh: parsed.data.nameZh,
       phone: e164,
+      idNumber: parsed.data.idNumber,
     });
   }
 

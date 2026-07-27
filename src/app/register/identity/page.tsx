@@ -38,6 +38,7 @@ export default function IdentityPage() {
         if (data.user.nameZh) setApplicantNameZh(data.user.nameZh);
         if (data.user.email) setEmail(data.user.email);
         if (data.user.phone) setPhone(data.user.phone);
+        if (data.user.idNumber) setIdNumber(data.user.idNumber);
       } catch {
         router.replace("/auth/login");
       } finally {
@@ -48,8 +49,20 @@ export default function IdentityPage() {
 
   function next() {
     setFormError(null);
-    if (!applicantNameZh.trim() || !idNumber.trim() || !phone.trim() || !email.trim()) {
-      setFormError("請填寫姓名、身份證／護照、電話及電郵");
+    if (!applicantNameZh.trim()) {
+      setFormError("請填寫中文姓名");
+      return;
+    }
+    if (!applicantNameEn.trim()) {
+      setFormError("請填寫英文姓名");
+      return;
+    }
+    if (idNumber.trim().length < 5) {
+      setFormError("必須填寫身份證／護照號碼，否則未能完成註冊");
+      return;
+    }
+    if (!phone.trim() || !email.trim()) {
+      setFormError("請填寫電話及電郵");
       return;
     }
     sessionStorage.setItem(

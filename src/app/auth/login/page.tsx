@@ -67,6 +67,7 @@ export default function LoginPage() {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [nameZh, setNameZh] = useState("");
   const [phone, setPhone] = useState("+852 ");
+  const [idNumber, setIdNumber] = useState("");
 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -119,6 +120,10 @@ export default function LoginPage() {
         setError("請輸入有效手機號碼（含區號，例如 +852 9123 4567）");
         return;
       }
+      if (idNumber.trim().length < 5) {
+        setError("請輸入身份證／護照號碼");
+        return;
+      }
     }
     setBusy(true);
     try {
@@ -133,6 +138,7 @@ export default function LoginPage() {
               password,
               nameZh: nameZh.trim(),
               phone: phone.trim(),
+              idNumber: idNumber.trim(),
             }
           : { email, password };
 
@@ -307,6 +313,20 @@ export default function LoginPage() {
                   placeholder="+852 9123 4567"
                   inputMode="tel"
                   autoComplete="tel"
+                />
+              </Field>
+            )}
+            {intent === "register" && (
+              <Field
+                label="身份證號碼"
+                required
+                hint="香港身份證或護照號碼"
+              >
+                <Input
+                  value={idNumber}
+                  onChange={(e) => setIdNumber(e.target.value)}
+                  placeholder="A123456(7)"
+                  autoComplete="off"
                 />
               </Field>
             )}
