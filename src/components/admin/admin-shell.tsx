@@ -27,6 +27,7 @@ const nav = [
   { href: "/admin/privacy-audit", label: "授權審計", icon: Shield },
   { href: "/admin/privacy-transfers", label: "資料傳送紀錄", icon: FileSearch },
   { href: "/admin/privacy-versions", label: "授權版本", icon: ClipboardList },
+  { href: "/admin/collateral", label: "抵押品審批", icon: FileSearch },
 ];
 
 export function AdminShell({ children }: { children: React.ReactNode }) {

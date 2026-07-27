@@ -93,6 +93,18 @@ export const SHARE_DATA_CATEGORIES: ShareDataCategory[] = [
       "補件及審批紀錄",
     ],
   },
+  {
+    id: "collateral",
+    title: "抵押品資料及文件",
+    items: [
+      "物業業權證明",
+      "現有按揭文件",
+      "租約及租金證明",
+      "車輛／設備證明",
+      "定期存款單",
+      "證券月結單",
+    ],
+  },
 ];
 
 export const AUTH_CONFIRM_CHECKS = [
@@ -162,6 +174,26 @@ export const DEMO_THIRD_PARTY_RECIPIENTS: ThirdPartyRecipient[] = [
     plannedShareAt: "啟動正式 KYC 流程時",
     retentionNote: "僅保留完成驗證所需期間，詳見服務商私隱聲明。",
     dataCategoryIds: ["people"],
+  },
+  {
+    id: "valuation-demo",
+    name: "示範物業估值服務商",
+    orgType: "物業估值服務商",
+    privacyUrl: "/app/account/data-use",
+    purposes: ["進行物業估值", "核實申請資料", "評估貸款申請"],
+    plannedShareAt: "安排正式估值時",
+    retentionNote: "按估值委託及監管要求保存。",
+    dataCategoryIds: ["company", "people", "application", "collateral"],
+  },
+  {
+    id: "land-search-demo",
+    name: "示範土地註冊處查冊服務商",
+    orgType: "法律或合規服務商",
+    privacyUrl: "/app/account/data-use",
+    purposes: ["核實申請資料", "完成合規或法定要求"],
+    plannedShareAt: "核對業權及押記時",
+    retentionNote: "按查冊服務條款保存。",
+    dataCategoryIds: ["company", "people", "application", "collateral"],
   },
 ];
 

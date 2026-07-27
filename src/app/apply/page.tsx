@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { MobileShell } from "@/components/app/mobile-shell";
 import {
   ApplyDocumentsUpload,
@@ -12,6 +12,11 @@ import {
   summarizeApplyDocs,
   type ApplyDocsState,
 } from "@/components/app/apply-documents-upload";
+import {
+  CollateralAnalysisCard,
+  CollateralDocsSection,
+  CollateralManager,
+} from "@/components/app/collateral-manager";
 import { Button } from "@/components/ui/button";
 import { Field, Input, Select, Textarea } from "@/components/ui/field";
 import {
@@ -22,6 +27,16 @@ import {
   SectionHeader,
   StateBanner,
 } from "@/components/ui/layout";
+import {
+  COLLATERAL_DATA_USE_NOTE,
+  displayTitle,
+  hasUsableCollateral,
+  itemCompleteness,
+  loadCollateralItems,
+  preliminaryNetValue,
+  saveCollateralItems,
+  type CollateralItem,
+} from "@/lib/collateral";
 import { formatHKD } from "@/lib/utils";
 import type { LoanType } from "@/lib/types";
 
@@ -49,12 +64,8 @@ export default function ApplyWizardPage() {
   const [debtType, setDebtType] = useState("營運貸款");
   const [facility, setFacility] = useState("");
   const [outstanding, setOutstanding] = useState("");
-  const [propertyType, setPropertyType] = useState("寫字樓");
-  const [propertyAddress, setPropertyAddress] = useState("");
-  const [propertyOwner, setPropertyOwner] = useState("");
-  const [propertyHolder, setPropertyHolder] = useState("公司");
-  const [propertyValue, setPropertyValue] = useState("");
-  const [propertyMortgage, setPropertyMortgage] = useState("");
+  const [collateralItems, setCollateralItems] = useState<CollateralItem[]>([]);
+  const [userKey, setUserKey] = useState("anon");
   const [docs, setDocs] = useState<ApplyDocsState>(() =>
     emptyApplyDocs(BANK_MONTHS),
   );
@@ -62,8 +73,30 @@ export default function ApplyWizardPage() {
   const [applicationId, setApplicationId] = useState<string | null>(null);
   const [submittedAt, setSubmittedAt] = useState<string | null>(null);
 
+  useEffect(() => {
+    void (async () => {
+      let key = "anon";
+      try {
+        const res = await fetch("/api/auth/me");
+        const data = await res.json();
+        if (res.ok && data.user?.id) key = data.user.id as string;
+      } catch {
+        /* anon */
+      }
+      setUserKey(key);
+      setCollateralItems(loadCollateralItems(key));
+    })();
+  }, []);
+
+  function updateCollateral(next: CollateralItem[]) {
+    setCollateralItems(next);
+    saveCollateralItems(next, userKey);
+  }
+
   const progress = ((step + 1) / steps.length) * 100;
   const docsComplete = isApplyDocsComplete(docs, BANK_MONTHS);
+  const collateralOk =
+    loanType !== "secured" || hasUsableCollateral(collateralItems);
   const docsSummary = useMemo(
     () => summarizeApplyDocs(docs, BANK_MONTHS),
     [docs],
@@ -73,11 +106,10 @@ export default function ApplyWizardPage() {
     return Math.round((p.done / p.total) * 100);
   }, [docs]);
 
-  const propertyEquity = useMemo(() => {
-    const v = Number(propertyValue) || 0;
-    const m = Number(propertyMortgage) || 0;
-    return Math.max(0, v - m);
-  }, [propertyValue, propertyMortgage]);
+  const totalCollateralNet = useMemo(
+    () => collateralItems.reduce((s, i) => s + preliminaryNetValue(i), 0),
+    [collateralItems],
+  );
 
   const consentItems = useMemo(
     () => [
@@ -87,8 +119,13 @@ export default function ApplyWizardPage() {
       "同意平台按申請需要將資料提供予指定合作機構",
       "明白 AI 分析只供初步評估，並非正式貸款批核",
       "已閱讀私隱政策及使用條款",
+      ...(loanType === "secured"
+        ? [
+            "明白抵押品估值及淨值只屬初步計算，正式價值須由指定估值及貸款機構確認",
+          ]
+        : []),
     ],
-    [],
+    [loanType],
   );
 
   const allConsented = consentItems.every((item) => consents[item]);
@@ -114,6 +151,15 @@ export default function ApplyWizardPage() {
         hasExistingLoan,
         docsPct,
         bankCount: docsSummary.bankCount,
+        collateralCount: collateralItems.length,
+        collateralNet: totalCollateralNet,
+        collateralSummary: collateralItems.map((i) => ({
+          id: i.id,
+          subtype: i.subtype,
+          title: displayTitle(i),
+          completeness: itemCompleteness(i),
+          net: preliminaryNetValue(i),
+        })),
         status: "submitted" as const,
         createdAt: at,
         updatedAt: at,
@@ -149,11 +195,11 @@ export default function ApplyWizardPage() {
                   type: "secured" as const,
                   title: "有抵押貸款",
                   fit: [
-                    "持有香港住宅、商舖、寫字樓或工廈",
+                    "持有香港住宅、商舖、寫字樓、工廈、車位或其他資產",
                     "希望申請較高貸款額",
-                    "可接受以物業作抵押",
+                    "可接受以抵押品作擔保",
                   ],
-                  docs: "必須：BR、NAR1、六個月銀行月結單 PDF、董事／股東／擔保人身份證明，以及抵押物業資料",
+                  docs: "必須：BR、NAR1、六個月銀行月結單 PDF、董事／股東／擔保人身份證明，以及按抵押品類型上載專屬文件",
                 },
                 {
                   type: "unsecured" as const,
@@ -260,71 +306,18 @@ export default function ApplyWizardPage() {
 
         {step === 2 && loanType === "secured" && (
           <>
-            <SectionHeader title="抵押物業資料" />
-            <Field label="物業類型" required>
-              <Select
-                value={propertyType}
-                onChange={(e) => setPropertyType(e.target.value)}
-              >
-                <option>住宅</option>
-                <option>商舖</option>
-                <option>寫字樓</option>
-                <option>工廈</option>
-                <option>其他</option>
-              </Select>
-            </Field>
-            <Field label="物業地址" required>
-              <Input
-                value={propertyAddress}
-                onChange={(e) => setPropertyAddress(e.target.value)}
-                placeholder="請輸入物業地址"
-              />
-            </Field>
-            <Field label="物業業權人" required>
-              <Input
-                value={propertyOwner}
-                onChange={(e) => setPropertyOwner(e.target.value)}
-                placeholder="公司或個人名稱"
-              />
-            </Field>
-            <Field label="公司／個人持有" required>
-              <Select
-                value={propertyHolder}
-                onChange={(e) => setPropertyHolder(e.target.value)}
-              >
-                <option>公司</option>
-                <option>個人</option>
-              </Select>
-            </Field>
-            <div className="grid grid-cols-2 gap-3">
-              <Field label="估計市值（HKD）" required>
-                <Input
-                  type="number"
-                  className="tabular"
-                  value={propertyValue}
-                  onChange={(e) => setPropertyValue(e.target.value)}
-                  placeholder="0"
-                />
-              </Field>
-              <Field label="現時貸款餘額（HKD）" required>
-                <Input
-                  type="number"
-                  className="tabular"
-                  value={propertyMortgage}
-                  onChange={(e) => setPropertyMortgage(e.target.value)}
-                  placeholder="0"
-                />
-              </Field>
-            </div>
-            <Card className="bg-surface-2">
-              <p className="text-xs text-text-muted">估計物業淨值</p>
-              <p className="mt-1 text-xl font-semibold tabular text-navy-900">
-                {formatHKD(propertyEquity)}
-              </p>
-              <p className="mt-2 text-xs text-text-secondary">
-                估計市值 − 現有貸款餘額。不顯示「最高可借金額」為確定結果。
-              </p>
-            </Card>
+            <StateBanner
+              tone="info"
+              title="抵押品管理模組"
+              description={COLLATERAL_DATA_USE_NOTE}
+            />
+            <CollateralManager
+              items={collateralItems}
+              onChange={updateCollateral}
+              newLoanAmount={amount}
+              showDocs
+              showAnalysis
+            />
           </>
         )}
 
@@ -394,14 +387,30 @@ export default function ApplyWizardPage() {
         )}
 
         {step === 3 && (
-          <ApplyDocumentsUpload
-            months={BANK_MONTHS}
-            docs={docs}
-            onChange={setDocs}
-            loanType={loanType ?? "unsecured"}
-            amountHkd={amount}
-            purpose={purpose}
-          />
+          <>
+            {loanType === "secured" && (
+              <StateBanner
+                tone="info"
+                title="區塊一：共同必須文件"
+                description="BR、NAR1、六個月銀行月結單、身份證明。區塊二為抵押品專屬文件。"
+              />
+            )}
+            <ApplyDocumentsUpload
+              months={BANK_MONTHS}
+              docs={docs}
+              onChange={setDocs}
+              loanType={loanType ?? "unsecured"}
+              amountHkd={amount}
+              purpose={purpose}
+            />
+            {loanType === "secured" && (
+              <CollateralDocsSection
+                items={collateralItems}
+                onChange={updateCollateral}
+                newLoanAmount={amount}
+              />
+            )}
+          </>
         )}
 
         {step === 4 && (
@@ -452,6 +461,30 @@ export default function ApplyWizardPage() {
                 ))}
               </ul>
             </Card>
+            {loanType === "secured" && (
+              <>
+                <SectionHeader title="抵押品文件完整度" />
+                {collateralItems.length === 0 ? (
+                  <Card className="text-sm text-text-muted">尚未新增抵押品</Card>
+                ) : (
+                  collateralItems.map((item) => {
+                    const c = itemCompleteness(item);
+                    return (
+                      <Card key={item.id}>
+                        <p className="text-xs text-text-muted">{item.subtype}</p>
+                        <p className="mt-1 text-sm font-medium text-navy-900">
+                          {displayTitle(item)}
+                        </p>
+                        <p className="mt-1 text-xs text-text-secondary">
+                          文件 {c.done}／{c.total} · 初步淨值{" "}
+                          {formatHKD(preliminaryNetValue(item))}
+                        </p>
+                      </Card>
+                    );
+                  })
+                )}
+              </>
+            )}
             {docsSummary.companyOther.length > 0 && (
               <Card>
                 <p className="text-xs text-text-muted">其他公司文件</p>
@@ -484,7 +517,9 @@ export default function ApplyWizardPage() {
               [
                 "抵押物／現有貸款",
                 loanType === "secured"
-                  ? `${propertyType}${propertyAddress ? ` · ${propertyAddress}` : ""} · 估計淨值 ${formatHKD(propertyEquity)}`
+                  ? collateralItems.length
+                    ? `${collateralItems.length} 項抵押品 · 初步合計淨值 ${formatHKD(totalCollateralNet)}`
+                    : "尚未新增抵押品"
                   : hasExistingLoan
                     ? `已申報現有銀行貸款${lender ? `（${lender}）` : ""}`
                     : "沒有現有銀行貸款",
@@ -499,6 +534,14 @@ export default function ApplyWizardPage() {
                 <p className="mt-1 text-sm font-medium text-navy-900">{body}</p>
               </Card>
             ))}
+            {loanType === "secured" &&
+              collateralItems.map((item) => (
+                <CollateralAnalysisCard
+                  key={item.id}
+                  item={item}
+                  newLoanAmount={amount}
+                />
+              ))}
             <Disclaimer>
               提交前不會向客戶顯示內部評分或「保證批核」等字眼，避免誤解。
             </Disclaimer>
@@ -507,10 +550,7 @@ export default function ApplyWizardPage() {
 
         {step === 6 && (
           <>
-            <SectionHeader
-              title="聲明及授權"
-              subtitle="每項須分別確認，不可一鍵全勾"
-            />
+            <SectionHeader title="聲明及授權" subtitle="每項須分別確認" />
             <div className="space-y-3">
               {consentItems.map((item) => (
                 <label
@@ -542,10 +582,14 @@ export default function ApplyWizardPage() {
               申請編號 {applicationId}
             </p>
             {submittedAt && (
-              <p className="mt-1 text-xs text-text-muted">提交時間 {submittedAt}</p>
+              <p className="mt-1 text-xs text-text-muted">
+                提交時間 {submittedAt}
+              </p>
             )}
             <p className="mx-auto mt-4 max-w-sm text-sm leading-relaxed text-text-secondary">
-              我們已收到你的申請資料及必須文件。下一步為文件檢查與現金流初步分析；不會在此顯示最終批核結果。
+              我們已收到你的申請資料及必須文件
+              {loanType === "secured" ? "（含抵押品資料）" : ""}
+              。下一步為文件檢查、抵押品初步分析與正式估值安排；不會在此顯示最終批核結果。
             </p>
             <Link href="/app/applications" className="mt-6 block">
               <Button fullWidth size="lg">
@@ -581,11 +625,17 @@ export default function ApplyWizardPage() {
               <Button
                 className="flex-1"
                 disabled={
-                  (step === 0 && !loanType) || (step === 3 && !docsComplete)
+                  (step === 0 && !loanType) ||
+                  (step === 2 && loanType === "secured" && !collateralOk) ||
+                  (step === 3 && !docsComplete)
                 }
                 onClick={next}
               >
-                {step === 3 && !docsComplete ? "請先完成必須文件" : "下一步"}
+                {step === 2 && loanType === "secured" && !collateralOk
+                  ? "請先完成抵押品基本資料"
+                  : step === 3 && !docsComplete
+                    ? "請先完成必須文件"
+                    : "下一步"}
               </Button>
             )}
           </div>

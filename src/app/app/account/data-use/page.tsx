@@ -150,7 +150,6 @@ export default function DataUsePage() {
           "銷售合約",
           "訂單",
           "發票",
-          "抵押品資料",
         ]}
         purposes={[
           "補充公司財務及營運資料",
@@ -161,7 +160,30 @@ export default function DataUsePage() {
         ]}
       />
 
-      <SectionHeader title="5. AI 處理說明" />
+      <SectionHeader title="5. 有抵押貸款｜抵押品資料用途" />
+      <PurposeBlock
+        title="抵押品資料及文件"
+        collected={[
+          "物業業權證明（樓契／查冊）",
+          "現有按揭合約及還款月結",
+          "差餉、地租、管理費等開支文件",
+          "租約及租金收入證明",
+          "車輛／設備／定期存款／證券相關證明",
+        ]}
+        purposes={[
+          "核對資產業權",
+          "估算未償還負債",
+          "分析初步抵押價值及質押空間",
+          "安排正式估值",
+          "支援有抵押貸款審批",
+        ]}
+        callout={{
+          title: "必須另行授權的第三方",
+          body: "銀行或貸款機構、土地註冊處查冊服務商、物業／車輛／設備估值服務商、證券或資產核實服務商、法律及合規服務商。分享前須顯示接收機構、目的、抵押品文件範圍及是否包括身份／銀行月結。",
+        }}
+      />
+
+      <SectionHeader title="6. AI 處理說明" />
       <Card className="space-y-3">
         <p className="text-sm text-text-secondary">
           系統可能利用 AI 執行：文件分類；OCR
