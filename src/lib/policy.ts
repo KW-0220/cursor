@@ -52,6 +52,8 @@ export interface AuditExtract {
   goodwillHkd: number | null;
   profitBeforeTaxHkd: number | null;
   financeCostsHkd: number | null;
+  /** 稅項（Tax expense）— EBITDA 公式組成 */
+  taxHkd: number | null;
   depreciationHkd: number | null;
   amortisationHkd: number | null;
   ebitdaDisclosedHkd: number | null;
@@ -82,6 +84,7 @@ export interface EbitdaBreakdown {
   ebitdaHkd: number | null;
   profitBeforeTaxHkd: number | null;
   financeCostsHkd: number | null;
+  taxHkd: number | null;
   depreciationHkd: number | null;
   amortisationHkd: number | null;
   sourcePages: number[];
@@ -104,6 +107,8 @@ export interface PolicyEvaluation {
   clientMessage: string;
   ebitda: EbitdaBreakdown;
   annualDebtServiceHkd: number | null;
+  /** 硬規則：EBITDA > Total Debt payments */
+  ebitdaCoversDebtPayments: boolean | null;
   dscr: number | null;
   gearing: number | null;
   tangibleNetWorthHkd: number | null;
@@ -131,6 +136,7 @@ export function computeOverall(items: PolicyItemResult[]): ScreeningResult {
 import {
   annualDebtServiceFromMonthly,
   dscr as dscrFormula,
+  ebitdaCoversTotalDebtPayments,
   ebitdaFromComponents,
   gearingRatio,
   newLoanLtv,
@@ -149,21 +155,27 @@ export function computeGearing(a: AuditExtract) {
 }
 
 export function computeEbitda(a: AuditExtract): EbitdaBreakdown {
+  const base = {
+    profitBeforeTaxHkd: a.profitBeforeTaxHkd,
+    financeCostsHkd: a.financeCostsHkd,
+    taxHkd: a.taxHkd,
+    depreciationHkd: a.depreciationHkd,
+    amortisationHkd: a.amortisationHkd,
+    sourcePages: a.sourcePages,
+  };
+
   if (a.ebitdaDisclosedHkd != null) {
     return {
       mode: "disclosed",
       ebitdaHkd: a.ebitdaDisclosedHkd,
-      profitBeforeTaxHkd: a.profitBeforeTaxHkd,
-      financeCostsHkd: a.financeCostsHkd,
-      depreciationHkd: a.depreciationHkd,
-      amortisationHkd: a.amortisationHkd,
-      sourcePages: a.sourcePages,
-      note: "報告直接披露 EBITDA。",
+      ...base,
+      note: "報告直接披露 EBITDA（仍應用公式核對組成項）。",
     };
   }
   const ebitda = ebitdaFromComponents(
     a.profitBeforeTaxHkd,
     a.financeCostsHkd,
+    a.taxHkd,
     a.depreciationHkd,
     a.amortisationHkd,
   );
@@ -171,23 +183,15 @@ export function computeEbitda(a: AuditExtract): EbitdaBreakdown {
     return {
       mode: "incomplete",
       ebitdaHkd: null,
-      profitBeforeTaxHkd: a.profitBeforeTaxHkd,
-      financeCostsHkd: a.financeCostsHkd,
-      depreciationHkd: a.depreciationHkd,
-      amortisationHkd: a.amortisationHkd,
-      sourcePages: a.sourcePages,
-      note: "未能從文件確認完整 EBITDA 組成，需要人工覆核。",
+      ...base,
+      note: "未能從文件確認完整 EBITDA 組成（需 EBT、Interest、Tax、Depreciation；Amortisation 可為 0），需要人工覆核。",
     };
   }
   return {
     mode: "computed",
     ebitdaHkd: ebitda,
-    profitBeforeTaxHkd: a.profitBeforeTaxHkd,
-    financeCostsHkd: a.financeCostsHkd,
-    depreciationHkd: a.depreciationHkd,
-    amortisationHkd: a.amortisationHkd,
-    sourcePages: a.sourcePages,
-    note: "EBITDA＝除稅前溢利＋融資成本＋折舊＋攤銷（系統公式）。",
+    ...base,
+    note: "EBITDA＝Earning before tax＋Interest＋Tax＋Depreciation＋Amortisation（系統硬編碼公式）。",
   };
 }
 
@@ -254,7 +258,7 @@ export function evaluatePolicy(input: PolicyEvaluationInput): PolicyEvaluation {
     });
   }
 
-  // 2 DSCR / EBITDA
+  // 2 DSCR / EBITDA > Total Debt payments
   const ebitda = latest
     ? computeEbitda(latest)
     : {
@@ -262,6 +266,7 @@ export function evaluatePolicy(input: PolicyEvaluationInput): PolicyEvaluation {
         ebitdaHkd: null,
         profitBeforeTaxHkd: null,
         financeCostsHkd: null,
+        taxHkd: null,
         depreciationHkd: null,
         amortisationHkd: null,
         sourcePages: [],
@@ -270,6 +275,7 @@ export function evaluatePolicy(input: PolicyEvaluationInput): PolicyEvaluation {
 
   let annualDebt: number | null = null;
   let dscr: number | null = null;
+  let coversDebt: boolean | null = null;
   let dscrStatus: PolicyItemStatus = "amber";
   let dscrReason = "";
   let dscrAction = "人工覆核";
@@ -277,12 +283,14 @@ export function evaluatePolicy(input: PolicyEvaluationInput): PolicyEvaluation {
   if (input.noExistingDebt) {
     annualDebt = 0;
     dscr = null;
+    coversDebt = true;
     dscrStatus = "green";
     dscrReason = "客戶聲明沒有現有銀行貸款；本階段無已申報債務支出。";
     dscrAction = "通過（請再次確認）";
     followUpTasks.push("要求客戶再次確認沒有現有銀行貸款");
   } else if (input.unknownDebtPayments || annualDebtService(input.debts) == null) {
     annualDebt = null;
+    coversDebt = null;
     if (ebitda.ebitdaHkd != null && ebitda.ebitdaHkd > 0) {
       dscrStatus = "amber";
       dscrReason = "EBITDA 為正數，但債務資料未完整，需人工跟進。";
@@ -295,20 +303,23 @@ export function evaluatePolicy(input: PolicyEvaluationInput): PolicyEvaluation {
     annualDebt = annualDebtService(input.debts);
     if (ebitda.ebitdaHkd == null) {
       dscrStatus = "amber";
-      dscrReason = "需要人工從 Audited Report 核實 EBITDA。";
+      dscrReason = "需要人工從 Audited Report 核實 EBITDA（EBT＋Interest＋Tax＋D＋A）。";
     } else if (annualDebt != null && annualDebt === 0) {
+      coversDebt = true;
       dscrStatus = "green";
       dscrReason = "已申報債務年度支出為零。";
       dscrAction = "通過";
     } else if (annualDebt != null && annualDebt > 0) {
       dscr = dscrFormula(ebitda.ebitdaHkd, annualDebt);
-      if (dscr != null && dscr >= 1) {
+      coversDebt = ebitdaCoversTotalDebtPayments(ebitda.ebitdaHkd, annualDebt);
+      if (coversDebt) {
         dscrStatus = "green";
-        dscrReason = "EBITDA 足以覆蓋一年已申報債務支出。";
+        dscrReason = "EBITDA > Total Debt payments（一年已申報債務支出）。";
         dscrAction = "通過";
       } else {
         dscrStatus = "red";
-        dscrReason = "EBITDA 未能覆蓋一年債務支出（DSCR < 1.0）。";
+        dscrReason =
+          "EBITDA 未能大於一年債務支出（硬規則：EBITDA > Total Debt payments）。";
       }
     }
   }
@@ -321,14 +332,20 @@ export function evaluatePolicy(input: PolicyEvaluationInput): PolicyEvaluation {
 
   items.push({
     id: 2,
-    name: "債務償還能力 DSCR",
-    policyStandard: "EBITDA ≥ 一年總債務支出（DSCR ≥ 1.0）",
+    name: "債務償還能力（EBITDA 覆蓋）",
+    policyStandard: "EBITDA > Total Debt payments（一年總債務支出）",
     actual:
-      dscr != null
-        ? `${dscr.toFixed(2)}x`
-        : input.noExistingDebt
+      coversDebt == null
+        ? input.noExistingDebt
           ? "不適用／無現有債務"
-          : "未能完整計算",
+          : "未能完整計算"
+        : coversDebt
+          ? dscr != null
+            ? `通過（DSCR ${dscr.toFixed(2)}x）`
+            : "通過"
+          : dscr != null
+            ? `不通過（DSCR ${dscr.toFixed(2)}x）`
+            : "不通過",
     status: dscrStatus,
     dataKinds: ["ai_extract", "customer_declare", "system_calc"],
     sources: [
@@ -342,7 +359,9 @@ export function evaluatePolicy(input: PolicyEvaluationInput): PolicyEvaluation {
     suggestedAction: dscrAction,
     details: {
       EBITDA: ebitda.ebitdaHkd,
-      一年總債務支出: annualDebt,
+      "Total Debt payments": annualDebt,
+      "EBITDA > Total Debt payments":
+        coversDebt == null ? null : coversDebt ? 1 : 0,
       DSCR: dscr != null ? Number(dscr.toFixed(2)) : null,
     },
   });
@@ -663,6 +682,7 @@ export function evaluatePolicy(input: PolicyEvaluationInput): PolicyEvaluation {
     clientMessage,
     ebitda,
     annualDebtServiceHkd: annualDebt,
+    ebitdaCoversDebtPayments: coversDebt,
     dscr,
     gearing: gearing != null && Number.isFinite(gearing) ? gearing : null,
     tangibleNetWorthHkd: tnw,

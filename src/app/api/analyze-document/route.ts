@@ -7,6 +7,7 @@ import {
   buildFinancialExtractUserText,
   normalizeDocKind,
   toStructuredExtractJson,
+  applyHardcodedEbitdaFormulas,
 } from "@/lib/financial-extract";
 import {
   BANK_STATEMENT_SYSTEM_PROMPT,
@@ -500,17 +501,20 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const extract = toStructuredExtractJson(parsed.data);
+    const { extract, ebitdaAnalysis } = applyHardcodedEbitdaFormulas(
+      toStructuredExtractJson(parsed.data),
+    );
     const extractHint = buildExtractHint({
       docKind,
       extract,
       textLength: plainText.length,
       textPreview,
       extractMethod,
+      ebitdaAnalysis,
     });
 
     if (rawOnly) {
-      return NextResponse.json(extract);
+      return NextResponse.json({ ...extract, ebitdaAnalysis });
     }
 
     const filled = [
@@ -520,6 +524,10 @@ export async function POST(req: NextRequest) {
       extract.EBITDA != null && "EBITDA",
       extract.net_profit != null && "net_profit",
       extract.existing_debt != null && "existing_debt",
+      extract.earning_before_tax != null && "earning_before_tax",
+      extract.interest != null && "interest",
+      extract.tax != null && "tax",
+      extract.depreciation != null && "depreciation",
     ].filter((x): x is string => Boolean(x));
 
     const missing = [
@@ -531,13 +539,27 @@ export async function POST(req: NextRequest) {
       extract.existing_debt == null && "existing_debt",
     ].filter((x): x is string => Boolean(x));
 
+    const coverageNote =
+      ebitdaAnalysis.coversDebtPayments == null
+        ? ebitdaAnalysis.ebitdaComputed == null
+          ? "未能計算 EBITDA 覆蓋"
+          : "已計 EBITDA；缺 Total Debt payments"
+        : ebitdaAnalysis.coversDebtPayments
+          ? "EBITDA > Total Debt payments：通過"
+          : "EBITDA > Total Debt payments：不通過";
+
     const analysis = {
       documentType: "audit_report" as const,
-      overall: "amber" as const,
+      overall:
+        ebitdaAnalysis.coversDebtPayments === false
+          ? ("red" as const)
+          : ("amber" as const),
       summary: [
         extract.company_name ?? "未能抽出公司名稱",
         extract.financial_year ? `FY ${extract.financial_year}` : null,
         extract.revenue != null ? `Revenue ${extract.revenue}` : null,
+        extract.EBITDA != null ? `EBITDA ${extract.EBITDA}` : null,
+        coverageNote,
       ]
         .filter(Boolean)
         .join(" · "),
@@ -564,7 +586,15 @@ export async function POST(req: NextRequest) {
             : [],
         bouncedCheques: null,
         notes: [
-          extract.EBITDA != null ? `EBITDA: ${extract.EBITDA}` : null,
+          `公式：${ebitdaAnalysis.formula}`,
+          `硬規則：${ebitdaAnalysis.coverageRule}`,
+          extract.EBITDA != null
+            ? `EBITDA（${ebitdaAnalysis.ebitdaSource}）: ${extract.EBITDA}`
+            : null,
+          extract.total_debt_payments != null
+            ? `Total Debt payments: ${extract.total_debt_payments}`
+            : null,
+          coverageNote,
           extract.net_profit != null
             ? `Net Profit: ${extract.net_profit}`
             : null,
@@ -574,11 +604,27 @@ export async function POST(req: NextRequest) {
         ok: filled,
         issues: missing.map((k) => `缺少 ${k}`),
       },
-      ruleHits: [],
+      ruleHits: [
+        {
+          rule: "EBITDA > Total Debt payments",
+          status:
+            ebitdaAnalysis.coversDebtPayments == null
+              ? "amber"
+              : ebitdaAnalysis.coversDebtPayments
+                ? "green"
+                : "red",
+          detail: coverageNote,
+          suggestion:
+            ebitdaAnalysis.coversDebtPayments === false
+              ? "請覆核債務供款或補交完整審計損益組成"
+              : "供顧問覆核；非正式批核",
+        },
+      ],
       confidence: missing.length === 0 ? 0.85 : 0.55,
-      needsHumanReview: missing.length > 0,
+      needsHumanReview:
+        missing.length > 0 || ebitdaAnalysis.coversDebtPayments === false,
       applicantFacingMessage:
-        "已完成財務文件初步抽取，供顧問覆核。AI 不直接決定批出貸款。",
+        "已完成財務文件初步抽取，供顧問覆核。AI 不直接決定批出貸款。EBITDA 以系統公式計算。",
     };
 
     return NextResponse.json({
@@ -594,6 +640,7 @@ export async function POST(req: NextRequest) {
       textPreview,
       extractHint,
       extract,
+      ebitdaAnalysis,
       company_name: extract.company_name,
       financial_year: extract.financial_year,
       revenue: extract.revenue,
@@ -669,5 +716,18 @@ export async function GET() {
     EBITDA: 850000,
     net_profit: 420000,
     existing_debt: 500000,
+    earning_before_tax: 420000,
+    interest: 120000,
+    tax: 80000,
+    depreciation: 180000,
+    amortisation: 50000,
+    total_debt_payments: 600000,
+    ebitdaAnalysis: {
+      formula:
+        "EBITDA = Earning before tax + Interest + Tax + Depreciation + Amortisation",
+      coverageRule: "EBITDA > Total Debt payments",
+      ebitdaComputed: 850000,
+      coversDebtPayments: true,
+    },
   });
 }

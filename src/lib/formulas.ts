@@ -10,9 +10,9 @@
  * - 新貸 LTV = 新申請額 ÷ 估值
  * - 有形淨資產 TNW = 權益 − 無形資產 − 商譽
  * - Gearing = 總負債 ÷ TNW
- * - EBITDA = 除稅前溢利 + 融資成本 + 折舊 + 攤銷（或取文件披露值）
- * - 年化債務供款 = Σ(月供 × 12)
- * - DSCR = EBITDA ÷ 年化債務供款
+ * - EBITDA = Earning before tax + Interest + Tax + Depreciation + Amortisation
+ * - 年化債務供款 Total Debt payments = Σ(月供 × 12)
+ * - 覆蓋規則：EBITDA > Total Debt payments（硬規則；同時可算 DSCR = EBITDA ÷ Total Debt payments）
  * - YoY = (本期 − 上期) ÷ 上期
  * - 平均每月營業額 = Σ月入賬 ÷ 月數
  * - 佔比 = 部分 ÷ 總額 × 100
@@ -27,9 +27,11 @@ export const FORMULA_DEFINITIONS = {
   newLoanLtv: "新貸 LTV = 新申請額 ÷ 估值",
   tangibleNetWorth: "有形淨資產 TNW = 權益 − 無形資產 − 商譽",
   gearing: "槓桿 Gearing = 總負債 ÷ TNW",
-  ebitda: "EBITDA = 除稅前溢利 + 融資成本 + 折舊 + 攤銷",
-  annualDebtService: "年化債務供款 = Σ(每月供款 × 12)",
-  dscr: "DSCR = EBITDA ÷ 年化債務供款",
+  ebitda:
+    "EBITDA = Earning before tax + Interest + Tax + Depreciation + Amortisation",
+  annualDebtService: "Total Debt payments（年化）= Σ(每月供款 × 12)",
+  ebitdaDebtCover: "硬規則：EBITDA > Total Debt payments",
+  dscr: "DSCR = EBITDA ÷ Total Debt payments",
   yoy: "按年變動 YoY = (本期 − 上期) ÷ 上期",
   avgMonthlyTurnover: "平均每月營業額 = Σ月入賬總額 ÷ 月數",
   sharePct: "佔比% = 部分金額 ÷ 總額 × 100",
@@ -137,23 +139,32 @@ export function gearingRatio(
   return totalLiabilitiesHkd / tnw;
 }
 
-/** 由組成項目計 EBITDA；缺任一組成則 null */
+/**
+ * EBITDA = Earning before tax + Interest + Tax + Depreciation + Amortisation
+ * （AI 只抽組成項；本函數係唯一計法）
+ * amortisation 缺省當 0（中小企常見無攤銷）。
+ */
 export function ebitdaFromComponents(
-  profitBeforeTaxHkd: number | null | undefined,
-  financeCostsHkd: number | null | undefined,
+  earningBeforeTaxHkd: number | null | undefined,
+  interestHkd: number | null | undefined,
+  taxHkd: number | null | undefined,
   depreciationHkd: number | null | undefined,
-  amortisationHkd: number | null | undefined,
+  amortisationHkd: number | null | undefined = 0,
 ): number | null {
   if (
-    profitBeforeTaxHkd == null ||
-    financeCostsHkd == null ||
-    depreciationHkd == null ||
-    amortisationHkd == null
+    earningBeforeTaxHkd == null ||
+    interestHkd == null ||
+    taxHkd == null ||
+    depreciationHkd == null
   ) {
     return null;
   }
   return (
-    profitBeforeTaxHkd + financeCostsHkd + depreciationHkd + amortisationHkd
+    earningBeforeTaxHkd +
+    interestHkd +
+    taxHkd +
+    depreciationHkd +
+    (amortisationHkd ?? 0)
   );
 }
 
@@ -163,6 +174,18 @@ export function annualDebtServiceFromMonthly(
   if (!monthlyPayments.length) return 0;
   if (monthlyPayments.some((p) => p == null)) return null;
   return monthlyPayments.reduce<number>((s, p) => s + (p as number) * 12, 0);
+}
+
+/**
+ * 硬規則：EBITDA > Total Debt payments
+ * 回傳 null＝資料不足；true／false＝可判斷
+ */
+export function ebitdaCoversTotalDebtPayments(
+  ebitdaHkd: number | null | undefined,
+  totalDebtPaymentsHkd: number | null | undefined,
+): boolean | null {
+  if (ebitdaHkd == null || totalDebtPaymentsHkd == null) return null;
+  return ebitdaHkd > totalDebtPaymentsHkd;
 }
 
 export function dscr(

@@ -2,7 +2,10 @@
 
 import { useState } from "react";
 import type { EligibilityAnalysis } from "@/lib/eligibility";
-import type { FinancialExtract } from "@/lib/financial-extract";
+import type {
+  EbitdaCoverageAnalysis,
+  FinancialExtract,
+} from "@/lib/financial-extract";
 import { Button } from "@/components/ui/button";
 import { Field, Input, Select, Textarea } from "@/components/ui/field";
 import {
@@ -23,6 +26,7 @@ type AnalyzeResponse = {
   fileName?: string;
   extractMethod?: string;
   extract?: FinancialExtract;
+  ebitdaAnalysis?: EbitdaCoverageAnalysis;
   analysis?: EligibilityAnalysis;
   disclaimer?: string;
 };
@@ -190,6 +194,15 @@ export function DocumentAnalyzeForm({
                     ["EBITDA", money(extract.EBITDA)],
                     ["純利", money(extract.net_profit)],
                     ["現有債務", money(extract.existing_debt)],
+                    ["EBT", money(extract.earning_before_tax ?? null)],
+                    ["Interest", money(extract.interest ?? null)],
+                    ["Tax", money(extract.tax ?? null)],
+                    ["Depreciation", money(extract.depreciation ?? null)],
+                    ["Amortisation", money(extract.amortisation ?? null)],
+                    [
+                      "Total Debt payments",
+                      money(extract.total_debt_payments ?? null),
+                    ],
                   ] as const
                 ).map(([label, value]) => (
                   <div
@@ -203,6 +216,20 @@ export function DocumentAnalyzeForm({
                   </div>
                 ))}
               </dl>
+              {result?.ebitdaAnalysis && (
+                <div className="mt-4 rounded-xl bg-surface-2 px-3 py-2 text-xs text-text-secondary">
+                  <p>{result.ebitdaAnalysis.formula}</p>
+                  <p className="mt-1">{result.ebitdaAnalysis.coverageRule}</p>
+                  <p className="mt-1 font-medium text-navy-900">
+                    覆蓋結果：
+                    {result.ebitdaAnalysis.coversDebtPayments == null
+                      ? "未能判斷"
+                      : result.ebitdaAnalysis.coversDebtPayments
+                        ? "通過（EBITDA > Total Debt payments）"
+                        : "不通過"}
+                  </p>
+                </div>
+              )}
             </Card>
           )}
 

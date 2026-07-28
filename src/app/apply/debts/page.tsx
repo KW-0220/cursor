@@ -91,8 +91,8 @@ export default function DebtsPage() {
           <Card className="bg-warning-100/50">
             <p className="text-sm font-semibold text-warning-600">N03｜不清楚供款</p>
             <p className="mt-2 text-sm text-text-secondary">
-              仍可提交申請。系統會抽取 EBITDA；若 EBITDA
-              為正數將顯示黃燈，並建立顧問跟進任務。不可在債務資料不完整時顯示綠燈。
+              仍可提交申請。系統會用公式計 EBITDA（EBT＋Interest＋Tax＋D＋A），並檢查
+              EBITDA &gt; Total Debt payments；若債務資料不完整則顯示黃燈並建立顧問跟進，不可綠燈。
             </p>
           </Card>
         )}

@@ -140,15 +140,16 @@ export default function AdminPolicyPage() {
             <table className="w-full text-sm">
               <tbody>
                 {[
-                  ["除稅前溢利", evaluation.ebitda.profitBeforeTaxHkd],
-                  ["加：融資成本", evaluation.ebitda.financeCostsHkd],
-                  ["加：折舊", evaluation.ebitda.depreciationHkd],
-                  ["加：攤銷", evaluation.ebitda.amortisationHkd],
+                  ["除稅前溢利（EBT）", evaluation.ebitda.profitBeforeTaxHkd],
+                  ["加：Interest（融資成本）", evaluation.ebitda.financeCostsHkd],
+                  ["加：Tax（稅項）", evaluation.ebitda.taxHkd],
+                  ["加：Depreciation（折舊）", evaluation.ebitda.depreciationHkd],
+                  ["加：Amortisation（攤銷）", evaluation.ebitda.amortisationHkd],
                   ["計算所得 EBITDA", evaluation.ebitda.ebitdaHkd],
                 ].map(([label, val], i) => (
                   <tr
                     key={String(label)}
-                    className={i === 4 ? "font-semibold text-navy-900" : ""}
+                    className={i === 5 ? "font-semibold text-navy-900" : ""}
                   >
                     <td className="py-1.5">{label as string}</td>
                     <td className="py-1.5 text-right tabular">
@@ -175,11 +176,21 @@ export default function AdminPolicyPage() {
                 }
               />
               <Row
-                label="一年總債務支出"
+                label="Total Debt payments（一年）"
                 value={
                   evaluation.annualDebtServiceHkd != null
                     ? formatHKD(evaluation.annualDebtServiceHkd)
                     : "未完整（客戶不清楚供款）"
+                }
+              />
+              <Row
+                label="EBITDA > Total Debt payments"
+                value={
+                  evaluation.ebitdaCoversDebtPayments == null
+                    ? "未能判斷"
+                    : evaluation.ebitdaCoversDebtPayments
+                      ? "通過"
+                      : "不通過"
                 }
               />
               <Row
@@ -190,10 +201,11 @@ export default function AdminPolicyPage() {
                     : "—"
                 }
               />
-              <Row label="政策要求" value="≥ 1.0x" />
+              <Row label="政策硬規則" value="EBITDA > Total Debt payments" />
             </div>
             <Disclaimer>
-              本階段 DSCR 以客戶已申報的現有債務供款計算；新貸預計供款未計入。
+              EBITDA＝EBT＋Interest＋Tax＋Depreciation＋Amortisation（系統公式）。
+              本階段 Total Debt payments 以客戶已申報現有債務供款年化；新貸預計供款未計入。
             </Disclaimer>
           </Card>
 

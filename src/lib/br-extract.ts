@@ -157,6 +157,12 @@ export function brExtractToFinancial(b: BrExtract): FinancialExtract {
     EBITDA: null,
     net_profit: null,
     existing_debt: null,
+    earning_before_tax: null,
+    interest: null,
+    tax: null,
+    depreciation: null,
+    amortisation: null,
+    total_debt_payments: null,
   };
 }
 
