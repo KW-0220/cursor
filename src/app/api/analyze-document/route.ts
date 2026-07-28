@@ -96,9 +96,11 @@ export async function POST(req: NextRequest) {
       | "text"
       | "image"
       | "paste"
-      | "pdf_vision" = "paste";
+      | "pdf_vision"
+      | "pdf_ocr" = "paste";
     let imageUrl: string | undefined;
     let imageUrls: string[] = [];
+    let ocrProvider: string | undefined;
 
     if (file instanceof File && file.size > 0) {
       if (file.size > MAX_BYTES) {
@@ -112,25 +114,28 @@ export async function POST(req: NextRequest) {
       mimeType = file.type || "application/octet-stream";
       const buffer = Buffer.from(await file.arrayBuffer());
 
-      if (mimeType.startsWith("image/")) {
-        extractMethod = "image";
-        imageUrl = `data:${mimeType};base64,${buffer.toString("base64")}`;
-        extractedText = pastedText;
-      } else {
-        const extracted = await extractDocumentText({
-          buffer,
-          fileName,
-          mimeType,
-          docKind,
-        });
-        extractMethod =
-          extracted.method === "image_placeholder"
-            ? "image"
-            : extracted.method;
-        extractedText = [extracted.text, pastedText]
-          .filter(Boolean)
-          .join("\n\n");
-        imageUrls = extracted.imageUrls;
+      // PDF／圖片一律走 extract（內建 OCR；夠字唔送 vision）
+      const extracted = await extractDocumentText({
+        buffer,
+        fileName,
+        mimeType,
+        docKind,
+      });
+      extractMethod =
+        extracted.method === "image_placeholder"
+          ? "image"
+          : extracted.method;
+      extractedText = [extracted.text, pastedText].filter(Boolean).join("\n\n");
+      imageUrls = extracted.imageUrls;
+      ocrProvider = extracted.ocrProvider;
+      // 單圖 fallback：OCR 唔夠仍要 vision
+      if (
+        extractMethod === "image" &&
+        imageUrls.length === 1 &&
+        !imageUrl
+      ) {
+        imageUrl = imageUrls[0];
+        imageUrls = [];
       }
     }
 
@@ -215,6 +220,7 @@ export async function POST(req: NextRequest) {
         docKind,
         statementMonth: bankExtract.month ?? statementMonth ?? null,
         extractMethod,
+        ocrProvider: ocrProvider ?? null,
         textLength: plainText.length,
         textPreview,
         extractHint:
@@ -311,6 +317,7 @@ export async function POST(req: NextRequest) {
         mimeType,
         docKind,
         extractMethod,
+        ocrProvider: ocrProvider ?? null,
         textLength: plainText.length,
         textPreview,
         extractHint: brExtractHint(brExtract),
@@ -409,6 +416,7 @@ export async function POST(req: NextRequest) {
         mimeType,
         docKind,
         extractMethod,
+        ocrProvider: ocrProvider ?? null,
         textLength: plainText.length,
         textPreview,
         extractHint: nar1ExtractHint(nar1Extract),
@@ -590,6 +598,7 @@ export async function POST(req: NextRequest) {
       mimeType,
       docKind,
       extractMethod,
+      ocrProvider: ocrProvider ?? null,
       textLength: plainText.length,
       textPreview,
       extractHint,

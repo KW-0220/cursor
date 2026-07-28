@@ -1,13 +1,17 @@
 /**
- * Server-side document text + PDF page render（掃描件 Vision）
+ * Server-side document text + PDF page render + OCR（掃描件）
  */
+
+import { ocrImageDataUrls, ocrTextLooksStrong } from "@/lib/ocr";
 
 export type ExtractedDocument = {
   text: string;
-  method: "pdf" | "text" | "image_placeholder" | "pdf_vision";
-  /** data:image/jpeg;base64,... 供 Manus vision */
+  method: "pdf" | "text" | "image_placeholder" | "pdf_vision" | "pdf_ocr";
+  /** data:image/jpeg;base64,... 供 Manus vision（OCR 夠強時為空） */
   imageUrls: string[];
   pageCount?: number;
+  /** google | tesseract | none */
+  ocrProvider?: string;
 };
 
 function ensurePdfDomPolyfills() {
@@ -195,13 +199,44 @@ export async function extractDocumentText(params: {
         maxPages,
         scale: docKind === "bank" ? 1.15 : 1.5,
       });
+
+      // 先 OCR：夠字就唔送 Manus vision
+      let ocrText = "";
+      let ocrProvider: string | undefined;
+      try {
+        const ocr = await ocrImageDataUrls(rendered.imageUrls);
+        ocrText = ocr.text;
+        ocrProvider = ocr.provider;
+      } catch (err) {
+        console.warn(
+          "[extract] OCR failed:",
+          err instanceof Error ? err.message : err,
+        );
+      }
+
+      if (ocrTextLooksStrong(ocrText, docKind)) {
+        const merged = [text, ocrText].filter(Boolean).join("\n\n");
+        const clipped =
+          merged.length > 80_000
+            ? `${merged.slice(0, 80_000)}\n…(截斷)`
+            : merged;
+        return {
+          text: `（PDF 共 ${rendered.pageCount} 頁；OCR=${ocrProvider}）\n\n${clipped}`,
+          method: "pdf_ocr",
+          imageUrls: [],
+          pageCount: rendered.pageCount,
+          ocrProvider,
+        };
+      }
+
       return {
         text:
-          text ||
-          `（PDF 共 ${rendered.pageCount} 頁；文字層空白／過少，已轉頁面影像供 AI 辨識）`,
+          [text, ocrText].filter(Boolean).join("\n\n") ||
+          `（PDF 共 ${rendered.pageCount} 頁；文字層／OCR 不足，已轉頁面影像供 AI 辨識）`,
         method: "pdf_vision",
         imageUrls: rendered.imageUrls,
         pageCount: rendered.pageCount,
+        ocrProvider,
       };
     } catch (err) {
       if (text) {
@@ -230,11 +265,30 @@ export async function extractDocumentText(params: {
   }
 
   if (mimeType.startsWith("image/")) {
-    return {
-      text: "",
-      method: "image_placeholder",
-      imageUrls: [],
-    };
+    const dataUrl = `data:${mimeType};base64,${buffer.toString("base64")}`;
+    try {
+      const ocr = await ocrImageDataUrls([dataUrl]);
+      if (ocrTextLooksStrong(ocr.text, docKind)) {
+        return {
+          text: `（OCR=${ocr.provider}）\n\n${ocr.text}`,
+          method: "pdf_ocr",
+          imageUrls: [],
+          ocrProvider: ocr.provider,
+        };
+      }
+      return {
+        text: ocr.text || "",
+        method: "image_placeholder",
+        imageUrls: [dataUrl],
+        ocrProvider: ocr.provider,
+      };
+    } catch {
+      return {
+        text: "",
+        method: "image_placeholder",
+        imageUrls: [dataUrl],
+      };
+    }
   }
 
   const asText = buffer.toString("utf8");

@@ -185,6 +185,7 @@ export function buildExtractHint(input: {
     extract.existing_debt != null;
   const usedVision =
     extractMethod === "pdf_vision" || extractMethod === "image";
+  const usedOcr = extractMethod === "pdf_ocr";
 
   if (docKind === "br") {
     if (extract.company_name && !hasFinance) {
@@ -207,12 +208,16 @@ export function buildExtractHint(input: {
   if (!hasFinance && textLength > 0 && !usedVision) {
     const hasDigit = /\d{3,}/.test(textPreview);
     if (!hasDigit) {
-      return "PDF 有文字層但幾乎沒有金額數字（可能係封面／掃描影像）。系統會嘗試轉圖；若仍失敗請上清晰整頁照片。";
+      return usedOcr
+        ? "OCR 已抽出文字，但幾乎沒有金額數字（可能係封面／非財務頁）。請上完整文件。"
+        : "PDF 有文字層但幾乎沒有金額數字（可能係封面／掃描影像）。系統會嘗試轉圖；若仍失敗請上清晰整頁照片。";
     }
     if (docKind === "bank") {
       return "已讀取月結文字，但未能定位「存入合計／Total credits」。請確認係完整交易月結（非只封面）。";
     }
-    return "PDF 已讀取，但文字中找不到可對應的財務欄位；缺欄已填 null（非讀取失敗）。";
+    return usedOcr
+      ? "OCR 已讀取，但文字中找不到可對應的財務欄位；缺欄已填 null（非讀取失敗）。"
+      : "PDF 已讀取，但文字中找不到可對應的財務欄位；缺欄已填 null（非讀取失敗）。";
   }
 
   return null;
