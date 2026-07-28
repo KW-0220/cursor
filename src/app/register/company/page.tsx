@@ -26,21 +26,17 @@ type IdentityDraft = {
 export default function CompanyPage() {
   const router = useRouter();
   const [identity, setIdentity] = useState<IdentityDraft | null>(null);
-  const [companyNameZh, setCompanyNameZh] = useState("智創科技有限公司");
-  const [companyNameEn, setCompanyNameEn] = useState(
-    "SmartCreate Technology Ltd.",
-  );
-  const [brNumber, setBrNumber] = useState("12345678");
-  const [crNumber, setCrNumber] = useState("7890123");
-  const [foundedAt, setFoundedAt] = useState("2018-03-12");
+  const [companyNameZh, setCompanyNameZh] = useState("");
+  const [companyNameEn, setCompanyNameEn] = useState("");
+  const [brNumber, setBrNumber] = useState("");
+  const [crNumber, setCrNumber] = useState("");
+  const [foundedAt, setFoundedAt] = useState("");
   const [companyType, setCompanyType] = useState("有限公司");
-  const [industry, setIndustry] = useState("資訊科技服務");
-  const [address, setAddress] = useState(
-    "香港九龍觀塘成業街 27 號日昇中心 12 樓 A 室",
-  );
-  const [employees, setEmployees] = useState(28);
-  const [website, setWebsite] = useState("https://smartcreate.example");
-  const [contactPerson, setContactPerson] = useState("陳大文");
+  const [industry, setIndustry] = useState("");
+  const [address, setAddress] = useState("");
+  const [employees, setEmployees] = useState<number | "">("");
+  const [website, setWebsite] = useState("");
+  const [contactPerson, setContactPerson] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -72,45 +68,74 @@ export default function CompanyPage() {
         setSaving(false);
         return;
       }
-      const identityPayload = identity;
+      if (
+        !companyNameZh.trim() ||
+        !companyNameEn.trim() ||
+        !brNumber.trim() ||
+        !crNumber.trim() ||
+        !foundedAt ||
+        !industry.trim() ||
+        !address.trim() ||
+        employees === "" ||
+        !contactPerson.trim()
+      ) {
+        setError("請填妥所有必填公司資料欄位。");
+        setSaving(false);
+        return;
+      }
 
-      const res = await fetch("/api/admin/customers", {
+      const res = await fetch("/api/customers", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          ...identityPayload,
-          companyNameZh,
-          companyNameEn,
-          brNumber,
-          crNumber,
+          ...identity,
+          companyNameZh: companyNameZh.trim(),
+          companyNameEn: companyNameEn.trim(),
+          brNumber: brNumber.trim(),
+          crNumber: crNumber.trim(),
           foundedAt,
           companyType,
-          industry,
-          address,
-          employees,
-          website: website || null,
-          contactPerson,
+          industry: industry.trim(),
+          address: address.trim(),
+          employees: Number(employees),
+          website: website.trim() || null,
+          contactPerson: contactPerson.trim(),
           source: "register",
         }),
       });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        console.warn("customer upsert failed", data);
-        sessionStorage.setItem(
-          "slf_register_warning",
-          data.message || data.error || "客戶資料暫未能寫入後台",
+      const data = (await res.json().catch(() => ({}))) as {
+        ok?: boolean;
+        error?: string;
+        message?: string;
+        customer?: { id?: string };
+        storage?: string;
+      };
+      if (!res.ok || !data.ok) {
+        setError(
+          data.message ||
+            data.error ||
+            "無法寫入客戶資料庫，請稍後再試（正式環境需設 MySQL 或 Redis）",
         );
-      } else {
-        sessionStorage.removeItem("slf_register_warning");
+        setSaving(false);
+        return;
       }
 
-      // 標記帳戶資料已完成（若已登入）
+      sessionStorage.setItem(
+        "slf_register_ok",
+        JSON.stringify({
+          customerId: data.customer?.id ?? null,
+          storage: data.storage ?? null,
+          at: new Date().toISOString(),
+        }),
+      );
+      sessionStorage.removeItem("slf_register_warning");
+
       await fetch("/api/auth/profile/complete", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          nameZh: identityPayload.applicantNameZh,
-          phone: identityPayload.phone,
+          nameZh: identity.applicantNameZh,
+          phone: identity.phone,
         }),
       }).catch(() => null);
 
@@ -128,14 +153,14 @@ export default function CompanyPage() {
     <MobileShell>
       <PageHeader
         title="公司基本資料"
-        subtitle="P05｜完成後寫入客戶資料庫"
+        subtitle="P05｜完成後寫入客戶資料庫（供後台／Excel）"
         backHref="/register/identity"
       />
       <main className="space-y-4 px-4 py-5 pb-28">
         <StateBanner
           tone="info"
-          title="可選：上載商業登記證"
-          description="系統可自動填寫公司名稱、商業登記號碼及地址，再由你確認。"
+          title="收集至後台客戶庫"
+          description="此頁資料會經 POST /api/customers 寫入「客戶登記資料庫」，可於 /admin/customers 查閱及匯出。"
         />
         {!identity && (
           <StateBanner
@@ -152,19 +177,29 @@ export default function CompanyPage() {
           <Input
             value={companyNameZh}
             onChange={(e) => setCompanyNameZh(e.target.value)}
+            placeholder="例如：智創科技有限公司"
           />
         </Field>
         <Field label="公司英文名稱" required>
           <Input
             value={companyNameEn}
             onChange={(e) => setCompanyNameEn(e.target.value)}
+            placeholder="e.g. SmartCreate Technology Ltd."
           />
         </Field>
         <Field label="商業登記號碼" required>
-          <Input value={brNumber} onChange={(e) => setBrNumber(e.target.value)} />
+          <Input
+            value={brNumber}
+            onChange={(e) => setBrNumber(e.target.value)}
+            placeholder="8 位數字"
+          />
         </Field>
         <Field label="公司註冊編號" required>
-          <Input value={crNumber} onChange={(e) => setCrNumber(e.target.value)} />
+          <Input
+            value={crNumber}
+            onChange={(e) => setCrNumber(e.target.value)}
+            placeholder="CR 編號"
+          />
         </Field>
         <Field label="公司成立日期" required>
           <Input
@@ -184,20 +219,37 @@ export default function CompanyPage() {
           </Select>
         </Field>
         <Field label="業務性質" required>
-          <Input value={industry} onChange={(e) => setIndustry(e.target.value)} />
+          <Input
+            value={industry}
+            onChange={(e) => setIndustry(e.target.value)}
+            placeholder="例如：零售、餐飲、資訊科技"
+          />
         </Field>
         <Field label="主要營運地址" required>
-          <Input value={address} onChange={(e) => setAddress(e.target.value)} />
+          <Input
+            value={address}
+            onChange={(e) => setAddress(e.target.value)}
+            placeholder="香港地址"
+          />
         </Field>
         <Field label="員工人數" required>
           <Input
             type="number"
+            min={0}
             value={employees}
-            onChange={(e) => setEmployees(Number(e.target.value))}
+            onChange={(e) =>
+              setEmployees(
+                e.target.value === "" ? "" : Number(e.target.value),
+              )
+            }
           />
         </Field>
         <Field label="公司網站" hint="選填">
-          <Input value={website} onChange={(e) => setWebsite(e.target.value)} />
+          <Input
+            value={website}
+            onChange={(e) => setWebsite(e.target.value)}
+            placeholder="https://"
+          />
         </Field>
         <Field label="主要聯絡人" required>
           <Input
@@ -207,7 +259,8 @@ export default function CompanyPage() {
         </Field>
 
         <Disclaimer>
-          按「完成」會將申請人及公司資料儲存至後台客戶登記資料庫，並可供 Excel 下載。
+          按「完成」會將申請人及公司資料儲存至後台客戶登記資料庫，並可供 Excel
+          下載。若寫入失敗會留在本頁，唔會跳過。
         </Disclaimer>
 
         <Button
@@ -216,7 +269,7 @@ export default function CompanyPage() {
           disabled={saving || !identity}
           onClick={() => void submit()}
         >
-          {saving ? "儲存中…" : "完成並進入首頁"}
+          {saving ? "儲存中…" : "完成並寫入客戶庫"}
         </Button>
         {!identity && (
           <Button

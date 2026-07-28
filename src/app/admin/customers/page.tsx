@@ -48,6 +48,9 @@ export default function AdminCustomersPage() {
   const [error, setError] = useState<string | null>(null);
   const [q, setQ] = useState("");
   const [storageNote, setStorageNote] = useState("");
+  const [storage, setStorage] = useState("");
+  const [durable, setDurable] = useState(false);
+  const [collectFrom, setCollectFrom] = useState("");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -57,7 +60,10 @@ export default function AdminCustomersPage() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "載入失敗");
       setCustomers(data.customers ?? []);
-      setStorageNote(data.storage ?? "");
+      setStorageNote(data.storageNote ?? data.storage ?? "");
+      setStorage(data.storage ?? "");
+      setDurable(Boolean(data.durable));
+      setCollectFrom(data.collectFrom ?? "POST /api/customers");
     } catch (e) {
       setError(e instanceof Error ? e.message : "載入失敗");
     } finally {
@@ -113,6 +119,16 @@ export default function AdminCustomersPage() {
       {error && (
         <StateBanner tone="error" title="無法載入" description={error} />
       )}
+
+      <StateBanner
+        tone={durable ? "success" : "warning"}
+        title={
+          durable
+            ? `已接持久儲存（${storage}）`
+            : "尚未接 MySQL／Redis——前端寫入可能喺 Vercel 唔耐久"
+        }
+        description={`前端收集：${collectFrom || "POST /api/customers"}（/register/identity → /register/company）。儲存：${storageNote || storage || "—"}。正式環境請設 MYSQL_* 或 UPSTASH_REDIS_REST_*。`}
+      />
 
       <Card className="flex flex-wrap items-center gap-3">
         <div className="flex min-w-[240px] flex-1 items-center gap-2 rounded-xl border border-border bg-surface-1 px-3">

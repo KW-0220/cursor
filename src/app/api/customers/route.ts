@@ -2,33 +2,15 @@ import { NextRequest, NextResponse } from "next/server";
 import {
   CustomerRegistrationSchema,
   getCustomerStorageMode,
-  listCustomers,
   upsertCustomer,
 } from "@/lib/customer-registry";
 
 export const runtime = "nodejs";
 
-/** GET /api/admin/customers — 客戶登記列表 */
-export async function GET() {
-  const customers = await listCustomers();
-  const storage = getCustomerStorageMode();
-  return NextResponse.json({
-    ok: true,
-    count: customers.length,
-    customers,
-    storage,
-    durable: storage === "mysql" || storage === "redis",
-    collectFrom: "POST /api/customers（註冊／申請前端）",
-    storageNote:
-      storage === "mysql"
-        ? "MySQL（耐久）"
-        : storage === "redis"
-          ? "Redis／KV（耐久）"
-          : "記憶體／本機 JSON（Vercel 唔耐久——請設 MYSQL_* 或 UPSTASH_REDIS_REST_*）",
-  });
-}
-
-/** POST /api/admin/customers — 新增／更新（後台；前端請優先用 /api/customers） */
+/**
+ * POST /api/customers
+ * 前端註冊／申請收集入口（寫入客戶登記資料庫）
+ */
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
@@ -37,18 +19,23 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         {
           error: "INVALID_BODY",
+          message: "客戶資料欄位不完整或格式不符",
           details: parsed.error.flatten(),
         },
         { status: 400 },
       );
     }
-    const customer = await upsertCustomer(parsed.data);
+    const customer = await upsertCustomer({
+      ...parsed.data,
+      source: parsed.data.source || "register",
+    });
     return NextResponse.json({
       ok: true,
       customer,
       storage: getCustomerStorageMode(),
     });
   } catch (err) {
+    console.error("[customers POST]", err);
     return NextResponse.json(
       {
         error: "UPSERT_FAILED",
@@ -57,4 +44,14 @@ export async function POST(req: NextRequest) {
       { status: 500 },
     );
   }
+}
+
+/** GET：健康／儲存模式（唔回敏感列表；列表走 /api/admin/customers） */
+export async function GET() {
+  return NextResponse.json({
+    ok: true,
+    storage: getCustomerStorageMode(),
+    collect: "POST /api/customers",
+    adminList: "GET /api/admin/customers",
+  });
 }

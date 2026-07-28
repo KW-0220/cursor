@@ -2,6 +2,15 @@ import "server-only";
 import { promises as fs } from "fs";
 import path from "path";
 import { z } from "zod";
+import {
+  customersUseMysql,
+  mysqlCountCustomers,
+  mysqlGetCustomer,
+  mysqlInsertCustomer,
+  mysqlListCustomers,
+  mysqlUpsertCustomer,
+} from "@/lib/db/customers-mysql";
+import { isMysqlConfigured } from "@/lib/db/mysql";
 
 export const CustomerRegistrationSchema = z.object({
   id: z.string().optional(),
@@ -43,6 +52,7 @@ export interface CustomerRegistrationRecord
 
 const DATA_DIR = path.join(process.cwd(), "data");
 const DATA_FILE = path.join(DATA_DIR, "customers.json");
+const REDIS_KEY = "slf:customers";
 
 /** 進程內 fallback（Vercel 無持久碟時仍可用於同一實例） */
 let memoryStore: CustomerRegistrationRecord[] | null = null;
@@ -75,43 +85,84 @@ function seedRecords(): CustomerRegistrationRecord[] {
       createdAt: now,
       updatedAt: now,
     },
-    {
-      id: "CUS-2026-0002",
-      applicantNameZh: "李美華",
-      applicantNameEn: "Lee Mei Wah",
-      idNumber: "B765432(1)",
-      phone: "+852 9888 1122",
-      email: "mw.lee@example.com",
-      title: "股東",
-      relation: "股東",
-      companyNameZh: "海景餐飲有限公司",
-      companyNameEn: "Seaview Catering Ltd.",
-      brNumber: "87654321",
-      crNumber: "6543210",
-      foundedAt: "2019-08-01",
-      companyType: "有限公司",
-      industry: "餐飲",
-      address: "香港銅鑼灣恩平道 8 號",
-      employees: 15,
-      website: null,
-      contactPerson: "李美華",
-      source: "seed",
-      notes: null,
-      createdAt: now,
-      updatedAt: now,
-    },
   ];
+}
+
+function redisConfigured() {
+  return Boolean(
+    (process.env.UPSTASH_REDIS_REST_URL &&
+      process.env.UPSTASH_REDIS_REST_TOKEN) ||
+      (process.env.KV_REST_API_URL && process.env.KV_REST_API_TOKEN),
+  );
+}
+
+async function redisGet(key: string): Promise<string | null> {
+  const url =
+    process.env.UPSTASH_REDIS_REST_URL?.trim() ||
+    process.env.KV_REST_API_URL?.trim();
+  const token =
+    process.env.UPSTASH_REDIS_REST_TOKEN?.trim() ||
+    process.env.KV_REST_API_TOKEN?.trim();
+  if (!url || !token) return null;
+  const res = await fetch(`${url}/get/${encodeURIComponent(key)}`, {
+    headers: { Authorization: `Bearer ${token}` },
+    cache: "no-store",
+  });
+  if (!res.ok) return null;
+  const data = (await res.json()) as { result: string | null };
+  return data.result;
+}
+
+async function redisSet(key: string, value: string) {
+  const url =
+    process.env.UPSTASH_REDIS_REST_URL?.trim() ||
+    process.env.KV_REST_API_URL?.trim();
+  const token =
+    process.env.UPSTASH_REDIS_REST_TOKEN?.trim() ||
+    process.env.KV_REST_API_TOKEN?.trim();
+  if (!url || !token) return false;
+  const res = await fetch(`${url}/set/${encodeURIComponent(key)}`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(value),
+  });
+  return res.ok;
+}
+
+export function getCustomerStorageMode(): "mysql" | "redis" | "file_or_memory" {
+  if (isMysqlConfigured()) return "mysql";
+  if (redisConfigured()) return "redis";
+  return "file_or_memory";
 }
 
 async function ensureLoaded(): Promise<CustomerRegistrationRecord[]> {
   if (memoryStore) return memoryStore;
+
+  if (redisConfigured()) {
+    const fromRedis = await redisGet(REDIS_KEY);
+    if (fromRedis) {
+      try {
+        memoryStore = JSON.parse(fromRedis) as CustomerRegistrationRecord[];
+        return memoryStore;
+      } catch {
+        /* fall through */
+      }
+    }
+    memoryStore = [];
+    return memoryStore;
+  }
+
   try {
     await fs.mkdir(DATA_DIR, { recursive: true });
     const raw = await fs.readFile(DATA_FILE, "utf8");
     const parsed = JSON.parse(raw) as CustomerRegistrationRecord[];
     memoryStore = Array.isArray(parsed) ? parsed : seedRecords();
   } catch {
-    memoryStore = seedRecords();
+    // Vercel 無碟：空庫起步（唔再每次 cold start 灌 seed，避免蓋過真實登記觀感）
+    memoryStore = process.env.VERCEL ? [] : seedRecords();
     try {
       await fs.mkdir(DATA_DIR, { recursive: true });
       await fs.writeFile(
@@ -120,7 +171,7 @@ async function ensureLoaded(): Promise<CustomerRegistrationRecord[]> {
         "utf8",
       );
     } catch {
-      // Vercel / 唯讀環境：只用語記憶體
+      // ignore
     }
   }
   return memoryStore;
@@ -128,6 +179,9 @@ async function ensureLoaded(): Promise<CustomerRegistrationRecord[]> {
 
 async function persist(records: CustomerRegistrationRecord[]) {
   memoryStore = records;
+  if (redisConfigured()) {
+    await redisSet(REDIS_KEY, JSON.stringify(records));
+  }
   try {
     await fs.mkdir(DATA_DIR, { recursive: true });
     await fs.writeFile(DATA_FILE, JSON.stringify(records, null, 2), "utf8");
@@ -142,16 +196,31 @@ function nextId(records: CustomerRegistrationRecord[]) {
 }
 
 export async function listCustomers() {
+  if (customersUseMysql()) {
+    const count = await mysqlCountCustomers();
+    if (count === 0 && !process.env.VERCEL) {
+      for (const seed of seedRecords()) {
+        await mysqlInsertCustomer(seed);
+      }
+    }
+    return mysqlListCustomers();
+  }
   const records = await ensureLoaded();
   return [...records].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 }
 
 export async function getCustomer(id: string) {
+  if (customersUseMysql()) {
+    return mysqlGetCustomer(id);
+  }
   const records = await ensureLoaded();
   return records.find((r) => r.id === id) ?? null;
 }
 
 export async function upsertCustomer(input: CustomerRegistrationInput) {
+  if (customersUseMysql()) {
+    return mysqlUpsertCustomer(input);
+  }
   const records = await ensureLoaded();
   const now = new Date().toISOString();
 

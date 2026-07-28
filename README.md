@@ -78,6 +78,7 @@ npm run dev:public   # Terminal 2 → 網址會變而且會過期
 | Docs | `POST /api/analyze-document`（alias：`/api/documents/analyze`） |
 | RAG | `POST /api/rag/search` · `POST /api/rag/upsert`（接口已預留，現為 stub） |
 | CRM | `POST /api/crm/leads` · `POST /api/crm/applications/sync`（接口已預留，現為 stub） |
+| MySQL | `users`／`customers`（設 `MYSQL_*` 或 `DATABASE_URL`）；狀態見 `GET /api/auth/status` |
 | 合規 | 客戶端不顯示「必定批核／拒絕」；內部可看綠／黃／紅燈 |
 
 ```bash
