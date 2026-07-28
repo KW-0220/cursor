@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
   CustomerRegistrationSchema,
+  getCustomerStorageMode,
   listCustomers,
   upsertCustomer,
 } from "@/lib/customer-registry";
@@ -10,12 +11,16 @@ export const runtime = "nodejs";
 /** GET /api/admin/customers — 客戶登記列表 */
 export async function GET() {
   const customers = await listCustomers();
+  const storage = getCustomerStorageMode();
   return NextResponse.json({
     ok: true,
     count: customers.length,
     customers,
-    storage:
-      "JSON file data/customers.json（本機持久）；Vercel 實例可能為記憶體，正式環境建議接 DB／CRM",
+    storage,
+    storageNote:
+      storage === "mysql"
+        ? "MySQL（users／customers 表）"
+        : "JSON file data/customers.json（本機持久）；Vercel 實例可能為記憶體，正式環境請設定 MYSQL_* 或 DATABASE_URL",
   });
 }
 
