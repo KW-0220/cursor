@@ -163,6 +163,26 @@ export function buildAuditedExtractUserText(input: {
     .join("\n\n");
 }
 
+/** 1–3 份 Audited Report → 同一個 Manus task */
+export function buildAuditedBatchUserText(input: {
+  companyNameHint?: string;
+  parts: Array<{ fileName: string; text: string }>;
+}) {
+  const blocks = input.parts.map(
+    (p, i) =>
+      `【Audited Report ${i + 1}｜檔名 ${p.fileName}】\n${p.text.slice(0, 50_000) || "（無文字層）"}`,
+  );
+  return [
+    `請一次閱讀以下 ${input.parts.length} 份 Audited Report／經審計財務報表，合併抽取 4.1 基本資料 + 4.2 最多三年 years[]。`,
+    "若多份報告重疊同一財政年度，以較完整數字為準；最終 years 最多 3 個（新→舊）。",
+    "EBITDA 組成用 Net Profit＋Interest＋Tax＋D＋A；D&A 優先 Cash Flow／Notes。",
+    input.companyNameHint ? `申請公司提示：${input.companyNameHint}` : null,
+    blocks.join("\n\n====\n\n"),
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+}
+
 export function emptyAuditedExtract(): AuditedReportExtract {
   return {
     company_name: null,

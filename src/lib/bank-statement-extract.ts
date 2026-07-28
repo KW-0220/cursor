@@ -134,6 +134,128 @@ JSON 欄位（金額用純數字）：
 6) 還款能力：repayment_capacity（不可承諾批核）
 缺資料用 null／[]。禁止把審計報告 revenue／EBITDA 當月結數字。`;
 
+/** 六個月（或多份）月結 → 同一個 Manus task */
+export const BANK_BATCH_SYSTEM_PROMPT = `你是香港中小企貸款預審助手，專門一次閱讀多份銀行月結單。
+
+只根據提供文字／影像抽取，禁止上網。立刻只回一個 JSON（不要其他文字）。
+
+必須輸出：
+{
+  "statements": [
+    {
+      "month": "YYYY-MM",
+      "bank_name": string|null,
+      "account_holder": string|null,
+      "account_last4": string|null,
+      "opening_balance": number|null,
+      "closing_balance": number|null,
+      "average_daily_balance": number|null,
+      "min_daily_balance": number|null,
+      "total_credits": number|null,
+      "total_debits": number|null,
+      "operating_credits": number|null,
+      "credit_count": number|null,
+      "credit_days": number|null,
+      "net_cashflow": number|null,
+      "credit_sources": [{"source":string,"total_hkd":number|null,"count":number|null,"frequency":string|null}],
+      "anomalies": [{"kind":string|null,"date":string|null,"description":string,"amount_hkd":number|null}],
+      "daily_balances": [],
+      "cashflow_summary": string|null,
+      "repayment_capacity": {"assessment":"adequate"|"tight"|"weak"|"unknown","notes":string|null}
+    }
+  ]
+}
+
+規則：
+- statements 必須對應每一個提供的預期月份（可按月份排序）；某月讀唔到仍要出物件，金額填 null
+- net_cashflow／ADB／min_daily 可由系統重算，你可填 null
+- 禁止把審計報告數字當月結
+- 一次處理全部月份，唔好只回一份`;
+
+export function buildBankBatchUserText(input: {
+  companyNameHint?: string;
+  months: string[];
+  parts: Array<{ month: string; fileName: string; text: string }>;
+}) {
+  const blocks = input.parts.map(
+    (p, i) =>
+      `【月結 ${i + 1}｜預期月份 ${p.month}｜檔名 ${p.fileName}】\n${p.text.slice(0, 40_000) || "（無文字層）"}`,
+  );
+  return [
+    `請一次抽取以下 ${input.parts.length} 份銀行月結，輸出 { "statements": [ ... ] }。`,
+    `預期月份列表：${input.months.join("、")}`,
+    input.companyNameHint ? `申請公司提示：${input.companyNameHint}` : null,
+    blocks.join("\n\n====\n\n"),
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+}
+
+export function parseBankStatementBatch(
+  raw: unknown,
+  monthHints: string[],
+): {
+  ok: true;
+  data: BankStatementExtract[];
+} | {
+  ok: false;
+  error: string;
+} {
+  let list: unknown[] = [];
+  if (Array.isArray(raw)) {
+    list = raw;
+  } else if (raw && typeof raw === "object") {
+    const o = raw as Record<string, unknown>;
+    if (Array.isArray(o.statements)) list = o.statements;
+    else if (Array.isArray(o.months)) list = o.months;
+    else if ("total_credits" in o || "opening_balance" in o) {
+      // 誤回單月
+      list = [o];
+    }
+  }
+  if (!list.length) {
+    return { ok: false, error: "BANK_BATCH_EMPTY" };
+  }
+
+  const byMonth = new Map<string, BankStatementExtract>();
+  const errors: string[] = [];
+  for (let i = 0; i < list.length; i++) {
+    const hint = monthHints[i];
+    const parsed = parseBankStatementExtract(list[i], hint);
+    if (!parsed.ok) {
+      errors.push(`#${i + 1}: ${parsed.error}`);
+      continue;
+    }
+    const key = (parsed.data.month || hint || `idx-${i}`).trim();
+    byMonth.set(key, parsed.data);
+  }
+
+  const ordered = monthHints.map((m) => {
+    if (byMonth.has(m)) return byMonth.get(m)!;
+    // fuzzy：month 欄可能係 2024/01
+    for (const [k, v] of byMonth) {
+      if (k.replace(/[/-]/g, "").startsWith(m.replace(/[/-]/g, ""))) {
+        return { ...v, month: m };
+      }
+    }
+    return toBankStatementExtract(null, m);
+  });
+
+  const anyData = ordered.some(
+    (s) =>
+      s.total_credits != null ||
+      s.opening_balance != null ||
+      s.closing_balance != null,
+  );
+  if (!anyData) {
+    return {
+      ok: false,
+      error: errors[0] || "BANK_BATCH_NO_AMOUNTS",
+    };
+  }
+  return { ok: true, data: ordered };
+}
+
 export function buildBankStatementUserText(input: {
   fileName?: string;
   statementMonth?: string;

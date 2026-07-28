@@ -806,6 +806,90 @@ export function ApplyDocumentsUpload({
     }
   }
 
+  async function postBatch(
+    batchKind: "bank" | "audited",
+    parts: Array<{ meta: UploadedMeta; month?: string; index: number }>,
+  ): Promise<{
+    ok: boolean;
+    message?: string;
+    taskId?: string;
+    items?: AnalyzeItemResult[];
+    extractHint?: string | null;
+  }> {
+    const form = new FormData();
+    form.set("batchKind", batchKind);
+    form.set("loanType", loanType);
+    form.set("amountHkd", String(amountHkd));
+    form.set("purpose", purpose);
+    if (companyName.trim()) form.set("companyName", companyName.trim());
+    parts.forEach((p, i) => {
+      form.set(`file${i}`, p.meta.file);
+      if (p.month) form.set(`month${i}`, p.month);
+    });
+    const res = await fetch("/api/analyze-documents-batch", {
+      method: "POST",
+      body: form,
+    });
+    const data = (await res.json()) as {
+      ok?: boolean;
+      message?: string;
+      error?: string;
+      detail?: string;
+      taskId?: string;
+      extractHint?: string | null;
+      items?: Array<{
+        ok: boolean;
+        label: string;
+        fileName: string;
+        slotKey: string;
+        docKind?: string;
+        statementMonth?: string;
+        auditedIndex?: number;
+        message?: string;
+        bankExtract?: BankStatementExtract;
+        auditedExtract?: AuditedReportExtract;
+        brExtract?: BrExtract;
+        extract?: FinancialExtract;
+        extractHint?: string | null;
+      }>;
+    };
+    if (!res.ok || !data.ok) {
+      return {
+        ok: false,
+        message: `${data.message || data.error || "batch 分析失敗"}${
+          data.detail && String(data.detail).length < 160
+            ? `（${data.detail}）`
+            : ""
+        }`,
+      };
+    }
+    return {
+      ok: true,
+      taskId: data.taskId,
+      extractHint: data.extractHint,
+      items: (data.items || []).map((it) => ({
+        label: it.label,
+        fileName: it.fileName,
+        ok: it.ok,
+        message: it.message,
+        slotKey: it.slotKey,
+        docKind: it.docKind,
+        statementMonth: it.statementMonth,
+        auditedIndex: it.auditedIndex,
+        bankExtract: it.bankExtract
+          ? toBankStatementExtract(it.bankExtract, it.statementMonth)
+          : undefined,
+        auditedExtract: it.auditedExtract
+          ? toAuditedExtract(it.auditedExtract)
+          : undefined,
+        extract: it.extract
+          ? toStructuredExtractJson(it.extract)
+          : undefined,
+        extractHint: it.extractHint ?? data.extractHint,
+      })),
+    };
+  }
+
   async function runAiAnalyze() {
     if (!complete) {
       setAnalyzeError(
@@ -817,66 +901,79 @@ export function ApplyDocumentsUpload({
     setAnalyzeError(null);
     setAnalyzeResults([]);
 
-    // 銀行月結先抽（現金流六大項），BR／Audited 補公司與盈利
-    const bankQueue = months.flatMap((m) => {
-      const meta = docs.bank[m];
-      return meta
-        ? [
-            {
-              label: `銀行月結單 ${m}`,
-              meta,
-              docKind: "bank" as const,
-              statementMonth: m,
-              slotKey: `bank:${m}`,
-            },
-          ]
-        : [];
-    });
-    const otherQueue: {
-      label: string;
-      meta: UploadedMeta;
-      docKind: "br" | "audited";
-      auditedIndex?: number;
-      slotKey: string;
-    }[] = [];
-    for (let i = 0; i < docs.audited.length; i++) {
-      otherQueue.push({
-        label: `Audited Report ${i + 1}`,
-        meta: docs.audited[i]!,
-        docKind: "audited",
-        auditedIndex: i,
-        slotKey: `audited:${i}`,
-      });
-    }
-    if (docs.br) {
-      otherQueue.push({
-        label: "商業登記證 BR",
-        meta: docs.br,
-        docKind: "br",
-        slotKey: "br",
-      });
-    }
-    const queue = [...bankQueue, ...otherQueue];
-
     const results: AnalyzeItemResult[] = [];
     try {
-      for (let i = 0; i < queue.length; i++) {
-        const item = queue[i]!;
+      // 1) 銀行月結 6 份 → 1 Manus task
+      const bankParts = months.flatMap((m, index) => {
+        const meta = docs.bank[m];
+        return meta ? [{ meta, month: m, index }] : [];
+      });
+      if (bankParts.length) {
         setAnalyzeProgress(
-          `正在分析（${i + 1}／${queue.length}）：${item.label}`,
+          `正在分析銀行月結（${bankParts.length} 份 · 同一個 Manus task）…`,
         );
+        const bankBatch = await postBatch("bank", bankParts);
+        if (!bankBatch.ok || !bankBatch.items?.length) {
+          for (const p of bankParts) {
+            results.push({
+              label: `銀行月結單 ${p.month}`,
+              fileName: p.meta.name,
+              ok: false,
+              message: bankBatch.message || "銀行月結 batch 失敗",
+              slotKey: `bank:${p.month}`,
+              docKind: "bank",
+              statementMonth: p.month,
+            });
+          }
+        } else {
+          results.push(...bankBatch.items);
+        }
+        setAnalyzeResults([...results]);
+      }
+
+      // 2) Audited 1–3 份 → 1 Manus task
+      if (docs.audited.length) {
+        setAnalyzeProgress(
+          `正在分析 Audited Report（${docs.audited.length} 份 · 同一個 Manus task）…`,
+        );
+        const auditedParts = docs.audited.map((meta, index) => ({
+          meta,
+          index,
+        }));
+        const auditedBatch = await postBatch("audited", auditedParts);
+        if (!auditedBatch.ok || !auditedBatch.items?.length) {
+          for (let i = 0; i < docs.audited.length; i++) {
+            results.push({
+              label: `Audited Report ${i + 1}`,
+              fileName: docs.audited[i]!.name,
+              ok: false,
+              message: auditedBatch.message || "Audited batch 失敗",
+              slotKey: `audited:${i}`,
+              docKind: "audited",
+              auditedIndex: i,
+            });
+          }
+        } else {
+          results.push(...auditedBatch.items);
+        }
+        setAnalyzeResults([...results]);
+      }
+
+      // 3) BR → 獨立 1 task
+      if (docs.br) {
+        setAnalyzeProgress("正在分析商業登記證 BR（獨立 Manus task）…");
         results.push(
-          await analyzeOne(item.label, item.meta, item.docKind, {
-            statementMonth:
-              "statementMonth" in item ? item.statementMonth : undefined,
-            auditedIndex:
-              "auditedIndex" in item ? item.auditedIndex : undefined,
-            slotKey: item.slotKey,
+          await analyzeOne("商業登記證 BR", docs.br, "br", {
+            slotKey: "br",
           }),
         );
         setAnalyzeResults([...results]);
       }
+
       setAnalyzeProgress(null);
+      if (results.length && results.every((r) => !r.ok)) {
+        setAnalyzeError("全部文件分析失敗，請檢查檔案後重試或逐項重新上載。");
+      }
     } catch (e) {
       setAnalyzeError(e instanceof Error ? e.message : "網絡錯誤");
       setAnalyzeProgress(null);
@@ -1013,12 +1110,12 @@ export function ApplyDocumentsUpload({
       <Card className="space-y-3">
         <SectionHeader
           title="AI 文件分析"
-          subtitle="讀取已上載檔案 · 抽取資料／預審，不直接批核"
+          subtitle="銀行月結 6 份＝1 task · Audited 1–3 份＝1 task · BR＝獨立 1 task"
         />
         <StateBanner
           tone="info"
-          title="各文件讀取重點"
-          description="銀行月結：現金流六大項。BR：中英文名／登記號碼／地址／性質／日期。Audited Report：公司／核數師／核數意見＋三年營業額／除稅前溢利／淨利潤。"
+          title="Manus 批次分析"
+          description="銀行月結：現金流六大項（同一個 task）。Audited Report：公司／核數師／三年比較（同一個 task）。BR：中英文名／登記號碼／地址／性質／日期（獨立 task）。"
         />
         <Button
           fullWidth
