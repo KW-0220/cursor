@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Field, Input } from "@/components/ui/field";
 import {
@@ -52,6 +52,8 @@ type AnalyzeItemResult = {
   fileName: string;
   ok: boolean;
   message?: string;
+  /** 穩定鍵：br | audited:0 | bank:2026-01 */
+  slotKey: string;
   extract?: FinancialExtract;
   bankExtract?: BankStatementExtract;
   brExtract?: BrExtract;
@@ -61,6 +63,7 @@ type AnalyzeItemResult = {
   extractHint?: string | null;
   textPreview?: string;
   statementMonth?: string;
+  auditedIndex?: number;
 };
 
 function AuditedExtractPanel({ a }: { a: AuditedReportExtract }) {
@@ -472,6 +475,56 @@ function FileRow({
   );
 }
 
+/** 分析失敗後：旁邊一掣選新檔並即時再分析該項 */
+function ReuploadAnalyzeButton({
+  accept,
+  pdfOnly,
+  disabled,
+  onPick,
+}: {
+  accept: string;
+  pdfOnly?: boolean;
+  disabled?: boolean;
+  onPick: (file: File) => void | Promise<void>;
+}) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [busy, setBusy] = useState(false);
+  const [reject, setReject] = useState<string | null>(null);
+
+  return (
+    <div className="mt-2 flex flex-wrap items-center gap-2">
+      <input
+        ref={inputRef}
+        type="file"
+        accept={accept}
+        className="hidden"
+        onChange={(e) => {
+          const f = e.target.files?.[0];
+          e.target.value = "";
+          if (!f) return;
+          if (pdfOnly && !isPdf(f)) {
+            setReject("只接受 PDF 檔");
+            return;
+          }
+          setReject(null);
+          setBusy(true);
+          void Promise.resolve(onPick(f)).finally(() => setBusy(false));
+        }}
+      />
+      <Button
+        type="button"
+        size="sm"
+        variant="outline"
+        disabled={disabled || busy}
+        onClick={() => inputRef.current?.click()}
+      >
+        {busy ? "重新分析中…" : "重新上載及分析"}
+      </Button>
+      {reject && <span className="text-xs text-danger-600">{reject}</span>}
+    </div>
+  );
+}
+
 function SingleUpload({
   label,
   required,
@@ -587,6 +640,9 @@ export function ApplyDocumentsUpload({
   );
   const complete = isApplyDocsComplete(docs, months);
 
+  const docsRef = useRef(docs);
+  docsRef.current = docs;
+
   const [analyzing, setAnalyzing] = useState(false);
   const [analyzeProgress, setAnalyzeProgress] = useState<string | null>(null);
   const [analyzeError, setAnalyzeError] = useState<string | null>(null);
@@ -598,8 +654,21 @@ export function ApplyDocumentsUpload({
     label: string,
     meta: UploadedMeta,
     docKind: "br" | "audited" | "bank",
-    statementMonth?: string,
+    opts?: {
+      statementMonth?: string;
+      auditedIndex?: number;
+      slotKey: string;
+    },
   ): Promise<AnalyzeItemResult> {
+    const statementMonth = opts?.statementMonth;
+    const slotKey =
+      opts?.slotKey ??
+      (docKind === "br"
+        ? "br"
+        : docKind === "audited"
+          ? `audited:${opts?.auditedIndex ?? 0}`
+          : `bank:${statementMonth ?? "unknown"}`);
+
     const form = new FormData();
     form.set("file", meta.file);
     form.set("docKind", docKind);
@@ -609,57 +678,132 @@ export function ApplyDocumentsUpload({
     if (statementMonth) form.set("statementMonth", statementMonth);
     if (companyName.trim()) form.set("companyName", companyName.trim());
 
-    const res = await fetch("/api/analyze-document", {
-      method: "POST",
-      body: form,
-    });
-    const data = (await res.json()) as {
-      ok?: boolean;
-      message?: string;
-      error?: string;
-      detail?: string;
-      extract?: FinancialExtract;
-      bankExtract?: BankStatementExtract;
-      brExtract?: BrExtract;
-      auditedExtract?: AuditedReportExtract;
-      model?: string;
-      docKind?: string;
-      extractHint?: string | null;
-      textPreview?: string;
-      statementMonth?: string;
+    const baseFail = {
+      label,
+      fileName: meta.name,
+      ok: false as const,
+      slotKey,
+      docKind,
+      statementMonth,
+      auditedIndex: opts?.auditedIndex,
     };
-    if (!res.ok || !data.ok) {
-      const detail =
-        typeof data.detail === "string" && data.detail.length < 180
-          ? `（${data.detail}）`
-          : "";
+
+    try {
+      const res = await fetch("/api/analyze-document", {
+        method: "POST",
+        body: form,
+      });
+      const data = (await res.json()) as {
+        ok?: boolean;
+        message?: string;
+        error?: string;
+        detail?: string;
+        extract?: FinancialExtract;
+        bankExtract?: BankStatementExtract;
+        brExtract?: BrExtract;
+        auditedExtract?: AuditedReportExtract;
+        model?: string;
+        docKind?: string;
+        extractHint?: string | null;
+        textPreview?: string;
+        statementMonth?: string;
+      };
+      if (!res.ok || !data.ok) {
+        const detail =
+          typeof data.detail === "string" && data.detail.length < 180
+            ? `（${data.detail}）`
+            : "";
+        return {
+          ...baseFail,
+          message: `${data.message || data.error || "分析失敗"}${detail}`,
+        };
+      }
       return {
         label,
         fileName: meta.name,
-        ok: false,
-        message: `${data.message || data.error || "分析失敗"}${detail}`,
+        ok: true,
+        slotKey,
+        extract: toStructuredExtractJson(data.extract),
+        bankExtract:
+          docKind === "bank"
+            ? toBankStatementExtract(data.bankExtract, statementMonth)
+            : undefined,
+        brExtract: docKind === "br" ? toBrExtract(data.brExtract) : undefined,
+        auditedExtract:
+          docKind === "audited"
+            ? toAuditedExtract(data.auditedExtract)
+            : undefined,
+        model: data.model,
+        docKind: data.docKind ?? docKind,
+        extractHint: data.extractHint,
+        textPreview: data.textPreview,
+        statementMonth: data.statementMonth ?? statementMonth,
+        auditedIndex: opts?.auditedIndex,
+      };
+    } catch (e) {
+      return {
+        ...baseFail,
+        message: e instanceof Error ? e.message : "網絡錯誤",
       };
     }
-    return {
-      label,
-      fileName: meta.name,
-      ok: true,
-      extract: toStructuredExtractJson(data.extract),
-      bankExtract:
-        docKind === "bank"
-          ? toBankStatementExtract(data.bankExtract, statementMonth)
-          : undefined,
-      brExtract: docKind === "br" ? toBrExtract(data.brExtract) : undefined,
-      auditedExtract:
-        docKind === "audited"
-          ? toAuditedExtract(data.auditedExtract)
-          : undefined,
-      model: data.model,
-      docKind: data.docKind,
-      extractHint: data.extractHint,
-      textPreview: data.textPreview,
-      statementMonth: data.statementMonth ?? statementMonth,
-    };
+  }
+
+  function upsertResult(next: AnalyzeItemResult) {
+    setAnalyzeResults((prev) => {
+      const idx = prev.findIndex((r) => r.slotKey === next.slotKey);
+      if (idx < 0) return [...prev, next];
+      const copy = [...prev];
+      copy[idx] = next;
+      return copy;
+    });
+  }
+
+  /** 失敗項：換檔 → 更新 docs → 只重跑該 slot */
+  async function reuploadAndAnalyze(params: {
+    docKind: "br" | "audited" | "bank";
+    file: File;
+    statementMonth?: string;
+    auditedIndex?: number;
+    label: string;
+    slotKey: string;
+  }) {
+    const meta = toMeta(params.file);
+    const current = docsRef.current;
+    if (params.docKind === "br") {
+      onChange({ ...current, br: meta });
+    } else if (params.docKind === "bank" && params.statementMonth) {
+      onChange({
+        ...current,
+        bank: { ...current.bank, [params.statementMonth]: meta },
+      });
+    } else if (
+      params.docKind === "audited" &&
+      typeof params.auditedIndex === "number"
+    ) {
+      const audited = [...current.audited];
+      audited[params.auditedIndex] = meta;
+      onChange({ ...current, audited });
+    } else if (params.docKind === "audited") {
+      onChange({
+        ...current,
+        audited: [...current.audited, meta].slice(0, 3),
+      });
+    }
+
+    setAnalyzing(true);
+    setAnalyzeError(null);
+    setAnalyzeProgress(`重新分析：${params.label}`);
+    try {
+      const result = await analyzeOne(params.label, meta, params.docKind, {
+        statementMonth: params.statementMonth,
+        auditedIndex: params.auditedIndex,
+        slotKey: params.slotKey,
+      });
+      upsertResult(result);
+    } finally {
+      setAnalyzeProgress(null);
+      setAnalyzing(false);
+    }
   }
 
   async function runAiAnalyze() {
@@ -683,6 +827,7 @@ export function ApplyDocumentsUpload({
               meta,
               docKind: "bank" as const,
               statementMonth: m,
+              slotKey: `bank:${m}`,
             },
           ]
         : [];
@@ -691,13 +836,16 @@ export function ApplyDocumentsUpload({
       label: string;
       meta: UploadedMeta;
       docKind: "br" | "audited";
-      statementMonth?: undefined;
+      auditedIndex?: number;
+      slotKey: string;
     }[] = [];
     for (let i = 0; i < docs.audited.length; i++) {
       otherQueue.push({
         label: `Audited Report ${i + 1}`,
         meta: docs.audited[i]!,
         docKind: "audited",
+        auditedIndex: i,
+        slotKey: `audited:${i}`,
       });
     }
     if (docs.br) {
@@ -705,6 +853,7 @@ export function ApplyDocumentsUpload({
         label: "商業登記證 BR",
         meta: docs.br,
         docKind: "br",
+        slotKey: "br",
       });
     }
     const queue = [...bankQueue, ...otherQueue];
@@ -712,17 +861,18 @@ export function ApplyDocumentsUpload({
     const results: AnalyzeItemResult[] = [];
     try {
       for (let i = 0; i < queue.length; i++) {
-        const item = queue[i];
+        const item = queue[i]!;
         setAnalyzeProgress(
           `正在分析（${i + 1}／${queue.length}）：${item.label}`,
         );
         results.push(
-          await analyzeOne(
-            item.label,
-            item.meta,
-            item.docKind,
-            item.statementMonth,
-          ),
+          await analyzeOne(item.label, item.meta, item.docKind, {
+            statementMonth:
+              "statementMonth" in item ? item.statementMonth : undefined,
+            auditedIndex:
+              "auditedIndex" in item ? item.auditedIndex : undefined,
+            slotKey: item.slotKey,
+          }),
         );
         setAnalyzeResults([...results]);
       }
@@ -942,11 +1092,27 @@ export function ApplyDocumentsUpload({
                       subtitle="中／英文名 · 登記號碼 · 地址 · 性質 · 生效／屆滿"
                     />
                     {brFail && (
-                      <StateBanner
-                        tone="error"
-                        title="BR 分析失敗"
-                        description={brFail.message || "請重試或改上清晰 JPG"}
-                      />
+                      <div className="mb-3">
+                        <StateBanner
+                          tone="error"
+                          title="BR 分析失敗"
+                          description={
+                            brFail.message || "請重試或改上清晰 JPG"
+                          }
+                        />
+                        <ReuploadAnalyzeButton
+                          accept="application/pdf,.pdf,image/jpeg,.jpg,.jpeg,image/png,.png"
+                          disabled={analyzing}
+                          onPick={(file) =>
+                            reuploadAndAnalyze({
+                              docKind: "br",
+                              file,
+                              label: "商業登記證 BR",
+                              slotKey: brFail.slotKey || "br",
+                            })
+                          }
+                        />
+                      </div>
                     )}
                     {brResult?.brExtract ? (
                       <>
@@ -969,14 +1135,33 @@ export function ApplyDocumentsUpload({
                       subtitle="4.1 報告基本資料 · 4.2 三年營業額／除稅前溢利／淨利潤"
                     />
                     {auditedFail.length > 0 && (
-                      <StateBanner
-                        tone="error"
-                        title="Audited Report 分析失敗"
-                        description={
-                          auditedFail[0]?.message ||
-                          "請上完整核數師報告／損益表 PDF"
-                        }
-                      />
+                      <div className="mb-3 space-y-3">
+                        {auditedFail.map((fail) => (
+                          <div key={fail.slotKey || fail.label}>
+                            <StateBanner
+                              tone="error"
+                              title={`${fail.label} 分析失敗`}
+                              description={
+                                fail.message ||
+                                "請上完整核數師報告／損益表 PDF"
+                              }
+                            />
+                            <ReuploadAnalyzeButton
+                              accept="application/pdf,.pdf,image/jpeg,.jpg,.jpeg,image/png,.png"
+                              disabled={analyzing}
+                              onPick={(file) =>
+                                reuploadAndAnalyze({
+                                  docKind: "audited",
+                                  file,
+                                  label: fail.label,
+                                  slotKey: fail.slotKey,
+                                  auditedIndex: fail.auditedIndex,
+                                })
+                              }
+                            />
+                          </div>
+                        ))}
+                      </div>
                     )}
                     {auditedMerged ? (
                       <>
@@ -1005,14 +1190,40 @@ export function ApplyDocumentsUpload({
                       }
                     />
                     {bankFail.length > 0 && (
-                      <StateBanner
-                        tone="error"
-                        title={`${bankFail.length} 份月結分析失敗`}
-                        description={bankFail
-                          .map((r) => `${r.label}：${r.message || "失敗"}`)
-                          .join("；")
-                          .slice(0, 400)}
-                      />
+                      <div className="mb-3 space-y-3">
+                        <StateBanner
+                          tone="error"
+                          title={`${bankFail.length} 份月結分析失敗`}
+                          description="可喺各失敗項旁邊重新上載及分析。"
+                        />
+                        {bankFail.map((fail) => (
+                          <div
+                            key={fail.slotKey || fail.label}
+                            className="rounded-xl border border-danger-600/20 bg-danger-100/30 px-3 py-2"
+                          >
+                            <p className="text-sm font-medium text-navy-900">
+                              {fail.label}
+                            </p>
+                            <p className="mt-0.5 text-xs text-danger-600">
+                              {fail.message || "失敗"}
+                            </p>
+                            <ReuploadAnalyzeButton
+                              accept="application/pdf,.pdf"
+                              pdfOnly
+                              disabled={analyzing || !fail.statementMonth}
+                              onPick={(file) =>
+                                reuploadAndAnalyze({
+                                  docKind: "bank",
+                                  file,
+                                  label: fail.label,
+                                  slotKey: fail.slotKey,
+                                  statementMonth: fail.statementMonth,
+                                })
+                              }
+                            />
+                          </div>
+                        ))}
+                      </div>
                     )}
                     {brief ? (
                       <BankCashflowBriefPanel brief={brief} />
@@ -1027,15 +1238,49 @@ export function ApplyDocumentsUpload({
             })()}
 
             {analyzeResults.map((r) => (
-              <Card key={`${r.label}-${r.fileName}`} className="bg-surface-2">
-                <p className="text-xs text-text-muted">{r.label}</p>
-                <p className="mt-0.5 text-sm font-semibold text-navy-900">
-                  {r.fileName}
-                </p>
+              <Card key={r.slotKey || `${r.label}-${r.fileName}`} className="bg-surface-2">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <p className="text-xs text-text-muted">{r.label}</p>
+                    <p className="mt-0.5 truncate text-sm font-semibold text-navy-900">
+                      {r.fileName}
+                    </p>
+                  </div>
+                  {!r.ok && (
+                    <span className="shrink-0 rounded-full bg-danger-100 px-2 py-0.5 text-[10px] font-medium text-danger-600">
+                      讀取失敗
+                    </span>
+                  )}
+                </div>
                 {!r.ok ? (
-                  <p className="mt-2 text-sm text-danger-600">
-                    {r.message || "失敗"}
-                  </p>
+                  <div className="mt-2">
+                    <p className="text-sm text-danger-600">
+                      {r.message || "失敗"}
+                    </p>
+                    {(r.docKind === "br" ||
+                      r.docKind === "audited" ||
+                      r.docKind === "bank") && (
+                      <ReuploadAnalyzeButton
+                        accept={
+                          r.docKind === "bank"
+                            ? "application/pdf,.pdf"
+                            : "application/pdf,.pdf,image/jpeg,.jpg,.jpeg,image/png,.png"
+                        }
+                        pdfOnly={r.docKind === "bank"}
+                        disabled={analyzing}
+                        onPick={(file) =>
+                          reuploadAndAnalyze({
+                            docKind: r.docKind as "br" | "audited" | "bank",
+                            file,
+                            label: r.label,
+                            slotKey: r.slotKey,
+                            statementMonth: r.statementMonth,
+                            auditedIndex: r.auditedIndex,
+                          })
+                        }
+                      />
+                    )}
+                  </div>
                 ) : r.brExtract ? (
                   <div className="mt-3 space-y-2">
                     {r.extractHint && (
