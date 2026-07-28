@@ -828,7 +828,7 @@ export async function GET() {
     total_debt_payments: 600000,
     ebitdaAnalysis: {
       formula:
-        "EBITDA = Earning before tax + Interest + Tax + Depreciation + Amortisation",
+        "EBITDA = Net Profit + Interest Expense + Tax Expense + Depreciation + Amortisation",
       coverageRule: "EBITDA > Total Debt payments",
       ebitdaComputed: 850000,
       coversDebtPayments: true,

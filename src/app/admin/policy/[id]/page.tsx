@@ -140,9 +140,9 @@ export default function AdminPolicyPage() {
             <table className="w-full text-sm">
               <tbody>
                 {[
-                  ["除稅前溢利（EBT）", evaluation.ebitda.profitBeforeTaxHkd],
-                  ["加：Interest（融資成本）", evaluation.ebitda.financeCostsHkd],
-                  ["加：Tax（稅項）", evaluation.ebitda.taxHkd],
+                  ["淨利潤（Net Profit）", evaluation.ebitda.netProfitHkd],
+                  ["加：Interest（利息／財務費用）", evaluation.ebitda.financeCostsHkd],
+                  ["加：Tax（利得稅）", evaluation.ebitda.taxHkd],
                   ["加：Depreciation（折舊）", evaluation.ebitda.depreciationHkd],
                   ["加：Amortisation（攤銷）", evaluation.ebitda.amortisationHkd],
                   ["計算所得 EBITDA", evaluation.ebitda.ebitdaHkd],
@@ -204,8 +204,9 @@ export default function AdminPolicyPage() {
               <Row label="政策硬規則" value="EBITDA > Total Debt payments" />
             </div>
             <Disclaimer>
-              EBITDA＝EBT＋Interest＋Tax＋Depreciation＋Amortisation（系統公式）。
-              本階段 Total Debt payments 以客戶已申報現有債務供款年化；新貸預計供款未計入。
+              EBITDA＝Net Profit＋Interest＋Tax＋Depreciation＋Amortisation（Audited
+              Financial Statements）。D&A 優先取自現金流量表或附註。本階段 Total Debt
+              payments 以客戶已申報現有債務供款年化；新貸預計供款未計入。
             </Disclaimer>
           </Card>
 

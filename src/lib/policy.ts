@@ -51,6 +51,8 @@ export interface AuditExtract {
   intangibleHkd: number | null;
   goodwillHkd: number | null;
   profitBeforeTaxHkd: number | null;
+  /** 淨利潤（損益表最底行）— EBITDA 公式主項 */
+  netProfitHkd: number | null;
   financeCostsHkd: number | null;
   /** 稅項（Tax expense）— EBITDA 公式組成 */
   taxHkd: number | null;
@@ -82,6 +84,7 @@ export interface PolicyItemResult {
 export interface EbitdaBreakdown {
   mode: "disclosed" | "computed" | "incomplete";
   ebitdaHkd: number | null;
+  netProfitHkd: number | null;
   profitBeforeTaxHkd: number | null;
   financeCostsHkd: number | null;
   taxHkd: number | null;
@@ -156,6 +159,7 @@ export function computeGearing(a: AuditExtract) {
 
 export function computeEbitda(a: AuditExtract): EbitdaBreakdown {
   const base = {
+    netProfitHkd: a.netProfitHkd,
     profitBeforeTaxHkd: a.profitBeforeTaxHkd,
     financeCostsHkd: a.financeCostsHkd,
     taxHkd: a.taxHkd,
@@ -169,11 +173,11 @@ export function computeEbitda(a: AuditExtract): EbitdaBreakdown {
       mode: "disclosed",
       ebitdaHkd: a.ebitdaDisclosedHkd,
       ...base,
-      note: "報告直接披露 EBITDA（仍應用公式核對組成項）。",
+      note: "報告直接披露 EBITDA（仍應用 Audited 組成項公式核對）。",
     };
   }
   const ebitda = ebitdaFromComponents(
-    a.profitBeforeTaxHkd,
+    a.netProfitHkd,
     a.financeCostsHkd,
     a.taxHkd,
     a.depreciationHkd,
@@ -184,14 +188,14 @@ export function computeEbitda(a: AuditExtract): EbitdaBreakdown {
       mode: "incomplete",
       ebitdaHkd: null,
       ...base,
-      note: "未能從文件確認完整 EBITDA 組成（需 EBT、Interest、Tax、Depreciation；Amortisation 可為 0），需要人工覆核。",
+      note: "未能從 Audited Report 確認完整 EBITDA 組成（需 Net Profit、Interest、Tax、Depreciation；Amortisation 可為 0；D&A 請查 Cash Flow／Notes），需要人工覆核。",
     };
   }
   return {
     mode: "computed",
     ebitdaHkd: ebitda,
     ...base,
-    note: "EBITDA＝Earning before tax＋Interest＋Tax＋Depreciation＋Amortisation（系統硬編碼公式）。",
+    note: "EBITDA＝Net Profit＋Interest＋Tax＋Depreciation＋Amortisation（Audited Financial Statements 硬編碼公式）。",
   };
 }
 
@@ -264,13 +268,14 @@ export function evaluatePolicy(input: PolicyEvaluationInput): PolicyEvaluation {
     : {
         mode: "incomplete" as const,
         ebitdaHkd: null,
+        netProfitHkd: null,
         profitBeforeTaxHkd: null,
         financeCostsHkd: null,
         taxHkd: null,
         depreciationHkd: null,
         amortisationHkd: null,
         sourcePages: [],
-        note: "欠缺審計報告。",
+        note: "欠缺審計報告（Audited Financial Statements）。",
       };
 
   let annualDebt: number | null = null;
@@ -303,7 +308,8 @@ export function evaluatePolicy(input: PolicyEvaluationInput): PolicyEvaluation {
     annualDebt = annualDebtService(input.debts);
     if (ebitda.ebitdaHkd == null) {
       dscrStatus = "amber";
-      dscrReason = "需要人工從 Audited Report 核實 EBITDA（EBT＋Interest＋Tax＋D＋A）。";
+      dscrReason =
+        "需要人工從 Audited Report 核實 EBITDA（Net Profit＋Interest＋Tax＋D＋A；D&A 查 Cash Flow／Notes）。";
     } else if (annualDebt != null && annualDebt === 0) {
       coversDebt = true;
       dscrStatus = "green";

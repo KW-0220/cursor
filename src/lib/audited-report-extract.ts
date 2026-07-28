@@ -86,9 +86,9 @@ export type AuditedYearComparisonRow = {
   ebitda: number | null;
 };
 
-export const AUDITED_EXTRACT_SYSTEM_PROMPT = `你是香港中小企貸款預審助手，專門閱讀 Audited Report／核數師報告／財務報表。
+export const AUDITED_EXTRACT_SYSTEM_PROMPT = `你是香港中小企貸款預審助手，專門閱讀 Audited Report／經審計財務報表（Audited Financial Statements）。
 
-只根據提供文字／影像抽取，禁止上網。立刻只回 JSON（不要其他文字）。
+Audited Report 係計算 EBITDA 最權威數據來源。只根據提供文字／影像抽取，禁止上網。立刻只回 JSON（不要其他文字）。
 
 必須輸出：
 {
@@ -129,16 +129,17 @@ export const AUDITED_EXTRACT_SYSTEM_PROMPT = `你是香港中小企貸款預審�
 8. has_full_notes：是否包含完整財務報表附註（可判斷則填）
 
 欄位說明（4.2 營業額及盈利 — years 陣列，最多 3 個最近年度，由新至舊）：
-- revenue／Turnover
-- gross_profit
-- operating_profit
-- profit_before_tax
-- net_profit
-- finance_costs（Interest／融資成本）
-- depreciation
-- amortisation（無則 0 或 null）
-- tax（稅項；無則 null）
-- ebitda_disclosed：文件若直接披露 EBITDA 則填
+請由 Audited Financial Statements 對應位置抽取：
+- revenue／Turnover：損益表
+- gross_profit／operating_profit／profit_before_tax：損益表
+- net_profit（Net Profit／Net Income）：損益表最底一行（EBITDA 公式主項，必須盡力抽出）
+- finance_costs（Interest Expense／財務費用／利息支出）：損益表
+- tax（Tax Expense／利得稅開支）：損益表
+- depreciation／amortisation（折舊與攤銷）：損益表往往唔會單獨一行（好多時包喺行政／營運成本）；必須優先喺現金流量表（Cash Flow Statement）或財務報表附註（Notes to the Financial Statements）搵實數。若只有合併 D&A，可全部放入 depreciation，amortisation=0
+- ebitda_disclosed：文件若直接披露 EBITDA 則填（系統仍會用組成項重算覆核）
+
+系統硬編碼：EBITDA = Net Profit + Interest Expense + Tax Expense + Depreciation + Amortisation
+你只負責抽取數字，不要用其他定義自行改寫公式。
 
 金額為純數字，不要貨幣符號／逗號。不要猜測。缺資料填 null。
 若一份報告只含一年，years 仍放該年；比較數字若報告有列示「上年比較」亦可一併放入 years。`;
@@ -149,8 +150,9 @@ export function buildAuditedExtractUserText(input: {
   pastedText?: string;
 }) {
   return [
-    "這是 Audited Report／核數師報告。請抽取 4.1 公司及報告基本資料，以及 4.2 最近最多三年營業額及盈利資料（years）。",
-    "系統稍後會用硬編碼公式計算 EBITDA＝EBT＋Interest＋Tax＋Depreciation＋Amortisation；你只抽組成項，不要用其他定義自行改公式。",
+    "這是 Audited Report／經審計財務報表。請抽取 4.1 公司及報告基本資料，以及 4.2 最近最多三年營業額及盈利資料（years）。",
+    "EBITDA 權威算法：Net Profit（損益表最底）＋ Interest（財務費用）＋ Tax（利得稅）＋ Depreciation＋Amortisation（優先 Cash Flow／Notes）。系統會用此公式重算。",
+    "折舊／攤銷若損益表無單獨一行，請務必在現金流量表或附註尋找。",
     input.fileName ? `檔名：${input.fileName}` : null,
     input.companyNameHint ? `申請公司提示：${input.companyNameHint}` : null,
     input.pastedText
@@ -213,7 +215,7 @@ export function toAuditedExtract(raw: unknown): AuditedReportExtract {
 
 function yearEbitda(y: AuditedYearExtract): number | null {
   const computed = ebitdaFromComponents(
-    y.profit_before_tax,
+    y.net_profit,
     y.finance_costs,
     y.tax,
     y.depreciation,

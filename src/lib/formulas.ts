@@ -10,7 +10,8 @@
  * - 新貸 LTV = 新申請額 ÷ 估值
  * - 有形淨資產 TNW = 權益 − 無形資產 − 商譽
  * - Gearing = 總負債 ÷ TNW
- * - EBITDA = Earning before tax + Interest + Tax + Depreciation + Amortisation
+ * - EBITDA = Net Profit + Interest Expense + Tax Expense + Depreciation + Amortisation
+ *   （權威來源：Audited Financial Statements；D&A 多數喺 Cash Flow／Notes）
  * - 年化債務供款 Total Debt payments = Σ(月供 × 12)
  * - 覆蓋規則：EBITDA > Total Debt payments（硬規則；同時可算 DSCR = EBITDA ÷ Total Debt payments）
  * - YoY = (本期 − 上期) ÷ 上期
@@ -28,7 +29,9 @@ export const FORMULA_DEFINITIONS = {
   tangibleNetWorth: "有形淨資產 TNW = 權益 − 無形資產 − 商譽",
   gearing: "槓桿 Gearing = 總負債 ÷ TNW",
   ebitda:
-    "EBITDA = Earning before tax + Interest + Tax + Depreciation + Amortisation",
+    "EBITDA = Net Profit + Interest Expense + Tax Expense + Depreciation + Amortisation（Audited Report）",
+  ebitdaSources:
+    "來源：損益表 Net Profit／Interest／Tax；折舊與攤銷優先 Cash Flow Statement 或 Notes to the Financial Statements",
   annualDebtService: "Total Debt payments（年化）= Σ(每月供款 × 12)",
   ebitdaDebtCover: "硬規則：EBITDA > Total Debt payments",
   dscr: "DSCR = EBITDA ÷ Total Debt payments",
@@ -140,29 +143,33 @@ export function gearingRatio(
 }
 
 /**
- * EBITDA = Earning before tax + Interest + Tax + Depreciation + Amortisation
- * （AI 只抽組成項；本函數係唯一計法）
- * amortisation 缺省當 0（中小企常見無攤銷）。
+ * EBITDA（權威算法，以 Audited Financial Statements 為準）=
+ *   Net Profit + Interest Expense + Tax Expense + Depreciation + Amortisation
+ *
+ * - Net Profit／Interest／Tax：損益表
+ * - Depreciation & Amortisation：多數唔喺損益表單獨一行，優先 Cash Flow／Notes
+ * - AI 只抽組成項；本函數係唯一計法
+ * - amortisation 缺省當 0；若只有合併 D&A，可全部放入 depreciation
  */
 export function ebitdaFromComponents(
-  earningBeforeTaxHkd: number | null | undefined,
-  interestHkd: number | null | undefined,
-  taxHkd: number | null | undefined,
+  netProfitHkd: number | null | undefined,
+  interestExpenseHkd: number | null | undefined,
+  taxExpenseHkd: number | null | undefined,
   depreciationHkd: number | null | undefined,
   amortisationHkd: number | null | undefined = 0,
 ): number | null {
   if (
-    earningBeforeTaxHkd == null ||
-    interestHkd == null ||
-    taxHkd == null ||
+    netProfitHkd == null ||
+    interestExpenseHkd == null ||
+    taxExpenseHkd == null ||
     depreciationHkd == null
   ) {
     return null;
   }
   return (
-    earningBeforeTaxHkd +
-    interestHkd +
-    taxHkd +
+    netProfitHkd +
+    interestExpenseHkd +
+    taxExpenseHkd +
     depreciationHkd +
     (amortisationHkd ?? 0)
   );

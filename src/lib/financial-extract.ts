@@ -9,7 +9,8 @@ import {
  * 財務文件抽取 — 輸出格式：
  * 核心欄 + EBITDA 組成項（系統用硬編碼公式重算 EBITDA）
  *
- * EBITDA = Earning before tax + Interest + Tax + Depreciation + Amortisation
+ * 權威來源：Audited Financial Statements
+ * EBITDA = Net Profit + Interest Expense + Tax Expense + Depreciation + Amortisation
  * 硬規則：EBITDA > Total Debt payments
  *
  * 缺資料必須 null，不可猜測。
@@ -131,10 +132,12 @@ const JSON_SHAPE = `{
   "total_debt_payments": number | null
 }`;
 
-const EBITDA_RULES = `EBITDA 規則（必須遵守）：
+const EBITDA_RULES = `EBITDA 規則（必須遵守；Audited Report 係最權威來源）：
 - 系統硬編碼公式：${FORMULA_DEFINITIONS.ebitda}
-- 請分別抽取組成項：earning_before_tax（除稅前溢利／EBT）、interest（利息／融資成本）、tax（稅項）、depreciation（折舊）、amortisation（攤銷；無則 0）
-- 若文件直接寫 EBITDA，可填 EBITDA 欄；但組成項仍盡量抽出供系統覆核
+- 來源指引：${FORMULA_DEFINITIONS.ebitdaSources}
+- 請分別抽取：net_profit（損益表最底）、interest（利息／財務費用）、tax（利得稅）、depreciation、amortisation（無則 0）
+- earning_before_tax（除稅前溢利）可一併抽出供比較，但 EBITDA 重算以 net_profit 為準，唔用 EBT
+- 若文件直接寫 EBITDA，可填 EBITDA 欄；組成項仍盡量抽出供系統覆核
 - 硬規則：${FORMULA_DEFINITIONS.ebitdaDebtCover}
 - total_debt_payments = 一年總債務供款（例如各項月供×12 之合計；文件無則 null）
 - 你只負責抽取數字，不要自行用其他定義重算／改寫公式`;
@@ -272,8 +275,9 @@ export function applyHardcodedEbitdaFormulas(
     amortisation: normalized.amortisation,
   };
 
+  // 權威算法：Net Profit + Interest + Tax + D + A（唔用 EBT）
   const computed = ebitdaFromComponents(
-    components.earning_before_tax,
+    normalized.net_profit,
     components.interest,
     components.tax,
     components.depreciation,
@@ -354,13 +358,13 @@ export function buildExtractHint(input: {
     ebitdaAnalysis?.ebitdaSource === "computed" &&
     ebitdaAnalysis.coversDebtPayments === true
   ) {
-    return "已用公式計 EBITDA（EBT＋Interest＋Tax＋D＋A），並滿足 EBITDA > Total Debt payments。";
+    return "已用 Audited 公式計 EBITDA（Net Profit＋Interest＋Tax＋D＋A），並滿足 EBITDA > Total Debt payments。";
   }
   if (
     ebitdaAnalysis?.ebitdaSource === "computed" &&
     ebitdaAnalysis.totalDebtPayments == null
   ) {
-    return "已用公式計 EBITDA；未有 Total Debt payments，暫未能判斷覆蓋。";
+    return "已用 Audited 公式計 EBITDA；未有 Total Debt payments，暫未能判斷覆蓋。";
   }
 
   if (!hasFinance && textLength > 0 && !usedVision) {

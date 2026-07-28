@@ -91,7 +91,7 @@ export default function DebtsPage() {
           <Card className="bg-warning-100/50">
             <p className="text-sm font-semibold text-warning-600">N03｜不清楚供款</p>
             <p className="mt-2 text-sm text-text-secondary">
-              仍可提交申請。系統會用公式計 EBITDA（EBT＋Interest＋Tax＋D＋A），並檢查
+              仍可提交申請。系統會用 Audited 公式計 EBITDA（Net Profit＋Interest＋Tax＋D＋A），並檢查
               EBITDA &gt; Total Debt payments；若債務資料不完整則顯示黃燈並建立顧問跟進，不可綠燈。
             </p>
           </Card>
@@ -237,8 +237,9 @@ export default function DebtsPage() {
         </Card>
 
         <Disclaimer>
-          標籤：客戶聲明（債務明細）＋ 系統計算（年度供款）。提交後會與 AI
-          提取之 EBITDA 合併計算 DSCR。
+          標籤：客戶聲明（債務明細）＋ 系統計算（Total Debt payments＝月供×12）。
+          提交後會與 AI 從 Audited Report 抽出之 Net Profit／Interest／Tax／D／A
+          用公式計 EBITDA，並檢查 EBITDA &gt; Total Debt payments。
         </Disclaimer>
       </main>
 

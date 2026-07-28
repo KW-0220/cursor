@@ -142,7 +142,7 @@ function AuditedExtractPanel({ a }: { a: AuditedReportExtract }) {
         )}
         {rows.some((r) => r.ebitda != null) && (
           <p className="mt-2 text-xs text-text-muted">
-            EBITDA（系統公式）：
+            EBITDA（Audited 公式：Net Profit＋Interest＋Tax＋D＋A）：
             {rows
               .map(
                 (r) =>
@@ -153,6 +153,9 @@ function AuditedExtractPanel({ a }: { a: AuditedReportExtract }) {
               .join(" · ")}
           </p>
         )}
+        <p className="mt-1 text-xs text-text-muted">
+          D&amp;A 優先取自現金流量表或財務報表附註；損益表未必單獨列出。
+        </p>
       </div>
     </div>
   );
