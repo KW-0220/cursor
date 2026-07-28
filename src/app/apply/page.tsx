@@ -28,6 +28,14 @@ import {
   StateBanner,
 } from "@/components/ui/layout";
 import {
+  buildApplyDraft,
+  clearApplyDraft,
+  formatDraftSavedAt,
+  loadApplyDraft,
+  persistApplyDraft,
+  restoreApplyDocs,
+} from "@/lib/apply-draft";
+import {
   COLLATERAL_DATA_USE_NOTE,
   displayTitle,
   hasUsableCollateral,
@@ -76,6 +84,10 @@ export default function ApplyWizardPage() {
   const [consents, setConsents] = useState<Record<string, boolean>>({});
   const [applicationId, setApplicationId] = useState<string | null>(null);
   const [submittedAt, setSubmittedAt] = useState<string | null>(null);
+  const [draftReady, setDraftReady] = useState(false);
+  const [draftRestoredAt, setDraftRestoredAt] = useState<string | null>(null);
+  const [savingDraft, setSavingDraft] = useState(false);
+  const [saveFlash, setSaveFlash] = useState<string | null>(null);
 
   useEffect(() => {
     void (async () => {
@@ -89,12 +101,74 @@ export default function ApplyWizardPage() {
       }
       setUserKey(key);
       setCollateralItems(loadCollateralItems(key));
+
+      const draft = loadApplyDraft(key);
+      if (draft && draft.step < 7) {
+        setStep(Math.min(Math.max(0, draft.step), steps.length - 2));
+        setLoanType(draft.loanType);
+        setAmount(draft.amount);
+        setPurpose(draft.purpose || "");
+        setTenureYears(draft.tenureYears || "");
+        setFundingDate(draft.fundingDate || "");
+        setTargetBank(draft.targetBank || "");
+        setExtraNotes(draft.extraNotes || "");
+        setHasExistingLoan(draft.hasExistingLoan);
+        setLender(draft.lender || "");
+        setDebtType(draft.debtType || "");
+        setFacility(draft.facility || "");
+        setOutstanding(draft.outstanding || "");
+        setConsents(draft.consents || {});
+        try {
+          const restored = await restoreApplyDocs(key, draft, BANK_MONTHS);
+          setDocs(restored);
+        } catch {
+          /* keep empty docs */
+        }
+        setDraftRestoredAt(draft.savedAt);
+      }
+      setDraftReady(true);
     })();
   }, []);
 
   function updateCollateral(next: CollateralItem[]) {
     setCollateralItems(next);
     saveCollateralItems(next, userKey);
+  }
+
+  async function handleSaveDraft() {
+    if (step >= 7) return;
+    setSavingDraft(true);
+    setSaveFlash(null);
+    try {
+      const draft = buildApplyDraft({
+        step,
+        loanType,
+        amount,
+        purpose,
+        tenureYears,
+        fundingDate,
+        targetBank,
+        extraNotes,
+        hasExistingLoan,
+        lender,
+        debtType,
+        facility,
+        outstanding,
+        consents,
+        bankMonths: BANK_MONTHS,
+        docs,
+      });
+      await persistApplyDraft(userKey, draft, docs, BANK_MONTHS);
+      setDraftRestoredAt(draft.savedAt);
+      setSaveFlash(`已保存草稿（${formatDraftSavedAt(draft.savedAt)}）`);
+      window.setTimeout(() => setSaveFlash(null), 4000);
+    } catch (e) {
+      setSaveFlash(
+        e instanceof Error ? `保存失敗：${e.message}` : "保存失敗，請重試",
+      );
+    } finally {
+      setSavingDraft(false);
+    }
   }
 
   const amountHkd = typeof amount === "number" ? amount : 0;
@@ -179,6 +253,7 @@ export default function ApplyWizardPage() {
         "slf_applications",
         JSON.stringify([record, ...prev]),
       );
+      clearApplyDraft(userKey);
     } catch {
       // ignore
     }
@@ -196,7 +271,14 @@ export default function ApplyWizardPage() {
         <ProgressBar value={progress} />
       </div>
 
-      <main className="space-y-4 px-4 py-5 pb-28">
+      <main className="space-y-4 px-4 py-5 pb-44">
+        {draftReady && draftRestoredAt && step < 7 && (
+          <StateBanner
+            tone="info"
+            title="已載入草稿"
+            description={`上次保存：${formatDraftSavedAt(draftRestoredAt)}。可繼續填寫，或撳底部「保存」再離開。`}
+          />
+        )}
         {step === 0 && (
           <>
             <SectionHeader title="選擇貸款類型" />
@@ -654,8 +736,20 @@ export default function ApplyWizardPage() {
       </main>
 
       {step < 7 && (
-        <div className="fixed inset-x-0 bottom-0 mx-auto max-w-[430px] border-t border-border bg-surface-1 p-4">
-          <div className="flex gap-2">
+        <div className="fixed inset-x-0 bottom-0 z-40 mx-auto max-w-[430px] border-t border-border bg-surface-1 p-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
+          <Button
+            type="button"
+            variant="outline"
+            fullWidth
+            disabled={savingDraft || !draftReady}
+            onClick={() => void handleSaveDraft()}
+          >
+            {savingDraft ? "保存中……" : "保存"}
+          </Button>
+          {saveFlash && (
+            <p className="mt-2 text-center text-xs text-teal-700">{saveFlash}</p>
+          )}
+          <div className="mt-2 flex gap-2">
             {step > 0 && (
               <Button variant="outline" className="flex-1" onClick={back}>
                 上一步
