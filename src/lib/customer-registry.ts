@@ -2,6 +2,15 @@ import "server-only";
 import { promises as fs } from "fs";
 import path from "path";
 import { z } from "zod";
+import {
+  customersUseMysql,
+  mysqlCountCustomers,
+  mysqlGetCustomer,
+  mysqlInsertCustomer,
+  mysqlListCustomers,
+  mysqlUpsertCustomer,
+} from "@/lib/db/customers-mysql";
+import { isMysqlConfigured } from "@/lib/db/mysql";
 
 export const CustomerRegistrationSchema = z.object({
   id: z.string().optional(),
@@ -141,17 +150,38 @@ function nextId(records: CustomerRegistrationRecord[]) {
   return `CUS-${new Date().getFullYear()}-${String(n).padStart(4, "0")}`;
 }
 
+export function getCustomerStorageMode() {
+  if (isMysqlConfigured()) return "mysql" as const;
+  return "file_or_memory" as const;
+}
+
 export async function listCustomers() {
+  if (customersUseMysql()) {
+    const count = await mysqlCountCustomers();
+    if (count === 0) {
+      // 空庫時寫入示範 seed（與舊 JSON 行為對齊）
+      for (const seed of seedRecords()) {
+        await mysqlInsertCustomer(seed);
+      }
+    }
+    return mysqlListCustomers();
+  }
   const records = await ensureLoaded();
   return [...records].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 }
 
 export async function getCustomer(id: string) {
+  if (customersUseMysql()) {
+    return mysqlGetCustomer(id);
+  }
   const records = await ensureLoaded();
   return records.find((r) => r.id === id) ?? null;
 }
 
 export async function upsertCustomer(input: CustomerRegistrationInput) {
+  if (customersUseMysql()) {
+    return mysqlUpsertCustomer(input);
+  }
   const records = await ensureLoaded();
   const now = new Date().toISOString();
 

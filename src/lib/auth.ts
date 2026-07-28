@@ -5,6 +5,15 @@ import path from "path";
 import bcrypt from "bcryptjs";
 import { EncryptJWT, SignJWT, jwtDecrypt, jwtVerify } from "jose";
 import { z } from "zod";
+import {
+  authUsesMysql,
+  mysqlFindUserByEmail,
+  mysqlFindUserById,
+  mysqlInsertUser,
+  mysqlUpdateUser,
+  mysqlUpsertUser,
+} from "@/lib/db/auth-mysql";
+import { isMysqlConfigured } from "@/lib/db/mysql";
 
 export const RegisterSchema = z.object({
   email: z.string().email("請輸入有效電郵"),
@@ -146,6 +155,7 @@ async function saveUsers(users: AuthUser[]) {
 }
 
 export function getAuthStorageMode() {
+  if (isMysqlConfigured()) return "mysql" as const;
   if (
     (process.env.UPSTASH_REDIS_REST_URL &&
       process.env.UPSTASH_REDIS_REST_TOKEN) ||
@@ -157,6 +167,9 @@ export function getAuthStorageMode() {
 }
 
 export async function findUserByEmail(email: string) {
+  if (authUsesMysql()) {
+    return mysqlFindUserByEmail(email);
+  }
   const users = await loadUsers();
   const key = email.trim().toLowerCase();
   return users.find((u) => u.email.toLowerCase() === key) ?? null;
@@ -174,7 +187,6 @@ export async function registerUser(
   if (existing) {
     throw new Error("EMAIL_EXISTS");
   }
-  const users = await loadUsers();
   const now = new Date().toISOString();
   const user: AuthUser = {
     id: `USR-${Date.now()}`,
@@ -187,16 +199,52 @@ export async function registerUser(
     createdAt: now,
     updatedAt: now,
   };
-  users.push(user);
-  await saveUsers(users);
+  if (authUsesMysql()) {
+    await mysqlInsertUser(user);
+  } else {
+    const users = await loadUsers();
+    users.push(user);
+    await saveUsers(users);
+  }
   return toPublic(user);
 }
 
 /** 確保管理員帳戶存在且密碼為現行固定值 */
 export async function ensureAdminUser(): Promise<PublicUser> {
-  const users = await loadUsers();
   const now = new Date().toISOString();
   const hash = await bcrypt.hash(ADMIN_PASSWORD, 10);
+
+  if (authUsesMysql()) {
+    const existing = await mysqlFindUserByEmail(ADMIN_EMAIL);
+    if (existing) {
+      const updated: AuthUser = {
+        ...existing,
+        passwordHash: hash,
+        role: "admin",
+        nameZh: existing.nameZh || "系統管理員",
+        profileCompleted: true,
+        updatedAt: now,
+      };
+      await mysqlUpdateUser(updated);
+      return toPublic(updated);
+    }
+    const user: AuthUser = {
+      id: "USR-ADMIN",
+      email: ADMIN_EMAIL,
+      passwordHash: hash,
+      nameZh: "系統管理員",
+      phone: null,
+      idNumber: null,
+      profileCompleted: true,
+      role: "admin",
+      createdAt: now,
+      updatedAt: now,
+    };
+    await mysqlInsertUser(user);
+    return toPublic(user);
+  }
+
+  const users = await loadUsers();
   const idx = users.findIndex((u) => isAdminEmail(u.email));
   if (idx >= 0) {
     users[idx] = {
@@ -240,11 +288,14 @@ export async function verifyLogin(
     const key = input.email.trim().toLowerCase();
     const fromVault = vaultUsers.find((u) => u.email.toLowerCase() === key);
     if (fromVault) {
-      // 把 vault 用戶灌回 server store（同 instance / Redis）
-      const users = await loadUsers();
-      if (!users.some((u) => u.email.toLowerCase() === key)) {
-        users.push(fromVault);
-        await saveUsers(users);
+      if (authUsesMysql()) {
+        await mysqlUpsertUser(fromVault);
+      } else {
+        const users = await loadUsers();
+        if (!users.some((u) => u.email.toLowerCase() === key)) {
+          users.push(fromVault);
+          await saveUsers(users);
+        }
       }
       user = fromVault;
     }
@@ -260,6 +311,16 @@ export async function verifyLogin(
 }
 
 export async function upsertUserIntoStore(user: AuthUser) {
+  if (authUsesMysql()) {
+    const byId = await mysqlFindUserById(user.id);
+    const byEmail = byId ? null : await mysqlFindUserByEmail(user.email);
+    const existing = byId || byEmail;
+    const merged: AuthUser = existing
+      ? { ...existing, ...user, id: existing.id, createdAt: existing.createdAt }
+      : user;
+    await mysqlUpsertUser(merged);
+    return toPublic(merged);
+  }
   const users = await loadUsers();
   const idx = users.findIndex((u) => u.id === user.id || u.email === user.email);
   if (idx >= 0) users[idx] = user;
@@ -306,6 +367,17 @@ export async function mergeVaultCookie(
 }
 
 export async function markProfileCompleted(userId: string) {
+  if (authUsesMysql()) {
+    const user = await mysqlFindUserById(userId);
+    if (!user) return null;
+    const updated: AuthUser = {
+      ...user,
+      profileCompleted: true,
+      updatedAt: new Date().toISOString(),
+    };
+    await mysqlUpdateUser(updated);
+    return toPublic(updated);
+  }
   const users = await loadUsers();
   const idx = users.findIndex((u) => u.id === userId);
   if (idx < 0) return null;
@@ -322,6 +394,18 @@ export async function updateUserContact(
   userId: string,
   patch: { nameZh?: string; phone?: string },
 ) {
+  if (authUsesMysql()) {
+    const user = await mysqlFindUserById(userId);
+    if (!user) return null;
+    const updated: AuthUser = {
+      ...user,
+      nameZh: patch.nameZh ?? user.nameZh,
+      phone: patch.phone ?? user.phone,
+      updatedAt: new Date().toISOString(),
+    };
+    await mysqlUpdateUser(updated);
+    return toPublic(updated);
+  }
   const users = await loadUsers();
   const idx = users.findIndex((u) => u.id === userId);
   if (idx < 0) return null;

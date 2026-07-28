@@ -33,6 +33,18 @@ Browser ──► /api/chat | /api/analyze-document | /api/analyze-documents-bat
 
 `/api/chat` 已會先 `search()` 再把 chunks 注入 system prompt。
 
+## MySQL（客戶／帳戶持久化）
+
+| 層 | 位置 |
+| --- | --- |
+| Client | `src/lib/db/mysql.ts`（pool + auto schema） |
+| Repos | `src/lib/db/auth-mysql.ts` · `src/lib/db/customers-mysql.ts` |
+| Schema | `docs/mysql-schema.sql`（`users` · `customers`） |
+| Status | `GET /api/auth/status` → `storage: "mysql"` · `durable: true` |
+| Env | `MYSQL_HOST` · `MYSQL_USER` · `MYSQL_PASSWORD` · `MYSQL_DATABASE` · `MYSQL_PORT` · 或 `DATABASE_URL`／`MYSQL_URL` |
+
+啟動後首次查詢會 `CREATE TABLE IF NOT EXISTS`。未設定時回退 Redis／`data/*.json`／記憶體。
+
 ## CRM API（預留）
 
 | 層 | 位置 |
