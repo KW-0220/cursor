@@ -22,8 +22,13 @@ import {
 } from "@/lib/bank-statement-extract";
 import type { BrExtract } from "@/lib/br-extract";
 import { toBrExtract } from "@/lib/br-extract";
-import type { Nar1Extract } from "@/lib/nar1-extract";
-import { toNar1Extract } from "@/lib/nar1-extract";
+import type { AuditedReportExtract } from "@/lib/audited-report-extract";
+import {
+  boolLabel,
+  buildAuditedComparisonRows,
+  mergeAuditedExtracts,
+  toAuditedExtract,
+} from "@/lib/audited-report-extract";
 import { formatHKD } from "@/lib/utils";
 
 export type UploadedMeta = {
@@ -35,7 +40,8 @@ export type UploadedMeta = {
 
 export type ApplyDocsState = {
   br: UploadedMeta | null;
-  nar1: UploadedMeta | null;
+  /** 最近三年 Audited Report（可 1–3 份） */
+  audited: UploadedMeta[];
   identity: UploadedMeta[];
   companyOther: UploadedMeta[];
   bank: Record<string, UploadedMeta | null>;
@@ -49,7 +55,7 @@ type AnalyzeItemResult = {
   extract?: FinancialExtract;
   bankExtract?: BankStatementExtract;
   brExtract?: BrExtract;
-  nar1Extract?: Nar1Extract;
+  auditedExtract?: AuditedReportExtract;
   model?: string;
   docKind?: string;
   extractHint?: string | null;
@@ -57,105 +63,95 @@ type AnalyzeItemResult = {
   statementMonth?: string;
 };
 
-function Nar1ExtractPanel({ n }: { n: Nar1Extract }) {
-  const sec = n.company_secretary;
-  const cap = n.issued_share_capital;
+function AuditedExtractPanel({ a }: { a: AuditedReportExtract }) {
+  const rows = buildAuditedComparisonRows(a);
   return (
-    <div className="space-y-3 text-sm">
-      <dl className="space-y-2">
-        {(
-          [
-            ["公司名稱", n.company_name],
-            ["公司註冊編號", n.company_number],
-            ["註冊辦事處地址", n.registered_office_address],
-            ["周年申報日期", n.annual_return_date],
-          ] as [string, string | null][]
-        ).map(([label, value]) => (
-          <div
-            key={label}
-            className="flex flex-col gap-0.5 sm:flex-row sm:justify-between sm:gap-3"
-          >
-            <dt className="shrink-0 text-text-secondary">{label}</dt>
-            <dd className="font-medium text-navy-900 sm:text-right">
-              {value?.trim() ? value : "—"}
-            </dd>
-          </div>
-        ))}
-      </dl>
-
+    <div className="space-y-4 text-sm">
       <div>
-        <p className="text-xs font-semibold text-navy-900">董事姓名</p>
-        {n.directors.length ? (
-          <ul className="mt-1 list-inside list-disc text-text-secondary">
-            {n.directors.map((d, i) => (
-              <li key={`${d.name}-${i}`}>
-                {d.name || "—"}
-                {d.role ? `（${d.role}）` : ""}
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p className="mt-1 text-text-muted">—</p>
-        )}
-      </div>
-
-      <div>
-        <p className="text-xs font-semibold text-navy-900">公司秘書資料</p>
-        {sec?.name || sec?.address ? (
-          <p className="mt-1 text-text-secondary">
-            {[sec.name, sec.type, sec.address].filter(Boolean).join(" · ") ||
-              "—"}
-          </p>
-        ) : (
-          <p className="mt-1 text-text-muted">—</p>
-        )}
-      </div>
-
-      <div>
-        <p className="text-xs font-semibold text-navy-900">
-          股東姓名／持股數量或比例
+        <p className="mb-2 text-xs font-semibold text-navy-900">
+          4.1 公司及報告基本資料
         </p>
-        {n.shareholders.length ? (
-          <ul className="mt-1 space-y-1 text-text-secondary">
-            {n.shareholders.map((s, i) => (
-              <li
-                key={`${s.name}-${i}`}
-                className="flex flex-wrap justify-between gap-2"
-              >
-                <span>{s.name || "—"}</span>
-                <span className="tabular text-xs">
-                  {s.shares != null ? `${s.shares} 股` : "—"}
-                  {s.shareholding_pct != null
-                    ? ` · ${s.shareholding_pct}%`
-                    : ""}
-                </span>
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p className="mt-1 text-text-muted">—</p>
-        )}
+        <dl className="space-y-2">
+          {(
+            [
+              ["公司名稱", a.company_name],
+              ["財政年度結束日期", a.year_end_date],
+              ["報告貨幣", a.reporting_currency],
+              ["核數師名稱", a.auditor_name],
+              ["核數意見類型", a.audit_opinion_type],
+              ["是否有保留意見", boolLabel(a.has_qualified_opinion)],
+              [
+                "持續經營重大不確定性",
+                boolLabel(a.going_concern_uncertainty),
+              ],
+              ["完整財務報表附註", boolLabel(a.has_full_notes)],
+            ] as [string, string | null][]
+          ).map(([label, value]) => (
+            <div
+              key={label}
+              className="flex flex-col gap-0.5 sm:flex-row sm:justify-between sm:gap-3"
+            >
+              <dt className="shrink-0 text-text-secondary">{label}</dt>
+              <dd className="font-medium text-navy-900 sm:text-right">
+                {value?.trim() ? value : "—"}
+              </dd>
+            </div>
+          ))}
+        </dl>
       </div>
 
       <div>
-        <p className="text-xs font-semibold text-navy-900">已發行股本資料</p>
-        {cap ? (
-          <p className="mt-1 text-text-secondary">
-            {[
-              cap.currency && cap.amount != null
-                ? `${cap.currency} ${cap.amount.toLocaleString("en-HK")}`
-                : cap.amount != null
-                  ? String(cap.amount)
-                  : null,
-              cap.shares != null ? `${cap.shares} 股` : null,
-              cap.class_of_shares,
-              cap.details,
-            ]
-              .filter(Boolean)
-              .join(" · ") || "—"}
-          </p>
+        <p className="mb-2 text-xs font-semibold text-navy-900">
+          4.2 營業額及盈利 · 三年比較
+        </p>
+        {rows.length === 0 ? (
+          <p className="text-text-muted">尚未抽出年度數字。</p>
         ) : (
-          <p className="mt-1 text-text-muted">—</p>
+          <div className="overflow-x-auto rounded-xl border border-border">
+            <table className="w-full min-w-[480px] text-left text-xs">
+              <thead className="bg-surface-2 text-text-muted">
+                <tr>
+                  <th className="px-3 py-2 font-medium">財政年度</th>
+                  <th className="px-3 py-2 font-medium">營業額</th>
+                  <th className="px-3 py-2 font-medium">除稅前溢利</th>
+                  <th className="px-3 py-2 font-medium">淨利潤</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((r, i) => (
+                  <tr key={`${r.financialYear}-${i}`} className="border-t border-border/70">
+                    <td className="px-3 py-2 font-medium text-navy-900">
+                      {r.financialYear || `年度${i + 1}`}
+                    </td>
+                    <td className="px-3 py-2 tabular">
+                      {r.revenue != null ? formatHKD(r.revenue) : "—"}
+                    </td>
+                    <td className="px-3 py-2 tabular">
+                      {r.profitBeforeTax != null
+                        ? formatHKD(r.profitBeforeTax)
+                        : "—"}
+                    </td>
+                    <td className="px-3 py-2 tabular">
+                      {r.netProfit != null ? formatHKD(r.netProfit) : "—"}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+        {rows.some((r) => r.ebitda != null) && (
+          <p className="mt-2 text-xs text-text-muted">
+            EBITDA（系統公式）：
+            {rows
+              .map(
+                (r) =>
+                  `${r.financialYear}: ${
+                    r.ebitda != null ? formatHKD(r.ebitda) : "—"
+                  }`,
+              )
+              .join(" · ")}
+          </p>
         )}
       </div>
     </div>
@@ -394,7 +390,7 @@ export function lastSixBankMonths(now = new Date()): string[] {
 export function emptyApplyDocs(months: string[]): ApplyDocsState {
   return {
     br: null,
-    nar1: null,
+    audited: [],
     identity: [],
     companyOther: [],
     bank: Object.fromEntries(months.map((m) => [m, null])),
@@ -403,14 +399,16 @@ export function emptyApplyDocs(months: string[]): ApplyDocsState {
 
 export function isApplyDocsComplete(docs: ApplyDocsState, months: string[]) {
   const bankOk = months.every((m) => docs.bank[m] != null);
-  return Boolean(docs.br && docs.nar1 && docs.identity.length > 0 && bankOk);
+  return Boolean(
+    docs.br && docs.audited.length > 0 && docs.identity.length > 0 && bankOk,
+  );
 }
 
 export function applyDocsProgress(docs: ApplyDocsState, months: string[]) {
   const bankFilled = months.filter((m) => docs.bank[m]).length;
   const slots = [
     docs.br ? 1 : 0,
-    docs.nar1 ? 1 : 0,
+    docs.audited.length > 0 ? 1 : 0,
     docs.identity.length > 0 ? 1 : 0,
     bankFilled === 6 ? 1 : 0,
   ];
@@ -596,7 +594,7 @@ export function ApplyDocumentsUpload({
   async function analyzeOne(
     label: string,
     meta: UploadedMeta,
-    docKind: "br" | "nar1" | "bank",
+    docKind: "br" | "audited" | "bank",
     statementMonth?: string,
   ): Promise<AnalyzeItemResult> {
     const form = new FormData();
@@ -620,7 +618,7 @@ export function ApplyDocumentsUpload({
       extract?: FinancialExtract;
       bankExtract?: BankStatementExtract;
       brExtract?: BrExtract;
-      nar1Extract?: Nar1Extract;
+      auditedExtract?: AuditedReportExtract;
       model?: string;
       docKind?: string;
       extractHint?: string | null;
@@ -649,8 +647,10 @@ export function ApplyDocumentsUpload({
           ? toBankStatementExtract(data.bankExtract, statementMonth)
           : undefined,
       brExtract: docKind === "br" ? toBrExtract(data.brExtract) : undefined,
-      nar1Extract:
-        docKind === "nar1" ? toNar1Extract(data.nar1Extract) : undefined,
+      auditedExtract:
+        docKind === "audited"
+          ? toAuditedExtract(data.auditedExtract)
+          : undefined,
       model: data.model,
       docKind: data.docKind,
       extractHint: data.extractHint,
@@ -661,14 +661,16 @@ export function ApplyDocumentsUpload({
 
   async function runAiAnalyze() {
     if (!complete) {
-      setAnalyzeError("請先完成必須文件（BR、NAR1、身份、6 份銀行月結單 PDF）");
+      setAnalyzeError(
+        "請先完成必須文件（BR、Audited Report、身份、6 份銀行月結單 PDF）",
+      );
       return;
     }
     setAnalyzing(true);
     setAnalyzeError(null);
     setAnalyzeResults([]);
 
-    // 銀行月結先抽（現金流六大項），BR／NAR1 補公司名
+    // 銀行月結先抽（現金流六大項），BR／Audited 補公司與盈利
     const bankQueue = months.flatMap((m) => {
       const meta = docs.bank[m];
       return meta
@@ -685,11 +687,15 @@ export function ApplyDocumentsUpload({
     const otherQueue: {
       label: string;
       meta: UploadedMeta;
-      docKind: "br" | "nar1";
+      docKind: "br" | "audited";
       statementMonth?: undefined;
     }[] = [];
-    if (docs.nar1) {
-      otherQueue.push({ label: "NAR1", meta: docs.nar1, docKind: "nar1" });
+    for (let i = 0; i < docs.audited.length; i++) {
+      otherQueue.push({
+        label: `Audited Report ${i + 1}`,
+        meta: docs.audited[i]!,
+        docKind: "audited",
+      });
     }
     if (docs.br) {
       otherQueue.push({
@@ -735,7 +741,7 @@ export function ApplyDocumentsUpload({
       <StateBanner
         tone="info"
         title="文件清單"
-        description="請上載：① 公司及身份文件 ② 最近六個月銀行月結單（必須 6 份 PDF）③ NAR1 ④ 商業登記證 BR。"
+        description="請上載：① 公司及身份文件 ② 最近六個月銀行月結單（必須 6 份 PDF）③ 最近三年 Audited Report ④ 商業登記證 BR。"
       />
 
       <Card className="bg-surface-2">
@@ -818,14 +824,19 @@ export function ApplyDocumentsUpload({
         </p>
       )}
 
-      <SectionHeader title="3. NAR1" />
-      <SingleUpload
-        label="最近期公司註冊處周年申報表 NAR1"
+      <SectionHeader
+        title="3. Audited Report"
+        subtitle="最近三年 · 可上載 1–3 份 PDF"
+      />
+      <MultiUpload
+        label="最近三年 Audited Report／核數師報告"
         required
-        hint="最近期已提交完整頁面（含董事／股東／股本）。掃描 PDF 會轉頁面影像；失敗請改清晰 JPG／PNG。"
+        hint="請上載最近三個財政年度的 Audited Report（PDF 為佳；可一次多份）。系統會抽取公司／核數意見及三年營業額、除稅前溢利、淨利潤比較。"
         accept="application/pdf,.pdf,image/jpeg,.jpg,.jpeg,image/png,.png"
-        value={docs.nar1}
-        onChange={(nar1) => onChange({ ...docs, nar1 })}
+        values={docs.audited}
+        onChange={(audited) =>
+          onChange({ ...docs, audited: audited.slice(0, 3) })
+        }
       />
 
       <SectionHeader title="4. 商業登記證 BR" />
@@ -842,7 +853,7 @@ export function ApplyDocumentsUpload({
         <StateBanner
           tone="warning"
           title="文件未齊"
-          description="請完成 BR、NAR1、至少一份身份證明，以及 6 份銀行月結單 PDF。"
+          description="請完成 BR、Audited Report、至少一份身份證明，以及 6 份銀行月結單 PDF。"
         />
       )}
 
@@ -854,7 +865,7 @@ export function ApplyDocumentsUpload({
         <StateBanner
           tone="info"
           title="各文件讀取重點"
-          description="銀行月結：現金流六大項。BR：中英文名／登記號碼／地址／性質／日期。NAR1：公司名／註冊編號／地址／申報日／董事／秘書／股東持股／已發行股本。"
+          description="銀行月結：現金流六大項。BR：中英文名／登記號碼／地址／性質／日期。Audited Report：公司／核數師／核數意見＋三年營業額／除稅前溢利／淨利潤。"
         />
         <Button
           fullWidth
@@ -906,12 +917,19 @@ export function ApplyDocumentsUpload({
               const brFail = analyzeResults.find(
                 (r) => r.docKind === "br" && !r.ok,
               );
-              const nar1Result = analyzeResults.find(
-                (r) => r.docKind === "nar1" && r.ok && r.nar1Extract,
+              const auditedResults = analyzeResults.filter(
+                (r) => r.docKind === "audited",
               );
-              const nar1Fail = analyzeResults.find(
-                (r) => r.docKind === "nar1" && !r.ok,
+              const auditedOk = auditedResults.filter(
+                (r) => r.ok && r.auditedExtract,
               );
+              const auditedFail = auditedResults.filter((r) => !r.ok);
+              const auditedMerged =
+                auditedOk.length > 0
+                  ? mergeAuditedExtracts(
+                      auditedOk.map((r) => r.auditedExtract!),
+                    )
+                  : null;
 
               return (
                 <>
@@ -944,31 +962,32 @@ export function ApplyDocumentsUpload({
                   </Card>
                   <Card>
                     <SectionHeader
-                      title="周年申報表（NAR1）"
-                      subtitle="公司名 · 註冊編號 · 地址 · 董事／秘書／股東 · 股本"
+                      title="Audited Report"
+                      subtitle="4.1 報告基本資料 · 4.2 三年營業額／除稅前溢利／淨利潤"
                     />
-                    {nar1Fail && (
+                    {auditedFail.length > 0 && (
                       <StateBanner
                         tone="error"
-                        title="NAR1 分析失敗"
+                        title="Audited Report 分析失敗"
                         description={
-                          nar1Fail.message || "請上完整頁或清晰 JPG／PNG"
+                          auditedFail[0]?.message ||
+                          "請上完整核數師報告／損益表 PDF"
                         }
                       />
                     )}
-                    {nar1Result?.nar1Extract ? (
+                    {auditedMerged ? (
                       <>
-                        {nar1Result.extractHint && (
+                        {auditedOk[0]?.extractHint && (
                           <p className="mb-3 rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-900">
-                            {nar1Result.extractHint}
+                            {auditedOk[0].extractHint}
                           </p>
                         )}
-                        <Nar1ExtractPanel n={nar1Result.nar1Extract} />
+                        <AuditedExtractPanel a={auditedMerged} />
                       </>
                     ) : (
-                      !nar1Fail && (
+                      auditedFail.length === 0 && (
                         <p className="text-sm text-text-muted">
-                          尚未取得 NAR1 資料。
+                          尚未取得 Audited Report 資料。
                         </p>
                       )
                     )}
@@ -1023,14 +1042,14 @@ export function ApplyDocumentsUpload({
                     )}
                     <BrExtractPanel br={r.brExtract} />
                   </div>
-                ) : r.nar1Extract ? (
+                ) : r.auditedExtract ? (
                   <div className="mt-3 space-y-2">
                     {r.extractHint && (
                       <p className="rounded-md bg-amber-50 px-3 py-2 text-xs text-amber-900">
                         {r.extractHint}
                       </p>
                     )}
-                    <Nar1ExtractPanel n={r.nar1Extract} />
+                    <AuditedExtractPanel a={r.auditedExtract} />
                   </div>
                 ) : r.bankExtract ? (
                   <div className="mt-3 space-y-2 text-sm">
@@ -1137,7 +1156,7 @@ export function summarizeApplyDocs(docs: ApplyDocsState, months: string[]) {
     .filter(Boolean) as string[];
   return {
     br: docs.br?.name ?? null,
-    nar1: docs.nar1?.name ?? null,
+    audited: docs.audited.map((f) => f.name),
     identity: docs.identity.map((f) => f.name),
     companyOther: docs.companyOther.map((f) => f.name),
     bankCount: bankNames.length,

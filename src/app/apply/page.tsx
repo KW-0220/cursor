@@ -210,7 +210,7 @@ export default function ApplyWizardPage() {
                     "希望申請較高貸款額",
                     "可接受以抵押品作擔保",
                   ],
-                  docs: "必須：BR、NAR1、六個月銀行月結單 PDF、董事／股東／擔保人身份證明，以及按抵押品類型上載專屬文件",
+                  docs: "必須：BR、最近三年 Audited Report、六個月銀行月結單 PDF、董事／股東／擔保人身份證明，以及按抵押品類型上載專屬文件",
                 },
                 {
                   type: "unsecured" as const,
@@ -220,7 +220,7 @@ export default function ApplyWizardPage() {
                     "主要依靠公司營運及現金流",
                     "希望申請營運資金",
                   ],
-                  docs: "必須：BR、NAR1、六個月銀行月結單 PDF、董事／股東／擔保人身份證明",
+                  docs: "必須：BR、最近三年 Audited Report、六個月銀行月結單 PDF、董事／股東／擔保人身份證明",
                 },
               ] as const
             ).map((card) => (
@@ -434,7 +434,7 @@ export default function ApplyWizardPage() {
               <StateBanner
                 tone="info"
                 title="區塊一：共同必須文件"
-                description="BR、NAR1、六個月銀行月結單、身份證明。區塊二為抵押品專屬文件。"
+                description="BR、最近三年 Audited Report、六個月銀行月結單、身份證明。區塊二為抵押品專屬文件。"
               />
             )}
             <ApplyDocumentsUpload
@@ -473,10 +473,14 @@ export default function ApplyWizardPage() {
               </p>
             </Card>
             <Card>
-              <p className="text-xs text-text-muted">NAR1</p>
-              <p className="mt-1 text-sm font-medium text-navy-900">
-                {docsSummary.nar1 ?? "—"}
-              </p>
+              <p className="text-xs text-text-muted">Audited Report</p>
+              <ul className="mt-1 space-y-1 text-sm font-medium text-navy-900">
+                {docsSummary.audited.length === 0 ? (
+                  <li>—</li>
+                ) : (
+                  docsSummary.audited.map((n) => <li key={n}>· {n}</li>)
+                )}
+              </ul>
             </Card>
             <Card>
               <p className="text-xs text-text-muted">身份證明</p>
@@ -570,7 +574,7 @@ export default function ApplyWizardPage() {
               ],
               [
                 "文件完成狀態",
-                `${docsPct}% · BR／NAR1／身份／銀行月結單 ${docsSummary.bankCount}/6`,
+                `${docsPct}% · BR／Audited Report／身份／銀行月結單 ${docsSummary.bankCount}/6`,
               ],
             ].map(([title, body]) => (
               <Card key={title}>

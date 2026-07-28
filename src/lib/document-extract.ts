@@ -180,16 +180,24 @@ export async function extractDocumentText(params: {
       text = "";
     }
 
-    // BR／NAR1 掃描件：有文字都一併轉頁面圖，提高中文／表格辨識率
+    // BR／NAR1／Audited 掃描件：文字弱或指定類型轉頁面圖
     const needsVision =
       docKind === "br" ||
       docKind === "nar1" ||
+      docKind === "audited" ||
       pdfTextLooksWeak(text, docKind);
     if (!needsVision) {
       return { text, method: "pdf", imageUrls: [], pageCount };
     }
 
-    const maxPages = docKind === "nar1" ? 3 : docKind === "bank" ? 3 : 1;
+    const maxPages =
+      docKind === "audited"
+        ? 4
+        : docKind === "nar1"
+          ? 3
+          : docKind === "bank"
+            ? 3
+            : 1;
     try {
       const rendered = await renderPdfPagesAsJpegDataUrls(buffer, {
         maxPages,

@@ -57,14 +57,24 @@ export type EbitdaCoverageAnalysis = {
 };
 
 /** 申請文件類型：決定 prompt 期望，唔代表讀唔到 PDF */
-export type DocKind = "br" | "nar1" | "bank" | "financial" | "auto";
+export type DocKind = "br" | "nar1" | "bank" | "financial" | "audited" | "auto";
 
 export function normalizeDocKind(raw: unknown): DocKind {
   const v = String(raw ?? "")
     .trim()
     .toLowerCase();
-  if (v === "br" || v === "nar1" || v === "bank" || v === "financial") {
+  if (
+    v === "br" ||
+    v === "nar1" ||
+    v === "bank" ||
+    v === "financial" ||
+    v === "audited"
+  ) {
     return v;
+  }
+  // aliases
+  if (v === "audit" || v === "audited_report" || v === "audit_report") {
+    return "audited";
   }
   return "auto";
 }
@@ -198,6 +208,16 @@ ${COMMON_RULES}`;
 - total_debt_payments：若見到明確貸款月供可年化（×12）則填，否則 null
 
 不要把期末結餘當成 revenue。不要上網搜尋。
+
+${COMMON_RULES}`;
+  }
+
+  if (kind === "audited" || kind === "financial") {
+    return `你是一個香港中小企貸款審批助手。
+
+文件類型：Audited Report／財務報表。
+請優先抽取 EBITDA 組成（EBT、Interest、Tax、Depreciation、Amortisation）及最近年度盈利數字。
+完整三年結構抽取請用 docKind=audited 專用流程。
 
 ${COMMON_RULES}`;
   }

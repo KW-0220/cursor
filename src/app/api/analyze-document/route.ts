@@ -23,6 +23,14 @@ import {
   parseBrExtract,
 } from "@/lib/br-extract";
 import {
+  AUDITED_EXTRACT_SYSTEM_PROMPT,
+  auditedExtractHint,
+  auditedExtractToFinancial,
+  buildAuditedComparisonRows,
+  buildAuditedExtractUserText,
+  parseAuditedExtract,
+} from "@/lib/audited-report-extract";
+import {
   NAR1_EXTRACT_SYSTEM_PROMPT,
   buildNar1ExtractUserText,
   nar1ExtractHint,
@@ -58,6 +66,7 @@ function analyzeModel() {
  * docKind=bank → bankExtract（現金流 6 大項）+ 兼容 extract
  * docKind=br → brExtract（中／英文名、登記號碼、地址、性質、生效／屆滿）
  * docKind=nar1 → nar1Extract（公司名／CR No.／地址／董事／秘書／股東／股本）
+ * docKind=audited → auditedExtract（4.1 報告基本資料 + 4.2 三年盈利比較）
  * 其他 → extract：company_name / financial_year / revenue / EBITDA / net_profit / existing_debt
  *
  * formData: file / text / companyName / docKind / statementMonth
@@ -343,6 +352,101 @@ export async function POST(req: NextRequest) {
             .join(" · "),
           applicantFacingMessage:
             "已完成商業登記證初步抽取，供顧問覆核。AI 不直接決定批出貸款。",
+        },
+        disclaimer:
+          "此建議只供初步參考，實際貸款條件及批核結果由相關貸款機構決定。",
+      });
+    }
+
+    /** —— Audited Report（最近三年） —— */
+    if (docKind === "audited") {
+      const auditedUser = buildAuditedExtractUserText({
+        fileName: manusFileName,
+        companyNameHint,
+        pastedText: plainText,
+      });
+      const manus = await manusRespond({
+        system: AUDITED_EXTRACT_SYSTEM_PROMPT,
+        userText: hasVision
+          ? `${auditedUser}\n\n（已附報告頁面影像，請一併辨識核數師意見、損益表及最多三年比較數字。）`
+          : auditedUser,
+        imageUrl,
+        imageUrls,
+        maxWaitMs: 50_000,
+        pollMs: 1500,
+      });
+
+      let parsedJson: unknown;
+      try {
+        parsedJson = parseModelJsonObject(manus.text);
+      } catch {
+        return NextResponse.json(
+          {
+            error: "INVALID_MODEL_JSON",
+            message: "Audited Report 模型回傳格式不符，請重試",
+            detail: manus.text.slice(0, 500),
+          },
+          { status: 502 },
+        );
+      }
+
+      const parsed = parseAuditedExtract(parsedJson);
+      if (!parsed.ok) {
+        return NextResponse.json(
+          {
+            error: "INVALID_MODEL_JSON",
+            message: "Audited Report 模型回傳格式不符，請重試",
+            detail: parsed.error,
+            rawPreview: manus.text.slice(0, 500),
+          },
+          { status: 502 },
+        );
+      }
+
+      const auditedExtract = parsed.data;
+      const extract = auditedExtractToFinancial(auditedExtract);
+      const comparisonTable = buildAuditedComparisonRows(auditedExtract);
+
+      if (rawOnly) {
+        return NextResponse.json({ ...auditedExtract, comparisonTable });
+      }
+
+      return NextResponse.json({
+        ok: true,
+        model: manus.model || model,
+        provider: "manus",
+        taskId: manus.id,
+        fileName,
+        mimeType,
+        docKind,
+        extractMethod,
+        textLength: plainText.length,
+        textPreview,
+        extractHint: auditedExtractHint(auditedExtract),
+        auditedExtract,
+        comparisonTable,
+        extract,
+        company_name: extract.company_name,
+        financial_year: extract.financial_year,
+        revenue: extract.revenue,
+        EBITDA: extract.EBITDA,
+        net_profit: extract.net_profit,
+        existing_debt: extract.existing_debt,
+        analysis: {
+          documentType: "audit_report" as const,
+          overall: "amber" as const,
+          summary: [
+            auditedExtract.company_name,
+            auditedExtract.auditor_name,
+            auditedExtract.audit_opinion_type,
+            comparisonTable.length
+              ? `${comparisonTable.length} 個財政年度`
+              : null,
+          ]
+            .filter(Boolean)
+            .join(" · "),
+          applicantFacingMessage:
+            "已完成 Audited Report 初步抽取（含三年比較），供顧問覆核。AI 不直接決定批出貸款。",
         },
         disclaimer:
           "此建議只供初步參考，實際貸款條件及批核結果由相關貸款機構決定。",
