@@ -458,6 +458,26 @@ function formatBytes(n: number) {
   return `${(n / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+/** 單次分析請求 timeout（避免無限轉圈） */
+async function fetchAnalyze(
+  input: RequestInfo | URL,
+  init: RequestInit | undefined,
+  timeoutMs: number,
+): Promise<Response> {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    return await fetch(input, { ...init, signal: ctrl.signal });
+  } catch (e) {
+    if (e instanceof DOMException && e.name === "AbortError") {
+      throw new Error(`分析逾時（>${Math.round(timeoutMs / 1000)}s），請縮細檔案或逐項重試`);
+    }
+    throw e;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 function money(n: number | null | undefined) {
   return n == null ? "—" : formatHKD(n);
 }
@@ -700,10 +720,14 @@ export function ApplyDocumentsUpload({
     };
 
     try {
-      const res = await fetch("/api/analyze-document", {
-        method: "POST",
-        body: form,
-      });
+      const res = await fetchAnalyze(
+        "/api/analyze-document",
+        {
+          method: "POST",
+          body: form,
+        },
+        95_000,
+      );
       const raw = await res.text();
       let data: {
         ok?: boolean;
@@ -863,10 +887,14 @@ export function ApplyDocumentsUpload({
 
     let res: Response;
     try {
-      res = await fetch("/api/analyze-documents-batch", {
-        method: "POST",
-        body: form,
-      });
+      res = await fetchAnalyze(
+        "/api/analyze-documents-batch",
+        {
+          method: "POST",
+          body: form,
+        },
+        110_000,
+      );
     } catch (e) {
       return {
         ok: false,
@@ -954,24 +982,35 @@ export function ApplyDocumentsUpload({
   async function runSequentialBank(
     bankParts: Array<{ meta: UploadedMeta; month: string; index: number }>,
   ) {
-    const out: AnalyzeItemResult[] = [];
-    for (let i = 0; i < bankParts.length; i++) {
-      const p = bankParts[i]!;
-      setAnalyzeProgress(
-        `逐檔分析銀行月結（${i + 1}/${bankParts.length}）${p.month}…`,
-      );
-      out.push(
-        await analyzeOne(`銀行月結單 ${p.month}`, p.meta, "bank", {
+    const out: AnalyzeItemResult[] = new Array(bankParts.length);
+    const concurrency = 2;
+    let cursor = 0;
+
+    async function worker() {
+      while (cursor < bankParts.length) {
+        const i = cursor++;
+        const p = bankParts[i]!;
+        setAnalyzeProgress(
+          `逐檔分析銀行月結（${i + 1}/${bankParts.length}）${p.month}…`,
+        );
+        out[i] = await analyzeOne(`銀行月結單 ${p.month}`, p.meta, "bank", {
           statementMonth: p.month,
           slotKey: `bank:${p.month}`,
-        }),
-      );
-      setAnalyzeResults((prev) => {
-        const others = prev.filter((r) => r.docKind !== "bank");
-        return [...others, ...out];
-      });
+        });
+        setAnalyzeResults((prev) => {
+          const others = prev.filter((r) => r.docKind !== "bank");
+          const bankDone = out.filter(Boolean) as AnalyzeItemResult[];
+          return [...others, ...bankDone];
+        });
+      }
     }
-    return out;
+
+    await Promise.all(
+      Array.from({ length: Math.min(concurrency, bankParts.length) }, () =>
+        worker(),
+      ),
+    );
+    return out.filter(Boolean) as AnalyzeItemResult[];
   }
 
   async function runSequentialAudited(audited: UploadedMeta[]) {
@@ -979,7 +1018,7 @@ export function ApplyDocumentsUpload({
     for (let i = 0; i < audited.length; i++) {
       const meta = audited[i]!;
       setAnalyzeProgress(
-        `逐檔分析 Audited Report（${i + 1}/${audited.length}）…`,
+        `分析 Audited Report（${i + 1}/${audited.length}）· 智能揀損益表頁…`,
       );
       out.push(
         await analyzeOne(`Audited Report ${i + 1}`, meta, "audited", {
@@ -1008,7 +1047,7 @@ export function ApplyDocumentsUpload({
 
     const results: AnalyzeItemResult[] = [];
     try {
-      // 1) 銀行月結 6 份 → 先試 1 Manus task；失敗／掃描件 → 逐檔
+      // 1) 銀行月結：先試 batch；掃描／失敗 → 並行逐檔（2）
       const bankParts = months.flatMap((m, index) => {
         const meta = docs.bank[m];
         return meta ? [{ meta, month: m, index }] : [];
@@ -1041,36 +1080,9 @@ export function ApplyDocumentsUpload({
         setAnalyzeResults([...results]);
       }
 
-      // 2) Audited 1–3 份 → 先 batch，失敗則逐檔
+      // 2) Audited：永遠單檔（智能揀損益頁）；唔走 batch，避免封面／timeout
       if (docs.audited.length) {
-        setAnalyzeProgress(
-          `正在分析 Audited Report（${docs.audited.length} 份 · 同一個 Manus task）…`,
-        );
-        const auditedParts = docs.audited.map((meta, index) => ({
-          meta,
-          index,
-        }));
-        const auditedBatch = await postBatch("audited", auditedParts);
-        if (auditedBatch.ok && auditedBatch.items?.length) {
-          results.push(...auditedBatch.items);
-        } else if (auditedBatch.retrySequential !== false) {
-          setAnalyzeProgress(
-            `Audited batch 未能完成，改逐檔分析…`,
-          );
-          results.push(...(await runSequentialAudited(docs.audited)));
-        } else {
-          for (let i = 0; i < docs.audited.length; i++) {
-            results.push({
-              label: `Audited Report ${i + 1}`,
-              fileName: docs.audited[i]!.name,
-              ok: false,
-              message: auditedBatch.message || "Audited batch 失敗",
-              slotKey: `audited:${i}`,
-              docKind: "audited",
-              auditedIndex: i,
-            });
-          }
-        }
+        results.push(...(await runSequentialAudited(docs.audited)));
         setAnalyzeResults([...results]);
       }
 
@@ -1086,8 +1098,16 @@ export function ApplyDocumentsUpload({
       }
 
       setAnalyzeProgress(null);
-      if (results.length && results.every((r) => !r.ok)) {
-        setAnalyzeError("全部文件分析失敗，請檢查檔案後重試或逐項重新上載。");
+      const okCount = results.filter((r) => r.ok).length;
+      const failCount = results.length - okCount;
+      if (results.length && okCount === 0) {
+        setAnalyzeError(
+          "全部文件分析失敗。請縮細 PDF、改上清晰掃描，或逐項「重新上載及分析」。",
+        );
+      } else if (failCount > 0) {
+        setAnalyzeError(
+          `完成 ${okCount}/${results.length} 項；${failCount} 項失敗，可逐項重新上載及分析。`,
+        );
       }
     } catch (e) {
       setAnalyzeError(e instanceof Error ? e.message : "網絡錯誤");
@@ -1229,8 +1249,8 @@ export function ApplyDocumentsUpload({
         />
         <StateBanner
           tone="info"
-          title="Manus 批次分析"
-          description="銀行月結／Audited 先試同一個 task；掃描 PDF、檔案過大或 batch 失敗會自動改逐檔（含 Vision）。BR 永遠獨立 1 task。"
+          title="AI 文件分析"
+          description="銀行月結先試 batch，失敗會並行逐檔。Audited 單檔智能揀損益表頁（並用文字啟發式補數）。BR 獨立 1 task。單項逾時約 95 秒。"
         />
         <Button
           fullWidth
@@ -1255,8 +1275,14 @@ export function ApplyDocumentsUpload({
         )}
         {analyzeError && (
           <StateBanner
-            tone="error"
-            title="無法完成分析"
+            tone={
+              analyzeResults.some((r) => r.ok) ? "warning" : "error"
+            }
+            title={
+              analyzeResults.some((r) => r.ok)
+                ? "部分分析完成"
+                : "無法完成分析"
+            }
             description={analyzeError}
           />
         )}

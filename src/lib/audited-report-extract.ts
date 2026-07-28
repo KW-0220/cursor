@@ -351,6 +351,152 @@ export function auditedFinancialsIncomplete(a: AuditedReportExtract): boolean {
   );
 }
 
+/**
+ * 文字啟發式：當 Manus 只抽到封面時，從 PDF text 補營業額／PBT／淨利。
+ * 支援「Label  current  prior」兩欄常見格式。
+ */
+export function heuristicExtractYearsFromText(
+  text: string,
+): AuditedYearExtract[] {
+  const body = text.replace(/\u00a0/g, " ");
+  if (!body || body.length < 40) return [];
+
+  const lineAmount =
+    String.raw`(?:\((?:HK\$|US\$|\$)?[\d,]+\)|(?:HK\$|US\$|\$)?[\d,]+(?:\.\d+)?)`;
+  const pairRe = (labels: string) =>
+    new RegExp(
+      `(?:${labels})[^\\d\\n]{0,40}(${lineAmount})(?:[^\\d\\n(]{0,20}(${lineAmount}))?`,
+      "im",
+    );
+
+  const pick = (labels: string): [number | null, number | null] => {
+    const m = body.match(pairRe(labels));
+    if (!m) return [null, null];
+    return [parseAuditedAmount(m[1]), parseAuditedAmount(m[2] ?? null)];
+  };
+
+  const [rev0, rev1] = pick(
+    "turnover|revenue|營業額|收益(?!表)",
+  );
+  const [gp0, gp1] = pick("gross\\s*profit|毛利");
+  const [op0, op1] = pick("operating\\s*profit|經營溢利");
+  const [pbt0, pbt1] = pick(
+    "profit\\s*before\\s*tax(?:ation)?|除稅前(?:溢利|盈利)?|pbt",
+  );
+  const [np0, np1] = pick(
+    "profit\\s*for\\s*the\\s*year|net\\s*profit|net\\s*income|年度溢利|純利|淨利潤|淨溢利",
+  );
+  const [fc0, fc1] = pick(
+    "finance\\s*costs?|interest\\s*expense|財務費用|利息支出",
+  );
+  const [tax0, tax1] = pick(
+    "(?<!before\\s)taxation\\b|income\\s*tax(?:\\s*expense)?|tax\\s*expense|利得稅",
+  );
+  const [da0, da1] = pick("depreciation|amortisation|amortization|折舊|攤銷");
+
+  if (
+    rev0 == null &&
+    pbt0 == null &&
+    np0 == null &&
+    rev1 == null &&
+    pbt1 == null &&
+    np1 == null
+  ) {
+    return [];
+  }
+
+  // 試搵兩個年度標籤
+  const yearHits = [
+    ...body.matchAll(
+      /(?:year\s*ended|截至|financial\s*year|fy)\s*:?\s*([0-9]{1,2}\s+\w+\s+20\d{2}|20\d{2})/gi,
+    ),
+  ]
+    .map((m) => m[1]!.replace(/\s+/g, " ").trim())
+    .filter(Boolean);
+  const y0 = yearHits[0] || null;
+  const y1 = yearHits[1] || null;
+
+  const years: AuditedYearExtract[] = [
+    {
+      financial_year: y0,
+      year_end_date: y0,
+      revenue: rev0,
+      gross_profit: gp0,
+      operating_profit: op0,
+      profit_before_tax: pbt0,
+      net_profit: np0,
+      finance_costs: fc0,
+      depreciation: da0,
+      amortisation: null,
+      tax: tax0,
+      ebitda_disclosed: null,
+    },
+  ];
+  if (
+    rev1 != null ||
+    pbt1 != null ||
+    np1 != null ||
+    gp1 != null ||
+    fc1 != null
+  ) {
+    years.push({
+      financial_year: y1,
+      year_end_date: y1,
+      revenue: rev1,
+      gross_profit: gp1,
+      operating_profit: op1,
+      profit_before_tax: pbt1,
+      net_profit: np1,
+      finance_costs: fc1,
+      depreciation: da1,
+      amortisation: null,
+      tax: tax1,
+      ebitda_disclosed: null,
+    });
+  }
+  return years;
+}
+
+/** Manus 結果缺損益時，用文字啟發式補上 */
+export function enrichAuditedWithTextHeuristics(
+  data: AuditedReportExtract,
+  text: string,
+): AuditedReportExtract {
+  if (!auditedFinancialsIncomplete(data)) return data;
+  const guessed = heuristicExtractYearsFromText(text);
+  if (!guessed.length) return data;
+
+  if (!data.years.length) {
+    return { ...data, years: guessed.slice(0, 3) };
+  }
+
+  // 合併入現有 years（多數只有 year label 冇數字）
+  const merged = data.years.map((y, i) => {
+    const g = guessed[i] ?? guessed[0];
+    if (!g) return y;
+    return {
+      ...y,
+      revenue: y.revenue ?? g.revenue,
+      gross_profit: y.gross_profit ?? g.gross_profit,
+      operating_profit: y.operating_profit ?? g.operating_profit,
+      profit_before_tax: y.profit_before_tax ?? g.profit_before_tax,
+      net_profit: y.net_profit ?? g.net_profit,
+      finance_costs: y.finance_costs ?? g.finance_costs,
+      depreciation: y.depreciation ?? g.depreciation,
+      amortisation: y.amortisation ?? g.amortisation,
+      tax: y.tax ?? g.tax,
+      financial_year: y.financial_year ?? g.financial_year,
+      year_end_date: y.year_end_date ?? g.year_end_date,
+    };
+  });
+  if (merged.length < guessed.length) {
+    for (let i = merged.length; i < guessed.length && i < 3; i++) {
+      merged.push(guessed[i]!);
+    }
+  }
+  return { ...data, years: merged };
+}
+
 export function parseAuditedExtract(
   raw: unknown,
 ):

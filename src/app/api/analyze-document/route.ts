@@ -29,6 +29,7 @@ import {
   auditedFinancialsIncomplete,
   buildAuditedComparisonRows,
   buildAuditedExtractUserText,
+  enrichAuditedWithTextHeuristics,
   parseAuditedExtract,
 } from "@/lib/audited-report-extract";
 import {
@@ -404,7 +405,10 @@ export async function POST(req: NextRequest) {
         );
       }
 
-      const auditedExtract = parsed.data;
+      const auditedExtract = enrichAuditedWithTextHeuristics(
+        parsed.data,
+        plainText,
+      );
       const extract = auditedExtractToFinancial(auditedExtract);
       const comparisonTable = buildAuditedComparisonRows(auditedExtract);
       const incomplete = auditedFinancialsIncomplete(auditedExtract);

@@ -14,6 +14,7 @@ import {
   auditedFinancialsIncomplete,
   buildAuditedBatchUserText,
   buildAuditedComparisonRows,
+  enrichAuditedWithTextHeuristics,
   parseAuditedExtract,
 } from "@/lib/audited-report-extract";
 import {
@@ -292,14 +293,19 @@ export async function POST(req: NextRequest) {
         );
       }
 
-      const auditedExtract = parsed.data;
+      const mergedText = parts.map((p) => p.text).join("\n\n");
+      const auditedExtract = enrichAuditedWithTextHeuristics(
+        parsed.data,
+        mergedText,
+      );
       const extract = auditedExtractToFinancial(auditedExtract);
       const comparisonTable = buildAuditedComparisonRows(auditedExtract);
       const incomplete = auditedFinancialsIncomplete(auditedExtract);
 
       // 每份上載檔對應一張結果卡（內容共用合併抽取）
+      // 即使損益未齊亦 ok:true（顯示警告），避免整次「無法完成分析」
       const items = parts.map((p, i) => ({
-        ok: !incomplete,
+        ok: true,
         label: `Audited Report ${i + 1}`,
         fileName: p.fileName,
         slotKey: `audited:${i}`,
@@ -308,8 +314,9 @@ export async function POST(req: NextRequest) {
         auditedExtract,
         extract,
         extractHint: auditedExtractHint(auditedExtract),
+        financialsIncomplete: incomplete,
         message: incomplete
-          ? "未能抽出損益表數字（營業額／除稅前溢利／淨利潤），請重新上載含損益表的頁面"
+          ? "未能抽出完整損益表數字，請重新上載含損益表的頁面"
           : undefined,
       }));
 

@@ -206,14 +206,18 @@ export async function selectAuditedVisionPageNumbers(
   const scored: { page: number; score: number }[] = [];
 
   try {
-    const scanLimit = Math.min(pageCount, 40);
+    // 最多掃 16 頁；搵夠高分頁就提早停（避免大檔 timeout）
+    const scanLimit = Math.min(pageCount, 16);
     for (let pageNum = 1; pageNum <= scanLimit; pageNum++) {
       const page = await doc.getPage(pageNum);
       const tc = await page.getTextContent();
       const text = (tc.items as Array<{ str?: string }>)
         .map((it) => it.str || "")
         .join(" ");
-      scored.push({ page: pageNum, score: scoreAuditedFinancialPage(text) });
+      const score = scoreAuditedFinancialPage(text);
+      scored.push({ page: pageNum, score });
+      const goodEnough = scored.filter((s) => s.score >= 8).length;
+      if (goodEnough >= maxPages && pageNum >= 6) break;
     }
   } finally {
     const anyDoc = doc as unknown as { cleanup?: () => void };
@@ -233,8 +237,13 @@ export async function selectAuditedVisionPageNumbers(
     if (pageCount <= maxPages) {
       pageNumbers = Array.from({ length: pageCount }, (_, i) => i + 1);
     } else {
-      const start = Math.min(Math.max(2, Math.floor(pageCount * 0.25)), pageCount - maxPages + 1);
-      pageNumbers = Array.from({ length: maxPages }, (_, i) => start + i);
+      const start = Math.min(
+        Math.max(3, Math.floor(pageCount * 0.3)),
+        Math.max(1, pageCount - maxPages + 1),
+      );
+      pageNumbers = Array.from({ length: maxPages }, (_, i) =>
+        Math.min(pageCount, start + i),
+      );
     }
   }
 
@@ -343,14 +352,29 @@ export async function extractDocumentText(params: {
     try {
       let pageNumbers: number[] | undefined;
       if (docKind === "audited") {
-        const selected = await selectAuditedVisionPageNumbers(buffer, maxPages);
-        pageNumbers = selected.pageNumbers;
-        pageCount = selected.pageCount;
+        try {
+          const selected = await selectAuditedVisionPageNumbers(
+            buffer,
+            maxPages,
+          );
+          pageNumbers = selected.pageNumbers;
+          pageCount = selected.pageCount;
+        } catch {
+          // 揀頁失敗：用中段頁，唔好整次分析炸掉
+          const start = Math.min(
+            Math.max(3, Math.floor(pageCount * 0.3)),
+            Math.max(1, pageCount - maxPages + 1),
+          );
+          pageNumbers = Array.from({ length: Math.min(maxPages, pageCount) }, (_, i) =>
+            Math.min(pageCount, start + i),
+          );
+        }
       }
       const rendered = await renderPdfPagesAsJpegDataUrls(buffer, {
         maxPages,
-        scale: docKind === "bank" ? 1.15 : 1.45,
+        scale: docKind === "bank" ? 1.15 : 1.35,
         pageNumbers,
+        quality: 0.72,
       });
       const pageNote = pageNumbers?.length
         ? `已轉第 ${pageNumbers.join("、")} 頁影像供 AI 辨識損益表`
