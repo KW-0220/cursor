@@ -237,8 +237,9 @@ export default function DebtsPage() {
         </Card>
 
         <Disclaimer>
-          標籤：客戶聲明（債務明細）＋ 系統計算（年度供款）。提交後會與 AI
-          提取之 EBITDA 合併計算 DSCR。
+          標籤：客戶聲明（債務明細）＋ 系統計算（Total Debt payments＝月供×12）。
+          提交後會與 AI 抽出之 EBT／Interest／Tax／D／A 用公式計 EBITDA，並檢查
+          EBITDA &gt; Total Debt payments。
         </Disclaimer>
       </main>
 
