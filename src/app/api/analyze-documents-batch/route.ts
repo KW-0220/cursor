@@ -11,6 +11,7 @@ import {
   AUDITED_EXTRACT_SYSTEM_PROMPT,
   auditedExtractHint,
   auditedExtractToFinancial,
+  auditedFinancialsIncomplete,
   buildAuditedBatchUserText,
   buildAuditedComparisonRows,
   parseAuditedExtract,
@@ -294,10 +295,11 @@ export async function POST(req: NextRequest) {
       const auditedExtract = parsed.data;
       const extract = auditedExtractToFinancial(auditedExtract);
       const comparisonTable = buildAuditedComparisonRows(auditedExtract);
+      const incomplete = auditedFinancialsIncomplete(auditedExtract);
 
       // 每份上載檔對應一張結果卡（內容共用合併抽取）
       const items = parts.map((p, i) => ({
-        ok: true,
+        ok: !incomplete,
         label: `Audited Report ${i + 1}`,
         fileName: p.fileName,
         slotKey: `audited:${i}`,
@@ -306,6 +308,9 @@ export async function POST(req: NextRequest) {
         auditedExtract,
         extract,
         extractHint: auditedExtractHint(auditedExtract),
+        message: incomplete
+          ? "未能抽出損益表數字（營業額／除稅前溢利／淨利潤），請重新上載含損益表的頁面"
+          : undefined,
       }));
 
       return NextResponse.json({
@@ -319,6 +324,7 @@ export async function POST(req: NextRequest) {
         auditedExtract,
         comparisonTable,
         extract,
+        financialsIncomplete: incomplete,
         extractHint: auditedExtractHint(auditedExtract),
         disclaimer:
           "此建議只供初步參考，實際貸款條件及批核結果由相關貸款機構決定。",

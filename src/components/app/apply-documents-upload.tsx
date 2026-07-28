@@ -68,8 +68,19 @@ type AnalyzeItemResult = {
 
 function AuditedExtractPanel({ a }: { a: AuditedReportExtract }) {
   const rows = buildAuditedComparisonRows(a);
+  const missingPl = !rows.some(
+    (r) =>
+      r.revenue != null || r.profitBeforeTax != null || r.netProfit != null,
+  );
   return (
     <div className="space-y-4 text-sm">
+      {missingPl && (
+        <StateBanner
+          tone="warning"
+          title="損益表數字未抽出"
+          description="已讀到公司／核數師，但營業額／除稅前溢利／淨利潤仍空。請確認 PDF 含 Statement of Profit or Loss／損益表，或只上載該幾頁後撳「重新上載及分析」。"
+        />
+      )}
       <div>
         <p className="mb-2 text-xs font-semibold text-navy-900">
           4.1 公司及報告基本資料

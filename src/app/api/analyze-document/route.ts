@@ -26,6 +26,7 @@ import {
   AUDITED_EXTRACT_SYSTEM_PROMPT,
   auditedExtractHint,
   auditedExtractToFinancial,
+  auditedFinancialsIncomplete,
   buildAuditedComparisonRows,
   buildAuditedExtractUserText,
   parseAuditedExtract,
@@ -44,7 +45,7 @@ import {
 } from "@/lib/openai";
 
 export const runtime = "nodejs";
-export const maxDuration = 60;
+export const maxDuration = 120;
 /** OpenAI/Manus 不支援 hkg1；強制在新加坡執行 */
 export const preferredRegion = ["sin1", "iad1"];
 
@@ -368,12 +369,12 @@ export async function POST(req: NextRequest) {
       const manus = await manusRespond({
         system: AUDITED_EXTRACT_SYSTEM_PROMPT,
         userText: hasVision
-          ? `${auditedUser}\n\n（已附報告頁面影像，請一併辨識核數師意見、損益表及最多三年比較數字。）`
+          ? `${auditedUser}\n\n（已附損益表相關頁面影像，請優先從影像讀取 Turnover／營業額、除稅前溢利、淨利潤；並對照文字層。封面唔夠。）`
           : auditedUser,
         imageUrl,
         imageUrls,
-        maxWaitMs: 50_000,
-        pollMs: 1500,
+        maxWaitMs: 90_000,
+        pollMs: 2000,
       });
 
       let parsedJson: unknown;
@@ -406,6 +407,7 @@ export async function POST(req: NextRequest) {
       const auditedExtract = parsed.data;
       const extract = auditedExtractToFinancial(auditedExtract);
       const comparisonTable = buildAuditedComparisonRows(auditedExtract);
+      const incomplete = auditedFinancialsIncomplete(auditedExtract);
 
       if (rawOnly) {
         return NextResponse.json({ ...auditedExtract, comparisonTable });
@@ -425,6 +427,7 @@ export async function POST(req: NextRequest) {
         extractHint: auditedExtractHint(auditedExtract),
         auditedExtract,
         comparisonTable,
+        financialsIncomplete: incomplete,
         extract,
         company_name: extract.company_name,
         financial_year: extract.financial_year,
@@ -434,7 +437,7 @@ export async function POST(req: NextRequest) {
         existing_debt: extract.existing_debt,
         analysis: {
           documentType: "audit_report" as const,
-          overall: "amber" as const,
+          overall: incomplete ? ("red" as const) : ("amber" as const),
           summary: [
             auditedExtract.company_name,
             auditedExtract.auditor_name,
@@ -442,11 +445,13 @@ export async function POST(req: NextRequest) {
             comparisonTable.length
               ? `${comparisonTable.length} 個財政年度`
               : null,
+            incomplete ? "損益數字未抽出" : null,
           ]
             .filter(Boolean)
             .join(" · "),
-          applicantFacingMessage:
-            "已完成 Audited Report 初步抽取（含三年比較），供顧問覆核。AI 不直接決定批出貸款。",
+          applicantFacingMessage: incomplete
+            ? "已讀到公司／核數師資料，但未抽出損益表數字。請確認 PDF 含損益表頁，或重新上載該幾頁後再分析。"
+            : "已完成 Audited Report 初步抽取（含三年比較），供顧問覆核。AI 不直接決定批出貸款。",
         },
         disclaimer:
           "此建議只供初步參考，實際貸款條件及批核結果由相關貸款機構決定。",
