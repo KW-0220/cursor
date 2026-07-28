@@ -7,15 +7,19 @@
 - Frontend **禁止** `new OpenAI()` / 直連 `api.openai.com`
 - 前端只打自家 API：
   - `POST /api/chat`
-  - `POST /api/analyze-document`（alias `/api/documents/analyze`）
+  - `POST /api/analyze-document`（alias `/api/documents/analyze`；單檔／BR）
+  - `POST /api/analyze-documents-batch`（銀行月結 6 份或 Audited 1–3 份 → **同一個 Manus task**）
 
 若在 Client Component import `@/lib/openai`，`server-only` 會於 build 直接炸掉。
 
 ```text
-Browser ──► /api/chat | /api/analyze-document ──► getOpenAI() ──► OpenAI
+Browser ──► /api/chat | /api/analyze-document | /api/analyze-documents-batch
                 │
+                ├──► manusRespond() ──► Manus Responses（每 batch／BR 一個 task）
                 └──► getRagKnowledgeBase() ──► KB (stub → live)
 ```
+
+批次策略：銀行月結 6→1 task；Audited 1–3→1 task；BR 獨立 1 task。單項「重新上載及分析」仍走單檔 API。
 
 ## RAG Knowledge Base（預留）
 
