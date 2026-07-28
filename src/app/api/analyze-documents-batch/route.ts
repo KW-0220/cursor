@@ -106,6 +106,7 @@ export async function POST(req: NextRequest) {
       const parts: Array<{ month: string; fileName: string; text: string }> =
         [];
       let imageUrls: string[] = [];
+      let weakTextCount = 0;
       for (let i = 0; i < files.length; i++) {
         const item = files[i]!;
         const buffer = Buffer.from(await item.file.arrayBuffer());
@@ -114,16 +115,34 @@ export async function POST(req: NextRequest) {
           fileName: item.file.name || `bank-${i}.pdf`,
           mimeType: item.file.type || "application/pdf",
           docKind: "bank",
+          // batch：略過全檔 Vision render，避免掃描 PDF 整批炸掉／逾時
+          skipVision: true,
+          softFail: true,
         });
+        const body = extracted.text.replace(/（PDF.*?）/g, "").trim();
+        if (body.length < 40) weakTextCount += 1;
         parts.push({
           month: months[i]!,
           fileName: item.file.name || `bank-${i}.pdf`,
           text: extracted.text,
         });
-        // batch：最多帶 2 張圖作 fallback，主靠文字
         if (imageUrls.length < 2 && extracted.imageUrls.length) {
           imageUrls = [...imageUrls, ...extracted.imageUrls].slice(0, 2);
         }
+      }
+
+      // 多數月結無文字層 → 告訴前端改逐檔（單檔會做 Vision）
+      if (weakTextCount >= Math.ceil(files.length / 2)) {
+        return NextResponse.json(
+          {
+            error: "BATCH_NEEDS_VISION",
+            message:
+              "銀行月結多數為掃描 PDF（無文字層）。請改用逐檔分析（系統會自動 fallback）。",
+            detail: `weakTextCount=${weakTextCount}/${files.length}`,
+            retrySequential: true,
+          },
+          { status: 422 },
+        );
       }
 
       const manus = await manusRespond({
@@ -225,6 +244,8 @@ export async function POST(req: NextRequest) {
           fileName: item.file.name || `audited-${i}.pdf`,
           mimeType: item.file.type || "application/pdf",
           docKind: "audited",
+          softFail: true,
+          // Audited 仍可試 Vision，但 render 失敗唔殺成批
         });
         parts.push({
           fileName: item.file.name || `audited-${i}.pdf`,
@@ -315,14 +336,28 @@ export async function POST(req: NextRequest) {
     const message = err instanceof Error ? err.message : "UNKNOWN_ERROR";
     if (message === "MANUS_TIMEOUT") {
       return NextResponse.json(
-        { error: "MANUS_TIMEOUT", message: "Manus batch 分析逾時，請稍後再試" },
+        {
+          error: "MANUS_TIMEOUT",
+          message: "Manus batch 分析逾時，請稍後再試或改逐檔分析",
+          retrySequential: true,
+        },
         { status: 504 },
       );
     }
     console.error("[analyze-documents-batch]", err);
+    const pdfFail =
+      message.startsWith("PDF_") ||
+      /DOMMatrix|pdf\.worker|pdfjs|Invalid PDF/i.test(message);
     return NextResponse.json(
-      { error: "BATCH_ANALYZE_FAILED", message, detail: message },
-      { status: 500 },
+      {
+        error: pdfFail ? "PDF_RENDER_FAILED" : "BATCH_ANALYZE_FAILED",
+        message: pdfFail
+          ? "部份 PDF 無法解析。系統會改逐檔分析（掃描件會轉圖）。"
+          : message,
+        detail: message,
+        retrySequential: true,
+      },
+      { status: pdfFail ? 422 : 500 },
     );
   }
 }

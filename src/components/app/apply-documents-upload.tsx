@@ -693,7 +693,8 @@ export function ApplyDocumentsUpload({
         method: "POST",
         body: form,
       });
-      const data = (await res.json()) as {
+      const raw = await res.text();
+      let data: {
         ok?: boolean;
         message?: string;
         error?: string;
@@ -707,7 +708,18 @@ export function ApplyDocumentsUpload({
         extractHint?: string | null;
         textPreview?: string;
         statementMonth?: string;
-      };
+      } = {};
+      try {
+        data = raw ? (JSON.parse(raw) as typeof data) : {};
+      } catch {
+        return {
+          ...baseFail,
+          message:
+            res.status === 413
+              ? "檔案過大（伺服器限制 約 4.5MB），請壓縮後再試"
+              : `伺服器回應異常 HTTP ${res.status}`,
+        };
+      }
       if (!res.ok || !data.ok) {
         const detail =
           typeof data.detail === "string" && data.detail.length < 180
@@ -815,7 +827,18 @@ export function ApplyDocumentsUpload({
     taskId?: string;
     items?: AnalyzeItemResult[];
     extractHint?: string | null;
+    retrySequential?: boolean;
   }> {
+    const totalBytes = parts.reduce((n, p) => n + (p.meta.size || 0), 0);
+    // Vercel request body ~4.5MB；超限直接逐檔
+    if (totalBytes > 3.8 * 1024 * 1024) {
+      return {
+        ok: false,
+        retrySequential: true,
+        message: `檔案合計 ${(totalBytes / 1024 / 1024).toFixed(1)}MB，改逐檔分析以避免上傳限制`,
+      };
+    }
+
     const form = new FormData();
     form.set("batchKind", batchKind);
     form.set("loanType", loanType);
@@ -826,17 +849,30 @@ export function ApplyDocumentsUpload({
       form.set(`file${i}`, p.meta.file);
       if (p.month) form.set(`month${i}`, p.month);
     });
-    const res = await fetch("/api/analyze-documents-batch", {
-      method: "POST",
-      body: form,
-    });
-    const data = (await res.json()) as {
+
+    let res: Response;
+    try {
+      res = await fetch("/api/analyze-documents-batch", {
+        method: "POST",
+        body: form,
+      });
+    } catch (e) {
+      return {
+        ok: false,
+        retrySequential: true,
+        message: e instanceof Error ? e.message : "網絡錯誤",
+      };
+    }
+
+    const raw = await res.text();
+    let data: {
       ok?: boolean;
       message?: string;
       error?: string;
       detail?: string;
       taskId?: string;
       extractHint?: string | null;
+      retrySequential?: boolean;
       items?: Array<{
         ok: boolean;
         label: string;
@@ -852,10 +888,24 @@ export function ApplyDocumentsUpload({
         extract?: FinancialExtract;
         extractHint?: string | null;
       }>;
-    };
+    } = {};
+    try {
+      data = raw ? (JSON.parse(raw) as typeof data) : {};
+    } catch {
+      return {
+        ok: false,
+        retrySequential: true,
+        message:
+          res.status === 413 || /Request Entity Too Large/i.test(raw)
+            ? "上載過大（伺服器限制），改逐檔分析"
+            : `伺服器回應異常 HTTP ${res.status}`,
+      };
+    }
+
     if (!res.ok || !data.ok) {
       return {
         ok: false,
+        retrySequential: data.retrySequential !== false,
         message: `${data.message || data.error || "batch 分析失敗"}${
           data.detail && String(data.detail).length < 160
             ? `（${data.detail}）`
@@ -890,6 +940,50 @@ export function ApplyDocumentsUpload({
     };
   }
 
+  async function runSequentialBank(
+    bankParts: Array<{ meta: UploadedMeta; month: string; index: number }>,
+  ) {
+    const out: AnalyzeItemResult[] = [];
+    for (let i = 0; i < bankParts.length; i++) {
+      const p = bankParts[i]!;
+      setAnalyzeProgress(
+        `逐檔分析銀行月結（${i + 1}/${bankParts.length}）${p.month}…`,
+      );
+      out.push(
+        await analyzeOne(`銀行月結單 ${p.month}`, p.meta, "bank", {
+          statementMonth: p.month,
+          slotKey: `bank:${p.month}`,
+        }),
+      );
+      setAnalyzeResults((prev) => {
+        const others = prev.filter((r) => r.docKind !== "bank");
+        return [...others, ...out];
+      });
+    }
+    return out;
+  }
+
+  async function runSequentialAudited(audited: UploadedMeta[]) {
+    const out: AnalyzeItemResult[] = [];
+    for (let i = 0; i < audited.length; i++) {
+      const meta = audited[i]!;
+      setAnalyzeProgress(
+        `逐檔分析 Audited Report（${i + 1}/${audited.length}）…`,
+      );
+      out.push(
+        await analyzeOne(`Audited Report ${i + 1}`, meta, "audited", {
+          auditedIndex: i,
+          slotKey: `audited:${i}`,
+        }),
+      );
+      setAnalyzeResults((prev) => {
+        const others = prev.filter((r) => r.docKind !== "audited");
+        return [...others, ...out];
+      });
+    }
+    return out;
+  }
+
   async function runAiAnalyze() {
     if (!complete) {
       setAnalyzeError(
@@ -903,7 +997,7 @@ export function ApplyDocumentsUpload({
 
     const results: AnalyzeItemResult[] = [];
     try {
-      // 1) 銀行月結 6 份 → 1 Manus task
+      // 1) 銀行月結 6 份 → 先試 1 Manus task；失敗／掃描件 → 逐檔
       const bankParts = months.flatMap((m, index) => {
         const meta = docs.bank[m];
         return meta ? [{ meta, month: m, index }] : [];
@@ -913,7 +1007,14 @@ export function ApplyDocumentsUpload({
           `正在分析銀行月結（${bankParts.length} 份 · 同一個 Manus task）…`,
         );
         const bankBatch = await postBatch("bank", bankParts);
-        if (!bankBatch.ok || !bankBatch.items?.length) {
+        if (bankBatch.ok && bankBatch.items?.length) {
+          results.push(...bankBatch.items);
+        } else if (bankBatch.retrySequential !== false) {
+          setAnalyzeProgress(
+            `Batch 未能完成（${bankBatch.message || "改逐檔"}），改逐檔分析銀行月結…`,
+          );
+          results.push(...(await runSequentialBank(bankParts)));
+        } else {
           for (const p of bankParts) {
             results.push({
               label: `銀行月結單 ${p.month}`,
@@ -925,13 +1026,11 @@ export function ApplyDocumentsUpload({
               statementMonth: p.month,
             });
           }
-        } else {
-          results.push(...bankBatch.items);
         }
         setAnalyzeResults([...results]);
       }
 
-      // 2) Audited 1–3 份 → 1 Manus task
+      // 2) Audited 1–3 份 → 先 batch，失敗則逐檔
       if (docs.audited.length) {
         setAnalyzeProgress(
           `正在分析 Audited Report（${docs.audited.length} 份 · 同一個 Manus task）…`,
@@ -941,7 +1040,14 @@ export function ApplyDocumentsUpload({
           index,
         }));
         const auditedBatch = await postBatch("audited", auditedParts);
-        if (!auditedBatch.ok || !auditedBatch.items?.length) {
+        if (auditedBatch.ok && auditedBatch.items?.length) {
+          results.push(...auditedBatch.items);
+        } else if (auditedBatch.retrySequential !== false) {
+          setAnalyzeProgress(
+            `Audited batch 未能完成，改逐檔分析…`,
+          );
+          results.push(...(await runSequentialAudited(docs.audited)));
+        } else {
           for (let i = 0; i < docs.audited.length; i++) {
             results.push({
               label: `Audited Report ${i + 1}`,
@@ -953,8 +1059,6 @@ export function ApplyDocumentsUpload({
               auditedIndex: i,
             });
           }
-        } else {
-          results.push(...auditedBatch.items);
         }
         setAnalyzeResults([...results]);
       }
@@ -1115,7 +1219,7 @@ export function ApplyDocumentsUpload({
         <StateBanner
           tone="info"
           title="Manus 批次分析"
-          description="銀行月結：現金流六大項（同一個 task）。Audited Report：公司／核數師／三年比較（同一個 task）。BR：中英文名／登記號碼／地址／性質／日期（獨立 task）。"
+          description="銀行月結／Audited 先試同一個 task；掃描 PDF、檔案過大或 batch 失敗會自動改逐檔（含 Vision）。BR 永遠獨立 1 task。"
         />
         <Button
           fullWidth

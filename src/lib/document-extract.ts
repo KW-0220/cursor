@@ -165,8 +165,15 @@ export async function extractDocumentText(params: {
   mimeType: string;
   /** br / nar1 會在文字弱時自動渲頁 Vision */
   docKind?: string;
+  /**
+   * batch 模式：唔為弱文字強行 render（6 份掃描 PDF 容易 timeout／OOM）
+   * 有文字就用文字；無文字回空字串，由上層決定 fallback 單檔分析
+   */
+  skipVision?: boolean;
+  /** 任何解析失敗都回空結果，唔拋錯（batch 用） */
+  softFail?: boolean;
 }): Promise<ExtractedDocument> {
-  const { buffer, fileName, mimeType, docKind } = params;
+  const { buffer, fileName, mimeType, docKind, skipVision, softFail } = params;
   const lower = fileName.toLowerCase();
 
   if (mimeType === "application/pdf" || lower.endsWith(".pdf")) {
@@ -182,12 +189,22 @@ export async function extractDocumentText(params: {
 
     // BR／NAR1／Audited 掃描件：文字弱或指定類型轉頁面圖
     const needsVision =
-      docKind === "br" ||
-      docKind === "nar1" ||
-      docKind === "audited" ||
-      pdfTextLooksWeak(text, docKind);
+      !skipVision &&
+      (docKind === "br" ||
+        docKind === "nar1" ||
+        docKind === "audited" ||
+        pdfTextLooksWeak(text, docKind));
     if (!needsVision) {
-      return { text, method: "pdf", imageUrls: [], pageCount };
+      return {
+        text:
+          text ||
+          (skipVision
+            ? `（PDF「${fileName}」文字層不足；batch 已略過轉圖）`
+            : ""),
+        method: "pdf",
+        imageUrls: [],
+        pageCount,
+      };
     }
 
     const maxPages =
@@ -215,6 +232,14 @@ export async function extractDocumentText(params: {
       if (text) {
         // 有少量文字就繼續；無文字則拋出
         return { text, method: "pdf", imageUrls: [], pageCount };
+      }
+      if (softFail) {
+        return {
+          text: `（PDF「${fileName}」無法解析文字亦無法轉圖）`,
+          method: "pdf",
+          imageUrls: [],
+          pageCount,
+        };
       }
       const msg = err instanceof Error ? err.message : "PDF_RENDER_FAILED";
       throw new Error(
@@ -248,6 +273,14 @@ export async function extractDocumentText(params: {
   const asText = buffer.toString("utf8");
   if (asText.replace(/\u0000/g, "").trim().length > 40) {
     return { text: asText, method: "text", imageUrls: [] };
+  }
+
+  if (softFail) {
+    return {
+      text: `（無法解析檔案「${fileName}」）`,
+      method: "text",
+      imageUrls: [],
+    };
   }
 
   throw new Error("UNSUPPORTED_FILE_TYPE");
