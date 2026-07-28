@@ -39,6 +39,15 @@ import {
 } from "@/lib/collateral";
 import { formatHKD } from "@/lib/utils";
 import type { LoanType } from "@/lib/types";
+import { computeCompletion } from "@/lib/completion";
+import {
+  buildDraftData,
+  docsFromMeta,
+  parseDraftData,
+} from "@/lib/apply-draft";
+import { useApplicationDraft } from "@/hooks/use-application-draft";
+import { SaveStatusBar } from "@/components/app/save-status-bar";
+import { useRouter } from "next/navigation";
 
 const steps = [
   "貸款類型",
@@ -55,6 +64,7 @@ const quickAmounts = [500000, 1000000, 3000000, 5000000];
 const BANK_MONTHS = lastSixBankMonths();
 
 export default function ApplyWizardPage() {
+  const router = useRouter();
   const [step, setStep] = useState(0);
   const [loanType, setLoanType] = useState<LoanType | null>(null);
   const [amount, setAmount] = useState<number | "">("");
@@ -76,6 +86,10 @@ export default function ApplyWizardPage() {
   const [consents, setConsents] = useState<Record<string, boolean>>({});
   const [applicationId, setApplicationId] = useState<string | null>(null);
   const [submittedAt, setSubmittedAt] = useState<string | null>(null);
+  const [leaveOpen, setLeaveOpen] = useState(false);
+  const [hydrated, setHydrated] = useState(false);
+
+  const draft = useApplicationDraft({ debounceMs: 2500, enabled: true });
 
   useEffect(() => {
     void (async () => {
@@ -91,6 +105,32 @@ export default function ApplyWizardPage() {
       setCollateralItems(loadCollateralItems(key));
     })();
   }, []);
+
+  // 由伺服器草稿還原
+  useEffect(() => {
+    if (draft.booting || hydrated || !draft.app) return;
+    const d = parseDraftData(draft.app.draftData);
+    if (typeof d.step === "number") setStep(d.step);
+    if (d.loanType) setLoanType(d.loanType);
+    if (d.amount !== undefined) setAmount(d.amount as number | "");
+    if (typeof d.purpose === "string") setPurpose(d.purpose);
+    if (typeof d.tenureYears === "string") setTenureYears(d.tenureYears);
+    if (typeof d.fundingDate === "string") setFundingDate(d.fundingDate);
+    if (typeof d.targetBank === "string") setTargetBank(d.targetBank);
+    if (typeof d.extraNotes === "string") setExtraNotes(d.extraNotes);
+    if (d.hasExistingLoan !== undefined) setHasExistingLoan(d.hasExistingLoan);
+    if (typeof d.lender === "string") setLender(d.lender);
+    if (typeof d.debtType === "string") setDebtType(d.debtType);
+    if (typeof d.facility === "string") setFacility(d.facility);
+    if (typeof d.outstanding === "string") setOutstanding(d.outstanding);
+    if (d.consents) setConsents(d.consents);
+    if (d.docsMeta) setDocs(docsFromMeta(d.docsMeta, BANK_MONTHS));
+    if (typeof draft.app.currentStep === "number" && d.step == null) {
+      setStep(draft.app.currentStep);
+    }
+    setApplicationId(draft.app.id);
+    setHydrated(true);
+  }, [draft.booting, draft.app, hydrated]);
 
   function updateCollateral(next: CollateralItem[]) {
     setCollateralItems(next);
@@ -138,12 +178,127 @@ export default function ApplyWizardPage() {
 
   const allConsented = consentItems.every((item) => consents[item]);
 
-  const next = () => setStep((s) => Math.min(steps.length - 1, s + 1));
+  const completion = useMemo(() => {
+    const bankFilled = BANK_MONTHS.filter((m) => docs.bank[m]).length;
+    const hasDebt =
+      hasExistingLoan === false ||
+      (hasExistingLoan === true && lender.trim().length > 0);
+    return computeCompletion({
+      loanType,
+      hasLoanBasics: step1Ok,
+      hasApplicantCompany: true, // 註冊時已填；MVP
+      hasBr: Boolean(docs.br),
+      hasNar1: Boolean(docs.nar1),
+      bankMonthsDone: bankFilled,
+      hasIdentity: docs.identity.length > 0,
+      hasAudited: Boolean(
+        (parseDraftData(draft.app?.draftData).docsMeta as { hasAudited?: boolean } | undefined)
+          ?.hasAudited,
+      ),
+      hasDebtInfo: loanType === "secured" ? true : hasDebt,
+      hasCollateral: collateralOk,
+      hasDeclarations: allConsented,
+    });
+  }, [
+    loanType,
+    step1Ok,
+    docs,
+    hasExistingLoan,
+    lender,
+    collateralOk,
+    allConsented,
+    draft.app?.draftData,
+  ]);
+
+  function snapshotDraft() {
+    return buildDraftData({
+      step,
+      loanType,
+      amount,
+      purpose,
+      tenureYears,
+      fundingDate,
+      targetBank,
+      extraNotes,
+      hasExistingLoan,
+      lender,
+      debtType,
+      facility,
+      outstanding,
+      consents,
+      docs,
+      bankMonths: BANK_MONTHS,
+    });
+  }
+
+  function persist(opts?: { immediate?: boolean; stepOverride?: number }) {
+    const s = opts?.stepOverride ?? step;
+    const data = { ...snapshotDraft(), step: s };
+    draft.queueSave(
+      {
+        loanType,
+        requestedAmount: amountHkd || null,
+        purpose: purpose || null,
+        currentStep: s,
+        completionPercentage: completion.percentage,
+        missingItems: completion.missingItems,
+        nextStepLabel: completion.nextStepLabel,
+        draftData: data as unknown as Record<string, unknown>,
+        mergeDraft: false,
+      },
+      Boolean(opts?.immediate),
+    );
+  }
+
+  // 欄位變更 → debounce auto-save
+  useEffect(() => {
+    if (!hydrated || !draft.app) return;
+    persist();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    step,
+    loanType,
+    amount,
+    purpose,
+    tenureYears,
+    fundingDate,
+    targetBank,
+    extraNotes,
+    hasExistingLoan,
+    lender,
+    debtType,
+    facility,
+    outstanding,
+    docs,
+    consents,
+    completion.percentage,
+  ]);
+
+  const next = () => {
+    const n = Math.min(steps.length - 1, step + 1);
+    setStep(n);
+    persist({ immediate: true, stepOverride: n });
+  };
   const back = () => setStep((s) => Math.max(0, s - 1));
 
-  function submitApplication() {
+  async function onSaveAndContinue() {
+    persist({ immediate: true });
+    await draft.flushSave(true);
+    next();
+  }
+
+  async function onSaveAndLeave() {
+    persist({ immediate: true });
+    const ok = await draft.saveAndLeave();
+    if (ok) setLeaveOpen(true);
+  }
+
+  async function submitApplication() {
     if (!allConsented) return;
-    const id = `SLF-${new Date().getFullYear()}-${String(Date.now()).slice(-5)}`;
+    persist({ immediate: true });
+    const submitted = await draft.submit();
+    if (!submitted) return;
+    const id = submitted.id;
     const at = new Date().toISOString();
     setApplicationId(id);
     setSubmittedAt(new Date().toLocaleString("zh-HK", { hour12: false }));
@@ -171,7 +326,7 @@ export default function ApplyWizardPage() {
           completeness: itemCompleteness(i),
           net: preliminaryNetValue(i),
         })),
-        status: "submitted" as const,
+        status: "SUBMITTED" as const,
         createdAt: at,
         updatedAt: at,
       };
@@ -195,6 +350,21 @@ export default function ApplyWizardPage() {
       <div className="px-4 pt-3">
         <ProgressBar value={progress} />
       </div>
+      <SaveStatusBar
+        status={draft.status}
+        lastSavedAt={draft.lastSavedAt}
+        errorMessage={draft.errorMessage}
+        onRetry={() => void draft.flushSave(true)}
+        onReloadConflict={draft.reloadFromConflict}
+      />
+      {completion.percentage > 0 && step < 7 && (
+        <p className="mx-4 mt-2 text-xs text-text-muted">
+          草稿完成度 {completion.percentage}%
+          {completion.missingItems[0]
+            ? ` · 尚欠：${completion.missingItems[0]}`
+            : ""}
+        </p>
+      )}
 
       <main className="space-y-4 px-4 py-5 pb-28">
         {step === 0 && (
@@ -651,17 +821,20 @@ export default function ApplyWizardPage() {
 
       {step < 7 && (
         <div className="fixed inset-x-0 bottom-0 mx-auto max-w-[430px] border-t border-border bg-surface-1 p-4">
-          <div className="flex gap-2">
-            {step > 0 && (
-              <Button variant="outline" className="flex-1" onClick={back}>
-                上一步
-              </Button>
-            )}
+          <div className="mb-2 flex gap-2">
+            <Button
+              variant="outline"
+              className="flex-1"
+              type="button"
+              onClick={() => void onSaveAndLeave()}
+            >
+              儲存並離開
+            </Button>
             {step === 6 ? (
               <Button
                 className="flex-1"
                 disabled={!allConsented}
-                onClick={submitApplication}
+                onClick={() => void submitApplication()}
               >
                 提交申請
               </Button>
@@ -674,7 +847,7 @@ export default function ApplyWizardPage() {
                   (step === 2 && loanType === "secured" && !collateralOk) ||
                   (step === 3 && !docsComplete)
                 }
-                onClick={next}
+                onClick={() => void onSaveAndContinue()}
               >
                 {step === 1 && !step1Ok
                   ? "請先填寫金額、用途及年期"
@@ -682,9 +855,43 @@ export default function ApplyWizardPage() {
                     ? "請先完成抵押品基本資料"
                     : step === 3 && !docsComplete
                       ? "請先完成必須文件"
-                      : "下一步"}
+                      : "儲存並繼續"}
               </Button>
             )}
+          </div>
+          {step > 0 && (
+            <button
+              type="button"
+              className="w-full text-center text-xs text-text-muted"
+              onClick={back}
+            >
+              上一步
+            </button>
+          )}
+        </div>
+      )}
+
+      {leaveOpen && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-4 sm:items-center">
+          <div className="w-full max-w-sm rounded-2xl bg-surface-1 p-5 shadow-lg">
+            <h3 className="text-base font-semibold text-navy-900">
+              申請草稿已保存
+            </h3>
+            <p className="mt-2 text-sm text-text-secondary">
+              你可以稍後在「申請」頁面繼續填寫。
+            </p>
+            <div className="mt-4 grid gap-2">
+              <Button fullWidth onClick={() => router.push("/app/applications")}>
+                查看申請草稿
+              </Button>
+              <Button
+                fullWidth
+                variant="outline"
+                onClick={() => router.push("/app")}
+              >
+                返回首頁
+              </Button>
+            </div>
           </div>
         </div>
       )}

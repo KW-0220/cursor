@@ -30,7 +30,9 @@ export type UploadedMeta = {
   name: string;
   size: number;
   type: string;
-  file: File;
+  /** 本 session 上載先有；由草稿還原時可能無 File（已存 Object Storage） */
+  file?: File;
+  documentId?: string;
 };
 
 export type ApplyDocsState = {
@@ -599,6 +601,16 @@ export function ApplyDocumentsUpload({
     docKind: "br" | "nar1" | "bank",
     statementMonth?: string,
   ): Promise<AnalyzeItemResult> {
+    if (!meta.file) {
+      return {
+        label,
+        fileName: meta.name,
+        ok: false,
+        message: "此文件已存於伺服器草稿；請重新選擇檔案以再跑 AI 分析。",
+        docKind,
+        statementMonth,
+      };
+    }
     const form = new FormData();
     form.set("file", meta.file);
     form.set("docKind", docKind);

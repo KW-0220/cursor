@@ -9,7 +9,12 @@ export default function AdminDashboardPage() {
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold text-navy-900">案件總覽</h1>
-        <p className="mt-1 text-sm text-text-secondary">D02｜KPI + 列表 + 篩選</p>
+        <p className="mt-1 text-sm text-text-secondary">
+          D02｜KPI + 列表 + 篩選 ·{" "}
+          <Link href="/admin/drafts" className="text-teal-700 underline">
+            申請草稿狀態（A01）
+          </Link>
+        </p>
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-7">
