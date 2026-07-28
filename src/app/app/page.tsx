@@ -5,9 +5,24 @@ import { useEffect, useState } from "react";
 import { Bot, ChevronRight, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, SectionHeader } from "@/components/ui/layout";
+import { type LoanAppStatus } from "@/lib/loan-app-status";
+import { formatDateTime, formatHKD } from "@/lib/utils";
+
+type ActiveDraft = {
+  id: string;
+  loanType: "secured" | "unsecured" | null;
+  requestedAmount: number | null;
+  status: LoanAppStatus;
+  completionPercentage: number;
+  missingItems: string[];
+  nextStepLabel: string | null;
+  lastSavedAt: string;
+  currentStep: number;
+};
 
 export default function HomePage() {
   const [name, setName] = useState<string | null>(null);
+  const [draft, setDraft] = useState<ActiveDraft | null | undefined>(undefined);
 
   useEffect(() => {
     void (async () => {
@@ -17,6 +32,17 @@ export default function HomePage() {
         if (res.ok && data.user?.nameZh) setName(data.user.nameZh);
       } catch {
         // ignore
+      }
+      try {
+        const res = await fetch("/api/applications?activeDraft=1");
+        if (res.status === 401) {
+          setDraft(null);
+          return;
+        }
+        const data = await res.json();
+        setDraft((data.draft as ActiveDraft) ?? null);
+      } catch {
+        setDraft(null);
       }
     })();
   }, []);
@@ -38,18 +64,64 @@ export default function HomePage() {
         </Link>
       </div>
 
-      <Card className="bg-[linear-gradient(145deg,#12304a,#1a4060)] text-white">
-        <p className="text-sm text-white/70">尚未有申請</p>
-        <h2 className="mt-1 text-lg font-semibold">開始貸款申請</h2>
-        <p className="mt-2 text-sm text-white/80">
-          AI 先了解資金用途，再協助你準備文件與申請流程。
-        </p>
-        <Link href="/apply" className="mt-4 block">
-          <Button className="bg-teal-500 hover:bg-teal-600" fullWidth>
-            ＋ 新申請
-          </Button>
-        </Link>
-      </Card>
+      {draft ? (
+        <Card className="bg-[linear-gradient(145deg,#12304a,#1a4060)] text-white">
+          <p className="text-sm text-white/70">你有一份尚未完成的申請</p>
+          <h2 className="mt-1 text-lg font-semibold">
+            {draft.loanType === "secured"
+              ? "有抵押貸款"
+              : draft.loanType === "unsecured"
+                ? "無抵押貸款"
+                : "貸款申請草稿"}
+          </h2>
+          <p className="mt-2 text-sm text-white/80">
+            完成度 {draft.completionPercentage}%
+            {draft.nextStepLabel ? ` · 下一步：${draft.nextStepLabel}` : ""}
+          </p>
+          <p className="mt-1 text-xs text-white/60">
+            上次儲存 {formatDateTime(draft.lastSavedAt)}
+            {draft.missingItems.length
+              ? ` · 尚欠 ${draft.missingItems.length} 項`
+              : ""}
+          </p>
+          {typeof draft.requestedAmount === "number" &&
+          draft.requestedAmount > 0 ? (
+            <p className="mt-1 text-xs text-white/70 tabular">
+              {formatHKD(draft.requestedAmount)}
+            </p>
+          ) : null}
+          <div className="mt-4 grid gap-2">
+            <Link href="/apply" className="block">
+              <Button className="bg-teal-500 hover:bg-teal-600" fullWidth>
+                從上次位置繼續
+              </Button>
+            </Link>
+            <Link href="/app/applications" className="block">
+              <Button
+                fullWidth
+                className="bg-white/10 text-white hover:bg-white/20"
+              >
+                查看完整申請清單
+              </Button>
+            </Link>
+          </div>
+        </Card>
+      ) : (
+        <Card className="bg-[linear-gradient(145deg,#12304a,#1a4060)] text-white">
+          <p className="text-sm text-white/70">
+            {draft === undefined ? "載入中…" : "尚未有申請"}
+          </p>
+          <h2 className="mt-1 text-lg font-semibold">開始貸款申請</h2>
+          <p className="mt-2 text-sm text-white/80">
+            AI 先了解資金用途，再協助你準備文件與申請流程。草稿會自動保存。
+          </p>
+          <Link href="/apply" className="mt-4 block">
+            <Button className="bg-teal-500 hover:bg-teal-600" fullWidth>
+              ＋ 新申請
+            </Button>
+          </Link>
+        </Card>
+      )}
 
       <SectionHeader title="快捷入口" />
       <div className="grid gap-2">

@@ -41,9 +41,11 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
-# local customer registry (may contain PII)
+# local persistence (may contain PII)
 /data/customers.json
 /data/users.json
+/data/applications.json
 /data/*.json
 !/data/.gitkeep
-
+/data/uploads/**
+!/data/uploads/.gitkeep
