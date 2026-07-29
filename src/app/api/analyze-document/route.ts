@@ -40,6 +40,7 @@ import {
   parseNar1Extract,
 } from "@/lib/nar1-extract";
 import {
+  getLlmProvider,
   hasOpenAIKey,
   manusRespond,
   parseModelJsonObject,
@@ -55,9 +56,10 @@ const MAX_BYTES = 12 * 1024 * 1024;
 /** 文件分析模型（Manus agent profile） */
 function analyzeModel() {
   return (
+    process.env.GEMINI_MODEL?.trim() ||
     process.env.OPENAI_ANALYZE_MODEL?.trim() ||
     process.env.OPENAI_MODEL?.trim() ||
-    "manus-1.6"
+    "gemini-3.5-flash"
   );
 }
 
@@ -79,9 +81,9 @@ export async function POST(req: NextRequest) {
     if (!hasOpenAIKey()) {
       return NextResponse.json(
         {
-          error: "MISSING_OPENAI_API_KEY",
+          error: "MISSING_GEMINI_API_KEY",
           message:
-            "MANUS_API_KEY / OPENAI_API_KEY 必須放 Backend（.env.local 或 Vercel Environment Variables），不可用 NEXT_PUBLIC_",
+            "GEMINI_API_KEY 必須放 Backend（.env.local 或 Vercel Environment Variables），不可用 NEXT_PUBLIC_",
         },
         { status: 503 },
       );
@@ -220,7 +222,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({
         ok: true,
         model: manus.model || model,
-        provider: "manus",
+        provider: getLlmProvider(),
         taskId: manus.id,
         fileName,
         mimeType,
@@ -317,7 +319,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({
         ok: true,
         model: manus.model || model,
-        provider: "manus",
+        provider: getLlmProvider(),
         taskId: manus.id,
         fileName,
         mimeType,
@@ -420,7 +422,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({
         ok: true,
         model: manus.model || model,
-        provider: "manus",
+        provider: getLlmProvider(),
         taskId: manus.id,
         fileName,
         mimeType,
@@ -517,7 +519,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({
         ok: true,
         model: manus.model || model,
-        provider: "manus",
+        provider: getLlmProvider(),
         taskId: manus.id,
         fileName,
         mimeType,
@@ -743,7 +745,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       ok: true,
       model: manus.model || model,
-      provider: "manus",
+      provider: getLlmProvider(),
       taskId: manus.id,
       fileName,
       mimeType,
@@ -795,13 +797,18 @@ export async function POST(req: NextRequest) {
         { status: 415 },
       );
     }
-    if (message === "MANUS_TIMEOUT") {
+    if (message === "MANUS_TIMEOUT" || message.startsWith("GEMINI_QUOTA")) {
       return NextResponse.json(
         {
-          error: "MANUS_TIMEOUT",
-          message: "Manus 分析逾時，請稍後再試。",
+          error: message.startsWith("GEMINI_QUOTA")
+            ? "GEMINI_QUOTA"
+            : "LLM_TIMEOUT",
+          message: message.startsWith("GEMINI_QUOTA")
+            ? "Gemini 配額已用尽，請稍後再試或檢查 Google AI Studio billing。"
+            : "AI 分析逾時，請稍後再試。",
+          detail: message,
         },
-        { status: 504 },
+        { status: message.startsWith("GEMINI_QUOTA") ? 429 : 504 },
       );
     }
     console.error("[analyze-document]", err);

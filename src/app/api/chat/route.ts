@@ -4,7 +4,7 @@ import {
   buildRagContextBlock,
   getRagKnowledgeBase,
 } from "@/lib/integrations/rag";
-import { hasOpenAIKey, manusRespond, OPENAI_MODEL } from "@/lib/openai";
+import { getLlmProvider, hasOpenAIKey, manusRespond, OPENAI_MODEL } from "@/lib/openai";
 
 export const runtime = "nodejs";
 export const preferredRegion = ["sin1", "iad1"];
@@ -198,14 +198,14 @@ export async function POST(req: Request) {
         actions: inferActions(`${lastUser}\n${reply}`),
         disclaimer,
         model: manus.model || model,
-        provider: "manus",
+        provider: getLlmProvider(),
         taskId: manus.id,
         rag: { provider: rag.provider, mode: rag.mode, hits: rag.chunks.length },
       });
     } catch (openaiErr) {
       const fb = localFallback(lastUser);
       const detail =
-        openaiErr instanceof Error ? openaiErr.message : "Manus error";
+        openaiErr instanceof Error ? openaiErr.message : "LLM error";
       return NextResponse.json({
         reply: fb.reply,
         actions: fb.actions,

@@ -18,6 +18,7 @@ import {
   parseAuditedExtract,
 } from "@/lib/audited-report-extract";
 import {
+  getLlmProvider,
   hasOpenAIKey,
   manusRespond,
   parseModelJsonObject,
@@ -34,9 +35,10 @@ const MAX_AUDITED_FILES = 3;
 
 function analyzeModel() {
   return (
+    process.env.GEMINI_MODEL?.trim() ||
     process.env.OPENAI_ANALYZE_MODEL?.trim() ||
     process.env.OPENAI_MODEL?.trim() ||
-    "manus-1.6"
+    "gemini-3.5-flash"
   );
 }
 
@@ -55,8 +57,8 @@ export async function POST(req: NextRequest) {
     if (!hasOpenAIKey()) {
       return NextResponse.json(
         {
-          error: "MISSING_OPENAI_API_KEY",
-          message: "MANUS_API_KEY / OPENAI_API_KEY 必須放 Backend",
+          error: "MISSING_GEMINI_API_KEY",
+          message: "GEMINI_API_KEY 必須放 Backend",
         },
         { status: 503 },
       );
@@ -215,7 +217,7 @@ export async function POST(req: NextRequest) {
         ok: true,
         batchKind: "bank",
         model: manus.model || model,
-        provider: "manus",
+        provider: getLlmProvider(),
         taskId: manus.id,
         itemCount: items.length,
         items,
@@ -324,7 +326,7 @@ export async function POST(req: NextRequest) {
         ok: true,
         batchKind: "audited",
         model: manus.model || model,
-        provider: "manus",
+        provider: getLlmProvider(),
         taskId: manus.id,
         itemCount: items.length,
         items,
@@ -347,14 +349,19 @@ export async function POST(req: NextRequest) {
     );
   } catch (err) {
     const message = err instanceof Error ? err.message : "UNKNOWN_ERROR";
-    if (message === "MANUS_TIMEOUT") {
+    if (message === "MANUS_TIMEOUT" || message.startsWith("GEMINI_QUOTA")) {
       return NextResponse.json(
         {
-          error: "MANUS_TIMEOUT",
-          message: "Manus batch 分析逾時，請稍後再試或改逐檔分析",
+          error: message.startsWith("GEMINI_QUOTA")
+            ? "GEMINI_QUOTA"
+            : "LLM_TIMEOUT",
+          message: message.startsWith("GEMINI_QUOTA")
+            ? "Gemini 配額已用尽，請稍後再試或檢查 billing"
+            : "AI batch 分析逾時，請稍後再試或改逐檔分析",
+          detail: message,
           retrySequential: true,
         },
-        { status: 504 },
+        { status: message.startsWith("GEMINI_QUOTA") ? 429 : 504 },
       );
     }
     console.error("[analyze-documents-batch]", err);
