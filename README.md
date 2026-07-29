@@ -50,12 +50,12 @@
 cd ~/Projects/sme-loanflow
 npx vercel --prod --yes
 # 設定 AI（Dashboard → Settings → Environment Variables，或 CLI）：
-npx vercel env add OPENAI_API_KEY production
-npx vercel env add OPENAI_MODEL production   # 可選：gpt-4o-mini
+npx vercel env add GEMINI_API_KEY production
+npx vercel env add GEMINI_MODEL production   # 可選：gemini-3.5-flash
 npx vercel --prod --yes   # 加完 env 再 deploy 一次
 ```
 
-未設 `OPENAI_API_KEY` 時，App 可瀏覽，但文件 AI 初篩會回 503。
+未設 `GEMINI_API_KEY` 時，App 可瀏覽，但文件 AI 初篩會回 503。
 
 ### 臨時本機公開（唔推薦長期）
 
@@ -67,13 +67,13 @@ npm run dev:public   # Terminal 2 → 網址會變而且會過期
 本機瀏覽器請用：http://127.0.0.1:3000/（唔好用 localhost，避免 IPv6 拒連）
 
 
-## OpenAI／AI 接入（Backend only）
+## Gemini／AI 接入（Backend only）
 
-> **`OPENAI_API_KEY` 只放 Backend。Frontend 不可直連 OpenAI。** 詳見 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
+> **`GEMINI_API_KEY` 只放 Backend。Frontend 不可直連 Google。** 詳見 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
 
 | 項目 | 說明 |
 | --- | --- |
-| Env | `OPENAI_API_KEY`（必要）、`OPENAI_MODEL`（預設 `gpt-5-mini`） |
+| Env | `GEMINI_API_KEY`（必要）、`GEMINI_MODEL`（預設 `gemini-3.5-flash`） |
 | Chat | `POST /api/chat`（內部先 RAG search，再叫 OpenAI） |
 | Docs | `POST /api/analyze-document`（alias：`/api/documents/analyze`） |
 | RAG | `POST /api/rag/search` · `POST /api/rag/upsert`（接口已預留，現為 stub） |
