@@ -29,7 +29,6 @@ export async function POST(req: NextRequest) {
 
     const vault = await readVaultFromCookieHeader(req.headers.get("cookie"));
     const user = await verifyLogin(parsed.data, vault);
-    const full = await findUserByEmail(user.email);
     const token = await createSessionToken(user);
     const isAdmin = user.role === "admin" || isAdminEmail(user.email);
     const res = NextResponse.json({
@@ -43,11 +42,16 @@ export async function POST(req: NextRequest) {
           : "/register/identity",
     });
     res.headers.append("Set-Cookie", sessionCookie(token));
-    if (full) {
-      res.headers.append(
-        "Set-Cookie",
-        await mergeVaultCookie(req.headers.get("cookie"), full),
-      );
+    try {
+      const full = await findUserByEmail(user.email);
+      if (full) {
+        res.headers.append(
+          "Set-Cookie",
+          await mergeVaultCookie(req.headers.get("cookie"), full),
+        );
+      }
+    } catch {
+      // vault 失敗唔擋登入
     }
     return res;
   } catch (err) {
@@ -59,7 +63,11 @@ export async function POST(req: NextRequest) {
       );
     }
     return NextResponse.json(
-      { error: "LOGIN_FAILED", message: "登入失敗，請稍後再試" },
+      {
+        error: "LOGIN_FAILED",
+        message: "登入失敗，請稍後再試",
+        detail: msg,
+      },
       { status: 500 },
     );
   }

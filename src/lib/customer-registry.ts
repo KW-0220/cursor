@@ -96,7 +96,7 @@ function redisConfigured() {
   );
 }
 
-async function redisGet(key: string): Promise<string | null> {
+async function redisGet(key: string): Promise<unknown> {
   const url =
     process.env.UPSTASH_REDIS_REST_URL?.trim() ||
     process.env.KV_REST_API_URL?.trim();
@@ -109,8 +109,8 @@ async function redisGet(key: string): Promise<string | null> {
     cache: "no-store",
   });
   if (!res.ok) return null;
-  const data = (await res.json()) as { result: string | null };
-  return data.result;
+  const data = (await res.json()) as { result: unknown };
+  return data.result ?? null;
 }
 
 async function redisSet(key: string, value: string) {
@@ -138,18 +138,33 @@ export function getCustomerStorageMode(): "mysql" | "redis" | "file_or_memory" {
   return "file_or_memory";
 }
 
+function parseCustomerList(raw: unknown): CustomerRegistrationRecord[] {
+  if (Array.isArray(raw)) return raw as CustomerRegistrationRecord[];
+  if (typeof raw === "string") {
+    try {
+      const parsed: unknown = JSON.parse(raw);
+      return Array.isArray(parsed)
+        ? (parsed as CustomerRegistrationRecord[])
+        : [];
+    } catch {
+      return [];
+    }
+  }
+  return [];
+}
+
 async function ensureLoaded(): Promise<CustomerRegistrationRecord[]> {
   if (memoryStore) return memoryStore;
 
   if (redisConfigured()) {
-    const fromRedis = await redisGet(REDIS_KEY);
-    if (fromRedis) {
-      try {
-        memoryStore = JSON.parse(fromRedis) as CustomerRegistrationRecord[];
+    try {
+      const fromRedis = await redisGet(REDIS_KEY);
+      if (fromRedis != null && fromRedis !== "") {
+        memoryStore = parseCustomerList(fromRedis);
         return memoryStore;
-      } catch {
-        /* fall through */
       }
+    } catch {
+      /* fall through */
     }
     memoryStore = [];
     return memoryStore;
@@ -158,8 +173,7 @@ async function ensureLoaded(): Promise<CustomerRegistrationRecord[]> {
   try {
     await fs.mkdir(DATA_DIR, { recursive: true });
     const raw = await fs.readFile(DATA_FILE, "utf8");
-    const parsed = JSON.parse(raw) as CustomerRegistrationRecord[];
-    memoryStore = Array.isArray(parsed) ? parsed : seedRecords();
+    memoryStore = parseCustomerList(raw);
   } catch {
     // Vercel 無碟：空庫起步（唔再每次 cold start 灌 seed，避免蓋過真實登記觀感）
     memoryStore = process.env.VERCEL ? [] : seedRecords();

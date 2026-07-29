@@ -39,7 +39,6 @@ export async function POST(req: NextRequest) {
 
     const vault = await readVaultFromCookieHeader(req.headers.get("cookie"));
     const user = await registerUser(parsed.data, vault);
-    const full = await findUserByEmail(user.email);
     const token = await createSessionToken(user);
     const res = NextResponse.json({
       ok: true,
@@ -48,11 +47,16 @@ export async function POST(req: NextRequest) {
       next: user.profileCompleted ? "/app" : "/register/identity",
     });
     res.headers.append("Set-Cookie", sessionCookie(token));
-    if (full) {
-      res.headers.append(
-        "Set-Cookie",
-        await mergeVaultCookie(req.headers.get("cookie"), full),
-      );
+    try {
+      const full = await findUserByEmail(user.email);
+      if (full) {
+        res.headers.append(
+          "Set-Cookie",
+          await mergeVaultCookie(req.headers.get("cookie"), full),
+        );
+      }
+    } catch {
+      // vault 失敗唔擋註冊
     }
     return res;
   } catch (err) {
@@ -64,7 +68,11 @@ export async function POST(req: NextRequest) {
       );
     }
     return NextResponse.json(
-      { error: "REGISTER_FAILED", message: "註冊失敗，請稍後再試" },
+      {
+        error: "REGISTER_FAILED",
+        message: "註冊失敗，請稍後再試",
+        detail: msg,
+      },
       { status: 500 },
     );
   }

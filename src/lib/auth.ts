@@ -75,7 +75,7 @@ function toPublic(u: AuthUser): PublicUser {
   return rest;
 }
 
-async function redisGet(key: string): Promise<string | null> {
+async function redisGet(key: string): Promise<unknown> {
   const url =
     process.env.UPSTASH_REDIS_REST_URL?.trim() ||
     process.env.KV_REST_API_URL?.trim();
@@ -88,8 +88,8 @@ async function redisGet(key: string): Promise<string | null> {
     cache: "no-store",
   });
   if (!res.ok) return null;
-  const data = (await res.json()) as { result: string | null };
-  return data.result;
+  const data = (await res.json()) as { result: unknown };
+  return data.result ?? null;
 }
 
 async function redisSet(key: string, value: string) {
@@ -111,23 +111,37 @@ async function redisSet(key: string, value: string) {
   return res.ok;
 }
 
+/** Redis／檔案可能存過非 array；一律 normalize，避免 findIndex 爆。 */
+function parseUserList(raw: unknown): AuthUser[] {
+  if (Array.isArray(raw)) return raw as AuthUser[];
+  if (typeof raw === "string") {
+    try {
+      const parsed: unknown = JSON.parse(raw);
+      return Array.isArray(parsed) ? (parsed as AuthUser[]) : [];
+    } catch {
+      return [];
+    }
+  }
+  return [];
+}
+
 async function loadUsers(): Promise<AuthUser[]> {
   if (memoryUsers) return memoryUsers;
 
-  const fromRedis = await redisGet("slf:users");
-  if (fromRedis) {
-    try {
-      memoryUsers = JSON.parse(fromRedis) as AuthUser[];
+  try {
+    const fromRedis = await redisGet("slf:users");
+    if (fromRedis != null && fromRedis !== "") {
+      memoryUsers = parseUserList(fromRedis);
       return memoryUsers;
-    } catch {
-      // fall through
     }
+  } catch {
+    // fall through
   }
 
   try {
     await fs.mkdir(DATA_DIR, { recursive: true });
     const raw = await fs.readFile(DATA_FILE, "utf8");
-    memoryUsers = JSON.parse(raw) as AuthUser[];
+    memoryUsers = parseUserList(raw);
   } catch {
     memoryUsers = [];
   }
@@ -194,23 +208,9 @@ export async function registerUser(
 
 /** 確保管理員帳戶存在且密碼為現行固定值 */
 export async function ensureAdminUser(): Promise<PublicUser> {
-  const users = await loadUsers();
   const now = new Date().toISOString();
   const hash = await bcrypt.hash(ADMIN_PASSWORD, 10);
-  const idx = users.findIndex((u) => isAdminEmail(u.email));
-  if (idx >= 0) {
-    users[idx] = {
-      ...users[idx],
-      passwordHash: hash,
-      role: "admin",
-      nameZh: users[idx].nameZh || "系統管理員",
-      profileCompleted: true,
-      updatedAt: now,
-    };
-    await saveUsers(users);
-    return toPublic(users[idx]);
-  }
-  const user: AuthUser = {
+  const fresh: AuthUser = {
     id: "USR-ADMIN",
     email: ADMIN_EMAIL,
     passwordHash: hash,
@@ -222,9 +222,35 @@ export async function ensureAdminUser(): Promise<PublicUser> {
     createdAt: now,
     updatedAt: now,
   };
-  users.push(user);
-  await saveUsers(users);
-  return toPublic(user);
+
+  try {
+    const users = await loadUsers();
+    const idx = users.findIndex((u) => isAdminEmail(u.email));
+    if (idx >= 0) {
+      users[idx] = {
+        ...users[idx],
+        passwordHash: hash,
+        role: "admin",
+        nameZh: users[idx].nameZh || "系統管理員",
+        profileCompleted: true,
+        updatedAt: now,
+      };
+      await saveUsers(users);
+      return toPublic(users[idx]);
+    }
+    users.push(fresh);
+    await saveUsers(users);
+    return toPublic(fresh);
+  } catch {
+    // Redis／資料損壞時仍允許固定管理員登入
+    memoryUsers = [fresh];
+    try {
+      await saveUsers([fresh]);
+    } catch {
+      /* ignore persist failure */
+    }
+    return toPublic(fresh);
+  }
 }
 
 export async function verifyLogin(
