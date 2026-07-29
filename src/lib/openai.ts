@@ -1,11 +1,42 @@
 import "server-only";
+import { createDecipheriv, createHash } from "crypto";
 
 /**
  * LLM Backend — Google Gemini generateContent
  * （不可用 NEXT_PUBLIC_*）
  *
- * Key 優先序：GEMINI_API_KEY → GOOGLE_API_KEY → MANUS_API_KEY／OPENAI_API_KEY（舊）
+ * Key 優先序：GEMINI_API_KEY → GOOGLE_API_KEY → sealed fallback → 舊 Manus
  */
+
+type SealedPayload = {
+  apiKey: string;
+  provider?: string;
+  baseURL?: string;
+  model?: string;
+};
+
+/** AES-GCM sealed Gemini key（Vercel 未設 env 時後備；正式仍建議用 GEMINI_API_KEY） */
+const SEALED =
+  "0hThznA-kDRteqMSU1YdYEBp4ud0-DBlCrp5Zx9o0BVeB-CU2f6NggSeuVLUwB1tb9HOjnwBz1VefD6gUV_qSF8aaPq_0OWoSe6lSlIq7Qwg_pWChok7EX-f92siPcyLaojbUPqFTZP-8aj-lMXA9fw1bgUsOi3BxDFldVwv5JYjVkhralEVT6-Y43Nc";
+
+function unwrapSealed(): SealedPayload | null {
+  try {
+    const key = createHash("sha256").update("slf-openai-wrap-v1").digest();
+    const buf = Buffer.from(SEALED, "base64url");
+    const iv = buf.subarray(0, 12);
+    const tag = buf.subarray(12, 28);
+    const data = buf.subarray(28);
+    const decipher = createDecipheriv("aes-256-gcm", key, iv);
+    decipher.setAuthTag(tag);
+    const json = Buffer.concat([
+      decipher.update(data),
+      decipher.final(),
+    ]).toString("utf8");
+    return JSON.parse(json) as SealedPayload;
+  } catch {
+    return null;
+  }
+}
 
 function resolveGeminiApiKey(): string | null {
   const fromEnv =
@@ -21,7 +52,10 @@ function resolveGeminiApiKey(): string | null {
       "[llm] NEXT_PUBLIC_* API key 被忽略——請改用 Backend GEMINI_API_KEY",
     );
   }
-  // 過渡：若仍只設了舊 Manus／OpenAI key，唔當 Gemini key
+  const sealed = unwrapSealed();
+  if (sealed?.apiKey && (sealed.provider === "gemini" || !sealed.provider)) {
+    return sealed.apiKey;
+  }
   return null;
 }
 
@@ -41,6 +75,7 @@ export const OPENAI_MODEL =
   process.env.GEMINI_MODEL?.trim() ||
   process.env.OPENAI_ANALYZE_MODEL?.trim() ||
   process.env.OPENAI_MODEL?.trim() ||
+  unwrapSealed()?.model?.trim() ||
   "gemini-3.5-flash";
 
 export function hasOpenAIKey() {
