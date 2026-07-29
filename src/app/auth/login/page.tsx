@@ -10,8 +10,6 @@ import { PageHeader, Disclaimer, StateBanner } from "@/components/ui/layout";
 type Mode = "email" | "admin";
 type Intent = "register" | "login";
 
-const ADMIN_EMAIL_PREFILL = "admin@sme.com";
-
 function PasswordField({
   label,
   required,
@@ -89,7 +87,7 @@ export default function LoginPage() {
   function enterAdminMode() {
     setMode("admin");
     setIntent("login");
-    setEmail(ADMIN_EMAIL_PREFILL);
+    setEmail("");
     setPassword("");
     setError(null);
     setHint(null);
@@ -238,7 +236,7 @@ export default function LoginPage() {
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder={ADMIN_EMAIL_PREFILL}
+                placeholder="admin@example.com"
                 autoComplete="username"
               />
             </Field>

@@ -25,7 +25,7 @@ export default function CashflowRulesAdminPage() {
       body: JSON.stringify({
         rules: {
           ...rules,
-          updatedBy: "李美欣",
+          updatedBy: rules.updatedBy || "管理員",
           updateReason: rules.updateReason || "政策調整",
         },
       }),

@@ -18,9 +18,6 @@ import { cn } from "@/lib/utils";
 const nav = [
   { href: "/admin", label: "案件總覽", icon: LayoutDashboard },
   { href: "/admin/customers", label: "客戶登記資料庫", icon: Database },
-  { href: "/admin/cases/SLF-2026-00482", label: "財務簡報示範", icon: FileSearch },
-  { href: "/admin/leads/SLF-2026-00482", label: "Lead 預審轉介", icon: Bot },
-  { href: "/admin/policy/SLF-2026-00482", label: "政策核對（十項）", icon: ClipboardList },
   { href: "/admin/cashflow-rules", label: "現金流審批規則", icon: Settings2 },
   { href: "/admin/ai-analyze", label: "AI 文件分析", icon: Bot },
   { href: "/admin/supplements", label: "補件管理", icon: ClipboardList },

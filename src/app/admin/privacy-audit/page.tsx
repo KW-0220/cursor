@@ -1,5 +1,4 @@
-import { Card, SectionHeader } from "@/components/ui/layout";
-import { DEMO_ADMIN_AUTH_AUDIT } from "@/lib/third-party-share";
+import { Card, EmptyState, SectionHeader } from "@/components/ui/layout";
 
 const headers = [
   "User ID",
@@ -36,7 +35,7 @@ export default function PrivacyAuditAdminPage() {
           A01 · 授權方式可包括 App 勾選、電子簽署、OTP、書面授權或顧問上載證明
         </p>
       </div>
-      <SectionHeader title="審計欄位（示範資料）" />
+      <SectionHeader title="審計欄位" />
       <Card className="overflow-x-auto p-0">
         <table className="w-full min-w-[1400px] text-left text-xs">
           <thead className="border-b border-border bg-surface-2 text-text-muted">
@@ -48,41 +47,13 @@ export default function PrivacyAuditAdminPage() {
               ))}
             </tr>
           </thead>
-          <tbody>
-            {DEMO_ADMIN_AUTH_AUDIT.map((row) => (
-              <tr
-                key={row.consentId}
-                className="border-b border-border last:border-0"
-              >
-                <td className="px-3 py-2">{row.userId}</td>
-                <td className="px-3 py-2">{row.companyId}</td>
-                <td className="px-3 py-2">{row.applicationId}</td>
-                <td className="px-3 py-2">{row.consentId}</td>
-                <td className="px-3 py-2">{row.authItem}</td>
-                <td className="px-3 py-2">{row.recipient}</td>
-                <td className="px-3 py-2">{row.dataTypes}</td>
-                <td className="px-3 py-2">{row.purpose}</td>
-                <td className="px-3 py-2">{row.authTextVersion}</td>
-                <td className="px-3 py-2">{row.privacyVersion}</td>
-                <td className="px-3 py-2 tabular">{row.consentedAt}</td>
-                <td className="px-3 py-2">{row.timezone}</td>
-                <td className="px-3 py-2">{row.ip}</td>
-                <td className="px-3 py-2">{row.device}</td>
-                <td className="px-3 py-2">{row.appVersion}</td>
-                <td className="px-3 py-2">{row.source}</td>
-                <td className="px-3 py-2 tabular">{row.sharedAt}</td>
-                <td className="px-3 py-2">{row.transferMethod}</td>
-                <td className="px-3 py-2">{row.transferResult}</td>
-                <td className="px-3 py-2">{row.withdrawnAt}</td>
-                <td className="px-3 py-2 font-medium text-navy-900">
-                  {row.status}
-                </td>
-                <td className="px-3 py-2">{row.operator}</td>
-                <td className="px-3 py-2">{row.manualEdit}</td>
-              </tr>
-            ))}
-          </tbody>
         </table>
+        <div className="p-4">
+          <EmptyState
+            title="暫無授權審計紀錄"
+            description="客戶完成第三方授權後會寫入此處。示範資料已移除。"
+          />
+        </div>
       </Card>
       <p className="text-xs text-text-muted">
         如由職員代為記錄，必須上載授權證明並記錄操作人員（正式環境接檔案儲存）。

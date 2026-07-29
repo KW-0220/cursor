@@ -1,35 +1,4 @@
-import { Card, SectionHeader } from "@/components/ui/layout";
-
-const logs = [
-  {
-    time: "2026-07-17 16:40",
-    actor: "李美欣",
-    action: "建立補件要求",
-    target: "SLF-2026-00482",
-    detail: "銀行結單缺頁",
-  },
-  {
-    time: "2026-07-16 09:40",
-    actor: "系統",
-    action: "分配負責人",
-    target: "SLF-2026-00482",
-    detail: "指派顧問李美欣",
-  },
-  {
-    time: "2026-07-15 12:08",
-    actor: "AI 引擎",
-    action: "OCR 提取完成",
-    target: "審計報告 FY2025",
-    detail: "信心度 94%",
-  },
-  {
-    time: "2026-07-10 11:02",
-    actor: "管理員 周先生",
-    action: "更新初篩規則",
-    target: "供款佔入數比例上限",
-    detail: "45% → 50%",
-  },
-];
+import { Card, EmptyState, SectionHeader } from "@/components/ui/layout";
 
 export default function AuditPage() {
   return (
@@ -51,20 +20,18 @@ export default function AuditPage() {
               ))}
             </tr>
           </thead>
-          <tbody>
-            {logs.map((log) => (
-              <tr key={log.time + log.action} className="border-b border-border last:border-0">
-                <td className="px-4 py-3 tabular text-xs">{log.time}</td>
-                <td className="px-4 py-3">{log.actor}</td>
-                <td className="px-4 py-3 font-medium text-navy-900">{log.action}</td>
-                <td className="px-4 py-3">{log.target}</td>
-                <td className="px-4 py-3 text-text-secondary">{log.detail}</td>
-              </tr>
-            ))}
-          </tbody>
         </table>
+        <div className="p-4">
+          <EmptyState
+            title="暫無審計紀錄"
+            description="系統操作發生後會寫入此處。示範紀錄已移除。"
+          />
+        </div>
       </Card>
-      <SectionHeader title="權限備註" subtitle="顧問 / Senior Reviewer / Compliance / Administrator" />
+      <SectionHeader
+        title="權限備註"
+        subtitle="顧問 / Senior Reviewer / Compliance / Administrator"
+      />
     </div>
   );
 }
