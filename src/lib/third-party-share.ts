@@ -454,87 +454,44 @@ export const AUTH_VERSION_CHANGES = [
   },
 ];
 
-/** 後台審計示範列 */
-export const DEMO_ADMIN_AUTH_AUDIT = [
-  {
-    userId: "usr_demo_001",
-    companyId: "CO-7012345",
-    applicationId: "SLF-2026-00482",
-    consentId: "AUTH-DEMO001",
-    authItem: "授權提供予指定機構",
-    recipient: "示範合作銀行",
-    dataTypes: "公司資料、銀行文件、身份文件",
-    purpose: "評估貸款申請；進行信用評估",
-    authTextVersion: THIRD_PARTY_AUTH_POLICY_VERSION,
-    privacyVersion: PRIVACY_POLICY_VERSION,
-    consentedAt: "2026-07-26T10:22:00+08:00",
-    timezone: "Asia/Hong_Kong",
-    ip: "203.218.x.x",
-    device: "iPhone · Safari 17",
-    appVersion: "web-1.0.0",
-    source: "App 勾選確認",
-    sharedAt: "2026-07-26T11:05:00+08:00",
-    transferMethod: "加密 API",
-    transferResult: "已成功分享",
-    withdrawnAt: "—",
-    status: "有效",
-    operator: "share-worker",
-    manualEdit: "無",
-  },
-  {
-    userId: "usr_demo_002",
-    companyId: "CO-8899001",
-    applicationId: "SLF-2026-00510",
-    consentId: "AUTH-DEMO002",
-    authItem: "授權提供予指定機構",
-    recipient: "示範身份驗證服務商",
-    dataTypes: "人士資料",
-    purpose: "進行身份驗證",
-    authTextVersion: THIRD_PARTY_AUTH_POLICY_VERSION,
-    privacyVersion: PRIVACY_POLICY_VERSION,
-    consentedAt: "2026-07-25T16:40:00+08:00",
-    timezone: "Asia/Hong_Kong",
-    ip: "42.98.x.x",
-    device: "Chrome 126 · macOS",
-    appVersion: "web-1.0.0",
-    source: "App 勾選確認",
-    sharedAt: "—",
-    transferMethod: "—",
-    transferResult: "已授權，未分享",
-    withdrawnAt: "—",
-    status: "有效",
-    operator: "—",
-    manualEdit: "無",
-  },
-];
+/** 後台審計列（改接真實授權紀錄後填入） */
+export const DEMO_ADMIN_AUTH_AUDIT: Array<{
+  userId: string;
+  companyId: string;
+  applicationId: string;
+  consentId: string;
+  authItem: string;
+  recipient: string;
+  dataTypes: string;
+  purpose: string;
+  authTextVersion: string;
+  privacyVersion: string;
+  consentedAt: string;
+  timezone: string;
+  ip: string;
+  device: string;
+  appVersion: string;
+  source: string;
+  sharedAt: string;
+  transferMethod: string;
+  transferResult: string;
+  withdrawnAt: string;
+  status: string;
+  operator: string;
+  manualEdit: string;
+}> = [];
 
-export const DEMO_ADMIN_TRANSFERS = [
-  {
-    sharedAt: "2026-07-26T11:05:00+08:00",
-    recipient: "示範合作銀行",
-    method: "加密 API",
-    payload: "BR、NAR1、6 個月月結、申請摘要",
-    docVersions: "br-v1, nar1-v1, bank-v3",
-    encrypted: "是",
-    status: "已成功分享",
-    received: "是",
-    failure: "—",
-    retries: 0,
-    operator: "share-worker",
-    authId: "AUTH-DEMO001",
-  },
-  {
-    sharedAt: "—",
-    recipient: "示範身份驗證服務商",
-    method: "尚未傳送",
-    payload: "董事身份證明",
-    docVersions: "—",
-    encrypted: "是（預定）",
-    status: "已授權，未分享",
-    received: "否",
-    failure: "—",
-    retries: 0,
-    operator: "系統（待排程）",
-    authId: "AUTH-DEMO002",
-  },
-];
+export const DEMO_ADMIN_TRANSFERS: Array<{
+  sharedAt: string;
+  recipient: string;
+  method: string;
+  payload: string;
+  docVersions: string;
+  encrypted: string;
+  status: string;
+  received: string;
+  failure: string;
+  retries: number;
+  operator: string;
+  authId: string;
+}> = [];
