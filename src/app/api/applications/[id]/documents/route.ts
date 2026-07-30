@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import {
   attachDocumentsToApplication,
   getApplication,
+  upsertApplication,
 } from "@/lib/applications-registry";
 import {
   documentKindLabel,
@@ -56,16 +57,21 @@ export async function POST(
   ctx: { params: Promise<{ id: string }> },
 ) {
   const { id } = await ctx.params;
-  const app = await getApplication(id);
-  if (!app) {
-    return NextResponse.json(
-      { error: "NOT_FOUND", message: "請先建立申請再上載文件" },
-      { status: 404 },
-    );
-  }
 
   try {
     const form = await req.formData();
+    let app = await getApplication(id);
+    // 多 instance 競態：若申請尚未讀到，補建 stub 再上載
+    if (!app) {
+      app = await upsertApplication({
+        id,
+        loanType: null,
+        amount: 0,
+        purpose: "（文件上載時補建）",
+        status: "under_review",
+        customerId: String(form.get("customerId") ?? "").trim() || null,
+      });
+    }
     const customerId =
       String(form.get("customerId") ?? "").trim() || app.customerId || null;
     const files = form.getAll("files").filter((f): f is File => f instanceof File);

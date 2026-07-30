@@ -2,6 +2,11 @@ import "server-only";
 import { promises as fs } from "fs";
 import path from "path";
 import { createAdminClient } from "@/lib/supabase/admin";
+import {
+  durableJsonGet,
+  durableJsonSet,
+  durableJsonStoreReady,
+} from "@/lib/durable-json-store";
 import { getSupabaseSecretKey, getSupabaseUrl } from "@/lib/supabase/env";
 
 export type DocumentKind =
@@ -32,6 +37,7 @@ const DATA_DIR = path.join(process.cwd(), "data");
 const META_FILE = path.join(DATA_DIR, "documents.json");
 const LOCAL_DIR = path.join(DATA_DIR, "documents");
 const REDIS_KEY = "slf:documents";
+const DURABLE_PATH = "documents.json";
 
 let memoryStore: StoredDocument[] | null = null;
 
@@ -93,6 +99,13 @@ function parseList(raw: unknown): StoredDocument[] {
 }
 
 async function ensureLoaded(): Promise<StoredDocument[]> {
+  if (durableJsonStoreReady()) {
+    const fromDurable = await durableJsonGet<unknown>(DURABLE_PATH);
+    if (fromDurable != null) {
+      memoryStore = parseList(fromDurable);
+      return memoryStore;
+    }
+  }
   if (memoryStore) return memoryStore;
   if (redisConfigured()) {
     try {
@@ -117,6 +130,9 @@ async function ensureLoaded(): Promise<StoredDocument[]> {
 
 async function persist(records: StoredDocument[]) {
   memoryStore = records;
+  if (durableJsonStoreReady()) {
+    await durableJsonSet(DURABLE_PATH, records);
+  }
   if (redisConfigured()) {
     await redisSet(REDIS_KEY, JSON.stringify(records));
   }

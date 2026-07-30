@@ -5,6 +5,11 @@ import {
   normalizeClientAppStatus,
   type ClientAppStatus,
 } from "@/lib/application-status";
+import {
+  durableJsonGet,
+  durableJsonSet,
+  durableJsonStoreReady,
+} from "@/lib/durable-json-store";
 
 export type ApplicationDocumentRef = {
   id: string;
@@ -37,6 +42,7 @@ export type ApplicationRecord = {
 const DATA_DIR = path.join(process.cwd(), "data");
 const DATA_FILE = path.join(DATA_DIR, "applications.json");
 const REDIS_KEY = "slf:applications";
+const DURABLE_PATH = "applications.json";
 
 let memoryStore: ApplicationRecord[] | null = null;
 
@@ -98,6 +104,14 @@ function parseList(raw: unknown): ApplicationRecord[] {
 }
 
 async function ensureLoaded(): Promise<ApplicationRecord[]> {
+  // Supabase Storage：每次重讀，避免 Vercel 多 instance memory 不同步
+  if (durableJsonStoreReady()) {
+    const fromDurable = await durableJsonGet<unknown>(DURABLE_PATH);
+    if (fromDurable != null) {
+      memoryStore = parseList(fromDurable);
+      return memoryStore;
+    }
+  }
   if (memoryStore) return memoryStore;
   if (redisConfigured()) {
     try {
@@ -122,6 +136,9 @@ async function ensureLoaded(): Promise<ApplicationRecord[]> {
 
 async function persist(records: ApplicationRecord[]) {
   memoryStore = records;
+  if (durableJsonStoreReady()) {
+    await durableJsonSet(DURABLE_PATH, records);
+  }
   if (redisConfigured()) {
     await redisSet(REDIS_KEY, JSON.stringify(records));
   }
