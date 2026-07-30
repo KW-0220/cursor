@@ -1,5 +1,8 @@
 import { Card, EmptyState, SectionHeader } from "@/components/ui/layout";
 
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 const adminKpis = [
   { label: "新申請", value: "0" },
   { label: "文件分析中", value: "0" },
@@ -13,10 +16,15 @@ const adminKpis = [
 export default function AdminDashboardPage() {
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-navy-900">案件總覽</h1>
-        <p className="mt-1 text-sm text-text-secondary">
-          KPI + 列表 · 僅顯示真實案件
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold text-navy-900">案件總覽</h1>
+          <p className="mt-1 text-sm text-text-secondary">
+            KPI + 列表 · 僅顯示真實案件
+          </p>
+        </div>
+        <p className="rounded-full bg-teal-100 px-3 py-1 text-xs font-semibold text-teal-800">
+          案件 0 · live
         </p>
       </div>
 
@@ -82,7 +90,7 @@ export default function AdminDashboardPage() {
         </table>
         <div className="p-4">
           <EmptyState
-            title="暫無案件"
+            title="暫無案件（0）"
             description="尚未有真實申請進入後台。客戶完成申請後會出現在此列表。"
           />
         </div>

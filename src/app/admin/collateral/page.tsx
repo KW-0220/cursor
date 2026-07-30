@@ -1,32 +1,26 @@
-"use client";
-
-import { useEffect, useState } from "react";
-import { Card, SectionHeader, StateBanner } from "@/components/ui/layout";
 import {
-  analyzeCollateral,
-  displayTitle,
-  itemCompleteness,
-  lightLabel,
-  loadCollateralItems,
-  preliminaryNetValue,
-  type CollateralItem,
-} from "@/lib/collateral";
-import { formatHKD } from "@/lib/utils";
+  Card,
+  EmptyState,
+  SectionHeader,
+  StateBanner,
+} from "@/components/ui/layout";
 
-/** C18 後台抵押品審批摘要（讀取本機申請暫存；正式環境接案件 API） */
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
+/** C18 後台抵押品審批摘要 — 不再讀本機 localStorage 示範草稿 */
 export default function AdminCollateralPage() {
-  const [items, setItems] = useState<CollateralItem[]>([]);
-
-  useEffect(() => {
-    setItems(loadCollateralItems("anon"));
-  }, []);
-
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-navy-900">抵押品審批摘要</h1>
-        <p className="mt-1 text-sm text-text-secondary">
-          C18 · 文件完整度、初步淨值、三色燈、正式估值狀態
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold text-navy-900">抵押品審批摘要</h1>
+          <p className="mt-1 text-sm text-text-secondary">
+            C18 · 文件完整度、初步淨值、三色燈、正式估值狀態
+          </p>
+        </div>
+        <p className="rounded-full bg-teal-100 px-3 py-1 text-xs font-semibold text-teal-800">
+          案件 0 · live
         </p>
       </div>
 
@@ -36,60 +30,12 @@ export default function AdminCollateralPage() {
         description="紅燈只代表需要進一步審批。正式可接受抵押價值以指定估值及貸款機構為準。"
       />
 
-      <SectionHeader title={`案件抵押品（${items.length}）`} />
-      {items.length === 0 ? (
-        <Card className="text-sm text-text-muted">
-          暫無抵押品資料。客戶於申請流程選擇「有抵押貸款」並新增後會顯示於此。
-        </Card>
-      ) : (
-        <div className="space-y-4">
-          {items.map((item) => {
-            const a = analyzeCollateral(item);
-            const c = itemCompleteness(item);
-            return (
-              <Card key={item.id} className="space-y-2 text-sm">
-                <div className="flex items-start justify-between gap-2">
-                  <div>
-                    <p className="text-xs text-text-muted">{item.subtype}</p>
-                    <p className="font-semibold text-navy-900">
-                      {displayTitle(item)}
-                    </p>
-                    <p className="text-xs text-text-muted">{item.id}</p>
-                  </div>
-                  <span className="rounded-full bg-surface-2 px-2 py-0.5 text-xs">
-                    {lightLabel(a.light)}
-                  </span>
-                </div>
-                <dl className="grid gap-1 text-xs text-text-secondary sm:grid-cols-2">
-                  <div>業權／持有人：{a.ownerOrHolder}</div>
-                  <div>申報價值：{formatHKD(a.declaredValue)}</div>
-                  <div>現有融資：{formatHKD(a.existingCharge)}</div>
-                  <div>初步淨值：{formatHKD(preliminaryNetValue(item))}</div>
-                  <div>
-                    文件：{c.done}／{c.total}
-                  </div>
-                  <div>信心度：{a.confidence}</div>
-                  <div>正式估值：尚未完成</div>
-                  <div>押記：{a.chargeStatus}</div>
-                </dl>
-                <ul className="list-inside list-disc text-xs text-text-secondary">
-                  {a.risks.map((r) => (
-                    <li key={r}>{r}</li>
-                  ))}
-                </ul>
-              </Card>
-            );
-          })}
-        </div>
-      )}
-
-      <SectionHeader title="正式估值狀態（C20 佔位）" />
-      <Card className="text-sm text-text-secondary">
-        <p>狀態：待安排指定估值服務商</p>
-        <p className="mt-1 text-xs text-text-muted">
-          估值結果、估值日期、估值公司、認可 LTN／LTV
-          將於接駁後台後顯示於此。
-        </p>
+      <SectionHeader title="案件抵押品（0）" />
+      <Card>
+        <EmptyState
+          title="暫無抵押品資料（0）"
+          description="客戶於申請流程選擇「有抵押貸款」並提交後會顯示於此。本機示範草稿不會再出現。"
+        />
       </Card>
     </div>
   );

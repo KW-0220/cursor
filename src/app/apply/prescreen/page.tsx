@@ -120,11 +120,6 @@ export default function PrescreenPage() {
             繼續：債務申報及政策聲明
           </Button>
         </Link>
-        <Link href="/admin/leads/SLF-2026-00482">
-          <Button fullWidth variant="outline">
-            （示範）開啟內部 Lead 預審頁
-          </Button>
-        </Link>
       </div>
     </MobileShell>
   );
