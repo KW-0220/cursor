@@ -163,3 +163,18 @@ export async function supabaseCustomersReady(client?: SupabaseClient) {
   const { error } = await db.from("customers").select("id").limit(1);
   return !error;
 }
+
+/** 刪除全部客戶登記列（service／admin client） */
+export async function supabaseClearCustomers(client?: SupabaseClient) {
+  const db = client ?? createAdminClient();
+  const { count, error: countErr } = await db
+    .from("customers")
+    .select("id", { count: "exact", head: true });
+  if (countErr) throw countErr;
+  const before = count ?? 0;
+  if (before === 0) return 0;
+  // id 永非空；neq 觸發全表 delete（secret client bypass RLS）
+  const { error: delErr } = await db.from("customers").delete().neq("id", "");
+  if (delErr) throw delErr;
+  return before;
+}

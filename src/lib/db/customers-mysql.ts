@@ -222,6 +222,11 @@ export async function mysqlUpsertCustomer(
   return created;
 }
 
+export async function mysqlClearCustomers(): Promise<number> {
+  const result = await mysqlExecute(`DELETE FROM customers`);
+  return Number(result.affectedRows) || 0;
+}
+
 export async function mysqlInsertCustomer(
   record: CustomerRegistrationRecord,
 ): Promise<void> {

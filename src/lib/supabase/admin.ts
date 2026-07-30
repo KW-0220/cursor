@@ -65,3 +65,31 @@ export async function ensureSupabaseAdminUser(opts?: {
   if (error) throw error;
   return data.user;
 }
+
+/** 刪除 Supabase Auth 非管理員用戶，逼重新註冊；保留 admin@sme.com */
+export async function clearSupabaseApplicantUsers(opts?: {
+  keepEmail?: string;
+}) {
+  const keep = (opts?.keepEmail || "admin@sme.com").trim().toLowerCase();
+  const admin = createAdminClient();
+  let removed = 0;
+  let page = 1;
+  for (;;) {
+    const listed = await admin.auth.admin.listUsers({ page, perPage: 200 });
+    if (listed.error) throw listed.error;
+    const users = listed.data.users;
+    if (!users.length) break;
+    for (const u of users) {
+      const email = u.email?.toLowerCase() ?? "";
+      const role = u.app_metadata?.role;
+      if (email === keep || role === "admin") continue;
+      const { error } = await admin.auth.admin.deleteUser(u.id);
+      if (error) throw error;
+      removed += 1;
+    }
+    if (users.length < 200) break;
+    page += 1;
+  }
+  await ensureSupabaseAdminUser({ email: keep });
+  return { removed, keptAdmin: true as const };
+}

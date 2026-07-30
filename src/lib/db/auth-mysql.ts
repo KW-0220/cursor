@@ -112,6 +112,16 @@ export async function mysqlUpdateUser(user: AuthUser): Promise<void> {
   );
 }
 
+/** 清空非管理員用戶；保留 role=admin 或 admin@sme.com */
+export async function mysqlClearApplicantUsers(): Promise<number> {
+  const result = await mysqlExecute(
+    `DELETE FROM users
+     WHERE COALESCE(role, '') <> 'admin'
+       AND LOWER(email) <> 'admin@sme.com'`,
+  );
+  return Number(result.affectedRows) || 0;
+}
+
 export async function mysqlUpsertUser(user: AuthUser): Promise<void> {
   await mysqlExecute(
     `INSERT INTO users

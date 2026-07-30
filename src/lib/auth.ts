@@ -176,6 +176,32 @@ export async function findUserByEmail(email: string) {
   return users.find((u) => u.email.toLowerCase() === key) ?? null;
 }
 
+export type ClearApplicantUsersResult = {
+  keptAdmin: boolean;
+  removed: number;
+  storage: ReturnType<typeof getAuthStorageMode>;
+};
+
+/**
+ * 清空申請人帳戶，逼全部重新註冊。
+ * 保留固定管理員 admin@sme.com。
+ */
+export async function clearApplicantUsers(): Promise<ClearApplicantUsersResult> {
+  const users = await loadUsers();
+  const admins = users.filter(
+    (u) => u.role === "admin" || isAdminEmail(u.email),
+  );
+  const removed = users.length - admins.length;
+  await saveUsers(admins);
+  // 確保管理員仍可用
+  await ensureAdminUser();
+  return {
+    keptAdmin: true,
+    removed,
+    storage: getAuthStorageMode(),
+  };
+}
+
 export async function registerUser(
   input: z.infer<typeof RegisterSchema>,
   vaultUsers?: AuthUser[],

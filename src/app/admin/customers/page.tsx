@@ -51,6 +51,7 @@ export default function AdminCustomersPage() {
   const [storage, setStorage] = useState("");
   const [durable, setDurable] = useState(false);
   const [collectFrom, setCollectFrom] = useState("");
+  const [wiping, setWiping] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -74,6 +75,27 @@ export default function AdminCustomersPage() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  async function wipeAll() {
+    const ok = window.confirm(
+      "確定清空客戶登記資料庫？\n所有申請人帳戶會一併刪除，必須重新註冊。\n（管理員 admin@sme.com 會保留）",
+    );
+    if (!ok) return;
+    setWiping(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/admin/customers?users=1", {
+        method: "DELETE",
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || data.error || "清空失敗");
+      await load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "清空失敗");
+    } finally {
+      setWiping(false);
+    }
+  }
 
   const filtered = customers.filter((c) => {
     const s = q.trim().toLowerCase();
@@ -106,6 +128,14 @@ export default function AdminCustomersPage() {
           <Button variant="outline" onClick={() => void load()} disabled={loading}>
             <RefreshCw className="mr-1.5 size-4" />
             重新整理
+          </Button>
+          <Button
+            variant="outline"
+            onClick={() => void wipeAll()}
+            disabled={wiping || loading}
+            className="border-red-300 text-red-700 hover:bg-red-50"
+          >
+            {wiping ? "清空中…" : "清空資料庫（逼重新註冊）"}
           </Button>
           <a href="/api/admin/customers/export">
             <Button>

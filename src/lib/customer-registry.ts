@@ -4,12 +4,14 @@ import path from "path";
 import { z } from "zod";
 import {
   customersUseMysql,
+  mysqlClearCustomers,
   mysqlGetCustomer,
   mysqlListCustomers,
   mysqlUpsertCustomer,
 } from "@/lib/db/customers-mysql";
 import { isMysqlConfigured } from "@/lib/db/mysql";
 import {
+  supabaseClearCustomers,
   supabaseCustomersReady,
   supabaseListCustomers,
   supabaseUpsertCustomer,
@@ -222,6 +224,50 @@ export async function getCustomer(id: string) {
   }
   const records = await ensureLoaded();
   return records.find((r) => r.id === id) ?? null;
+}
+
+export type ClearCustomersResult = {
+  supabase: number;
+  mysql: number;
+  redisOrFile: number;
+  storage: ReturnType<typeof getCustomerStorageMode>;
+};
+
+/** 清空所有客戶登記（Supabase + MySQL + Redis／檔案／記憶體） */
+export async function clearAllCustomers(): Promise<ClearCustomersResult> {
+  let supabase = 0;
+  let mysql = 0;
+
+  if (getSupabaseUrl() && getSupabaseSecretKey()) {
+    try {
+      supabase = await supabaseClearCustomers();
+    } catch (err) {
+      console.error("[customers] supabase clear failed", err);
+    }
+  }
+
+  if (isMysqlConfigured()) {
+    try {
+      mysql = await mysqlClearCustomers();
+    } catch (err) {
+      console.error("[customers] mysql clear failed", err);
+    }
+  }
+
+  let redisOrFile = 0;
+  try {
+    const existing = await ensureLoaded();
+    redisOrFile = existing.length;
+  } catch {
+    redisOrFile = 0;
+  }
+  await persist([]);
+  return {
+    supabase,
+    mysql,
+    redisOrFile,
+    storage: getCustomerStorageMode(),
+  };
 }
 
 export async function upsertCustomer(input: CustomerRegistrationInput) {
