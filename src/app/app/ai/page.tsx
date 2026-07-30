@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { aiWelcome } from "@/lib/mock-data";
 import type { ChatMessage } from "@/lib/types";
@@ -11,6 +11,26 @@ export default function AIAssistantPage() {
   const [messages, setMessages] = useState<ChatMessage[]>([aiWelcome]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
+  const [backend, setBackend] = useState<{
+    ok: boolean;
+    provider: string;
+    model: string;
+  } | null>(null);
+
+  useEffect(() => {
+    void fetch("/api/chat")
+      .then((r) => r.json())
+      .then((d) =>
+        setBackend({
+          ok: Boolean(d.ok),
+          provider: String(d.provider || "—"),
+          model: String(d.model || "—"),
+        }),
+      )
+      .catch(() =>
+        setBackend({ ok: false, provider: "error", model: "—" }),
+      );
+  }, []);
 
   const send = async (text: string) => {
     if (!text.trim() || loading) return;
@@ -37,6 +57,14 @@ export default function AIAssistantPage() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Chat failed");
 
+      if (data.provider || data.model) {
+        setBackend({
+          ok: data.provider === "gemini" && data.model !== "local-fallback",
+          provider: String(data.provider || "—"),
+          model: String(data.model || "—"),
+        });
+      }
+
       const assistant: ChatMessage = {
         id: crypto.randomUUID(),
         role: "assistant",
@@ -53,8 +81,8 @@ export default function AIAssistantPage() {
           role: "assistant",
           content:
             err instanceof Error
-              ? `暫時未能連線 AI（${err.message}）。你可以先開始資料收集，或稍後再試。`
-              : "暫時未能連線 AI，請稍後再試。",
+              ? `暫時未能連線 Gemini（${err.message}）。你可以先開始資料收集，或稍後再試。`
+              : "暫時未能連線 Gemini，請稍後再試。",
           actions: [
             { label: "開始資料收集", href: "/apply/kyc-docs" },
             { label: "聯絡貸款顧問", href: "/app/account" },
@@ -71,10 +99,27 @@ export default function AIAssistantPage() {
   return (
     <main className="flex h-[calc(100dvh-4.5rem)] flex-col">
       <header className="border-b border-border px-4 py-3">
-        <h1 className="text-lg font-semibold text-navy-900">AI 財務助理</h1>
-        <p className="text-xs text-text-secondary">
-          文件分析＋資料收集引擎 · 不直接批核貸款 · 可轉介顧問
-        </p>
+        <div className="flex flex-wrap items-start justify-between gap-2">
+          <div>
+            <h1 className="text-lg font-semibold text-navy-900">AI 財務助理</h1>
+            <p className="text-xs text-text-secondary">
+              Google Gemini · 文件分析＋資料收集 · 不直接批核貸款
+            </p>
+          </div>
+          {backend && (
+            <p
+              className={`rounded-full px-2.5 py-1 text-[11px] font-medium ${
+                backend.ok
+                  ? "bg-teal-100 text-teal-800"
+                  : "bg-amber-100 text-amber-800"
+              }`}
+            >
+              {backend.ok
+                ? `Gemini · ${backend.model}`
+                : `未連上 Gemini（${backend.provider}）`}
+            </p>
+          )}
+        </div>
       </header>
 
       <div className="flex-1 space-y-3 overflow-y-auto px-4 py-4">
@@ -92,7 +137,10 @@ export default function AIAssistantPage() {
               <div className="mt-2 flex flex-wrap gap-2">
                 {m.actions.map((a) => (
                   <Link key={a.href + a.label} href={a.href}>
-                    <Button size="sm" variant={m.role === "user" ? "secondary" : "outline"}>
+                    <Button
+                      size="sm"
+                      variant={m.role === "user" ? "secondary" : "outline"}
+                    >
                       {a.label}
                     </Button>
                   </Link>
@@ -120,7 +168,7 @@ export default function AIAssistantPage() {
         ))}
         {loading && (
           <div className="max-w-[90%] rounded-2xl bg-surface-2 px-3.5 py-2.5 text-sm text-text-secondary">
-            AI 思考中…
+            Gemini 思考中…
           </div>
         )}
         <Disclaimer>

@@ -71,12 +71,37 @@ export function resolveApiKey(): string | null {
   return resolveGeminiApiKey() || resolveLegacyManusKey();
 }
 
+/** 預設用 flash-lite（穩定）；3.5-flash 高峰常 503 */
 export const OPENAI_MODEL =
   process.env.GEMINI_MODEL?.trim() ||
   process.env.OPENAI_ANALYZE_MODEL?.trim() ||
   process.env.OPENAI_MODEL?.trim() ||
   unwrapSealed()?.model?.trim() ||
-  "gemini-3.5-flash";
+  "gemini-3.5-flash-lite";
+
+/** 主 model 失敗（503／429／404）時依序試 */
+const DEFAULT_GEMINI_FALLBACKS = [
+  "gemini-3.5-flash-lite",
+  "gemini-3.1-flash-lite",
+  "gemini-flash-lite-latest",
+  "gemini-flash-latest",
+  "gemini-3.5-flash",
+];
+
+function geminiFallbackModels(primary: string): string[] {
+  const fromEnv = (process.env.GEMINI_MODEL_FALLBACKS || "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const list = [primary, ...fromEnv, ...DEFAULT_GEMINI_FALLBACKS];
+  const seen = new Set<string>();
+  return list.filter((m) => {
+    const id = m.replace(/^models\//, "");
+    if (!id || seen.has(id)) return false;
+    seen.add(id);
+    return true;
+  });
+}
 
 export function hasOpenAIKey() {
   return Boolean(resolveApiKey());
@@ -85,6 +110,10 @@ export function hasOpenAIKey() {
 export function getLlmProvider(): "gemini" | "manus" {
   if (resolveGeminiApiKey()) return "gemini";
   return "manus";
+}
+
+export function getGeminiModel() {
+  return geminiModelId();
 }
 
 function stripJsonFence(text: string) {
@@ -119,29 +148,44 @@ type GeminiResponse = {
 function geminiModelId() {
   const raw = OPENAI_MODEL.replace(/^models\//, "");
   // 舊 manus 名自動改用 Gemini
-  if (raw.includes("manus")) return "gemini-3.5-flash";
-  return raw || "gemini-3.5-flash";
+  if (raw.includes("manus")) return "gemini-3.5-flash-lite";
+  return raw || "gemini-3.5-flash-lite";
 }
 
-async function geminiGenerateContent(params: {
-  system?: string;
-  userText: string;
-  imageUrls?: string[];
-}): Promise<{ text: string; model: string; id: string; status: string }> {
-  const apiKey = resolveGeminiApiKey();
-  if (!apiKey) throw new Error("MISSING_GEMINI_API_KEY");
+export type ChatTurn = {
+  role: "user" | "assistant" | "system";
+  content: string;
+};
 
-  const model = geminiModelId();
-  const parts: GeminiPart[] = [];
-  if (params.userText.trim()) {
-    parts.push({ text: params.userText.trim() });
+function toGeminiContents(
+  userText: string,
+  imageUrls: string[],
+  history?: ChatTurn[],
+): Array<{ role: "user" | "model"; parts: GeminiPart[] }> {
+  const contents: Array<{ role: "user" | "model"; parts: GeminiPart[] }> = [];
+
+  if (history?.length) {
+    for (const turn of history) {
+      if (turn.role === "system") continue;
+      const text = turn.content.trim();
+      if (!text) continue;
+      const role = turn.role === "assistant" ? "model" : "user";
+      const prev = contents[contents.length - 1];
+      if (prev && prev.role === role) {
+        prev.parts.push({ text });
+      } else {
+        contents.push({ role, parts: [{ text }] });
+      }
+    }
   }
 
-  const images = [...new Set(params.imageUrls ?? [])].slice(0, 3);
+  const last = contents[contents.length - 1];
+  const images = [...new Set(imageUrls)].slice(0, 3);
+  const imageParts: GeminiPart[] = [];
   for (const url of images) {
     const parsed = parseDataUrl(url);
     if (!parsed) continue;
-    parts.push({
+    imageParts.push({
       inline_data: {
         mime_type: parsed.mimeType,
         data: parsed.data,
@@ -149,15 +193,44 @@ async function geminiGenerateContent(params: {
     });
   }
 
-  if (!parts.length) {
+  if (last?.role === "user" && !imageParts.length) {
+    // history 已含最後一則 user
+    return contents;
+  }
+
+  const userParts: GeminiPart[] = [];
+  if (userText.trim()) userParts.push({ text: userText.trim() });
+  userParts.push(...imageParts);
+
+  if (!userParts.length && !contents.length) {
     throw new Error("EMPTY_MODEL_REQUEST");
   }
 
+  if (userParts.length) {
+    if (last?.role === "user") {
+      last.parts.push(...userParts);
+    } else {
+      contents.push({ role: "user", parts: userParts });
+    }
+  }
+
+  return contents;
+}
+
+async function geminiGenerateContentOnce(params: {
+  apiKey: string;
+  model: string;
+  system?: string;
+  contents: Array<{ role: "user" | "model"; parts: GeminiPart[] }>;
+  maxOutputTokens?: number;
+  temperature?: number;
+}): Promise<{ text: string; model: string; id: string; status: string }> {
+  const model = params.model.replace(/^models\//, "");
   const body: Record<string, unknown> = {
-    contents: [{ role: "user", parts }],
+    contents: params.contents,
     generationConfig: {
-      temperature: 0.2,
-      maxOutputTokens: 8192,
+      temperature: params.temperature ?? 0.4,
+      maxOutputTokens: params.maxOutputTokens ?? 8192,
     },
   };
   if (params.system?.trim()) {
@@ -166,7 +239,7 @@ async function geminiGenerateContent(params: {
     };
   }
 
-  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`;
+  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(params.apiKey)}`;
   const res = await fetch(endpoint, {
     method: "POST",
     headers: {
@@ -177,14 +250,25 @@ async function geminiGenerateContent(params: {
     cache: "no-store",
   });
 
-  const data = (await res.json()) as GeminiResponse;
+  const data = (await res.json()) as GeminiResponse & {
+    error?: { message?: string; status?: string };
+  };
   if (!res.ok) {
     const msg =
       data.error?.message ||
       data.error?.status ||
       `GEMINI_HTTP_${res.status}`;
-    if (res.status === 429) throw new Error(`GEMINI_QUOTA: ${msg}`);
-    throw new Error(msg);
+    const err = new Error(
+      res.status === 429 ? `GEMINI_QUOTA: ${msg}` : msg,
+    ) as Error & { status?: number; retryable?: boolean };
+    err.status = res.status;
+    err.retryable =
+      res.status === 429 ||
+      res.status === 503 ||
+      res.status === 404 ||
+      res.status === 400 ||
+      /high demand|no longer available|not found|invalid argument/i.test(msg);
+    throw err;
   }
 
   const text = (data.candidates ?? [])
@@ -194,7 +278,11 @@ async function geminiGenerateContent(params: {
     .trim();
 
   if (!text) {
-    throw new Error("EMPTY_MODEL_RESPONSE");
+    const err = new Error("EMPTY_MODEL_RESPONSE") as Error & {
+      retryable?: boolean;
+    };
+    err.retryable = true;
+    throw err;
   }
 
   return {
@@ -203,6 +291,52 @@ async function geminiGenerateContent(params: {
     id: data.responseId || `gemini-${Date.now()}`,
     status: "completed",
   };
+}
+
+async function geminiGenerateContent(params: {
+  system?: string;
+  userText: string;
+  imageUrls?: string[];
+  history?: ChatTurn[];
+  maxOutputTokens?: number;
+  temperature?: number;
+}): Promise<{ text: string; model: string; id: string; status: string }> {
+  const apiKey = resolveGeminiApiKey();
+  if (!apiKey) throw new Error("MISSING_GEMINI_API_KEY");
+
+  const contents = toGeminiContents(
+    params.userText,
+    params.imageUrls ?? [],
+    params.history,
+  );
+  if (!contents.length) throw new Error("EMPTY_MODEL_REQUEST");
+
+  const models = geminiFallbackModels(geminiModelId());
+  let lastErr: Error | null = null;
+
+  for (const model of models) {
+    try {
+      return await geminiGenerateContentOnce({
+        apiKey,
+        model,
+        system: params.system,
+        contents,
+        maxOutputTokens: params.maxOutputTokens,
+        temperature: params.temperature,
+      });
+    } catch (e) {
+      lastErr = e instanceof Error ? e : new Error(String(e));
+      const retryable =
+        (e as { retryable?: boolean })?.retryable === true ||
+        /GEMINI_QUOTA|high demand|EMPTY_MODEL|not found|no longer available|GEMINI_HTTP_5/i.test(
+          lastErr.message,
+        );
+      if (!retryable) throw lastErr;
+      console.warn(`[gemini] ${model} failed, trying fallback:`, lastErr.message);
+    }
+  }
+
+  throw lastErr || new Error("GEMINI_ALL_MODELS_FAILED");
 }
 
 /** @deprecated 僅供舊程式路徑；實際已轉 Gemini */
@@ -221,8 +355,11 @@ export async function manusRespond(params: {
   userText: string;
   imageUrl?: string;
   imageUrls?: string[];
+  history?: ChatTurn[];
   pollMs?: number;
   maxWaitMs?: number;
+  maxOutputTokens?: number;
+  temperature?: number;
 }): Promise<{ text: string; model: string; id: string; status: string }> {
   const imageUrls = [
     ...(params.imageUrls ?? []),
@@ -234,6 +371,9 @@ export async function manusRespond(params: {
       system: params.system,
       userText: params.userText,
       imageUrls,
+      history: params.history,
+      maxOutputTokens: params.maxOutputTokens,
+      temperature: params.temperature,
     });
   }
 

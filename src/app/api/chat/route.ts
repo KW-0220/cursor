@@ -4,7 +4,12 @@ import {
   buildRagContextBlock,
   getRagKnowledgeBase,
 } from "@/lib/integrations/rag";
-import { getLlmProvider, hasOpenAIKey, manusRespond, OPENAI_MODEL } from "@/lib/openai";
+import {
+  getGeminiModel,
+  getLlmProvider,
+  hasOpenAIKey,
+  manusRespond,
+} from "@/lib/openai";
 
 export const runtime = "nodejs";
 export const preferredRegion = ["sin1", "iad1"];
@@ -22,7 +27,7 @@ const bodySchema = z.object({
     .optional(),
 });
 
-const SYSTEM_PROMPT = `你是一名香港中小企貸款 AI 助手。
+const SYSTEM_PROMPT = `你是 SME LoanFlow 的香港中小企貸款 AI 財務助理（後端由 Google Gemini 驅動）。
 
 你的工作：
 1. 收集企業資料
@@ -80,7 +85,6 @@ function inferActions(text: string): Action[] {
   if (actions.length === 0) {
     actions.push({ label: "按此開始申請", href: "/apply" });
   }
-  // de-dupe by href+label
   const seen = new Set<string>();
   return actions.filter((a) => {
     const k = a.href + a.label;
@@ -129,6 +133,19 @@ function localFallback(input: string) {
   };
 }
 
+/** GET：健康檢查 — 確認 Gemini 已接駁 */
+export async function GET() {
+  const provider = getLlmProvider();
+  const configured = hasOpenAIKey();
+  return NextResponse.json({
+    ok: configured && provider === "gemini",
+    provider,
+    model: getGeminiModel(),
+    configured,
+    endpoint: "POST /api/chat",
+  });
+}
+
 export async function POST(req: Request) {
   try {
     const json = await req.json();
@@ -161,7 +178,6 @@ export async function POST(req: Request) {
     const disclaimer =
       "此建議只供初步參考。AI 不直接決定批出貸款；只協助資料收集與預審條件核對。實際貸款條件及批核結果由相關貸款機構決定。";
 
-    // RAG（預留接口）：Backend 取知識，再餵給 LLM；前端永不直連 KB / OpenAI
     const rag = await getRagKnowledgeBase().search({
       query: lastUser,
       topK: 3,
@@ -178,28 +194,32 @@ export async function POST(req: Request) {
         actions: fb.actions,
         disclaimer,
         model: "local-fallback",
+        provider: "none",
+        warning: "MISSING_GEMINI_API_KEY",
         rag: { provider: rag.provider, mode: rag.mode, hits: rag.chunks.length },
       });
     }
 
-    const model = OPENAI_MODEL;
-    const userMessage = lastUser;
-
     try {
-      const manus = await manusRespond({
+      // 最多帶最近 12 輪，控制 token
+      const recent = history.slice(-12);
+      const gemini = await manusRespond({
         system: systemWithRag,
-        userText: userMessage,
+        userText: lastUser,
+        history: recent,
         maxWaitMs: 55_000,
+        maxOutputTokens: 2048,
+        temperature: 0.5,
       });
-      const reply = manus.text.trim() || localFallback(lastUser).reply;
+      const reply = gemini.text.trim() || localFallback(lastUser).reply;
 
       return NextResponse.json({
         reply,
         actions: inferActions(`${lastUser}\n${reply}`),
         disclaimer,
-        model: manus.model || model,
+        model: gemini.model,
         provider: getLlmProvider(),
-        taskId: manus.id,
+        taskId: gemini.id,
         rag: { provider: rag.provider, mode: rag.mode, hits: rag.chunks.length },
       });
     } catch (openaiErr) {
@@ -211,6 +231,7 @@ export async function POST(req: Request) {
         actions: fb.actions,
         disclaimer,
         model: "local-fallback",
+        provider: getLlmProvider(),
         warning: detail,
         rag: { provider: rag.provider, mode: rag.mode, hits: rag.chunks.length },
       });

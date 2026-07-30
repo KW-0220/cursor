@@ -59,7 +59,7 @@ function analyzeModel() {
     process.env.GEMINI_MODEL?.trim() ||
     process.env.OPENAI_ANALYZE_MODEL?.trim() ||
     process.env.OPENAI_MODEL?.trim() ||
-    "gemini-3.5-flash"
+    "gemini-3.5-flash-lite"
   );
 }
 
