@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
+import { ApplicationDocsSupplement } from "@/components/app/application-docs-supplement";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -54,7 +55,7 @@ export default function ApplicationDetailPage() {
             }
           | undefined;
         if (!remote) return;
-        const merged = {
+        const merged: StoredApplication = {
           ...(local ?? {
             id: remote.id,
             loanType: remote.loanType,
@@ -63,6 +64,8 @@ export default function ApplicationDetailPage() {
             docsPct: remote.docsPct,
             bankCount: remote.bankCount,
             createdAt: remote.createdAt,
+            status: remote.status,
+            updatedAt: remote.updatedAt,
           }),
           status: normalizeClientAppStatus(remote.status),
           failureReason: remote.failureReason ?? null,
@@ -70,6 +73,8 @@ export default function ApplicationDetailPage() {
           amount: remote.amount,
           purpose: remote.purpose,
           loanType: remote.loanType,
+          docsPct: remote.docsPct ?? local?.docsPct,
+          bankCount: remote.bankCount ?? local?.bankCount,
         };
         setApp(merged);
       })
@@ -123,7 +128,7 @@ export default function ApplicationDetailPage() {
         subtitle={app.id}
         backHref="/app/applications"
       />
-      <main className="space-y-4 px-4 py-5">
+      <main className="space-y-4 px-4 py-5 pb-28">
         <Card>
           <div className="flex items-start justify-between gap-3">
             <div>
@@ -160,9 +165,7 @@ export default function ApplicationDetailPage() {
             {typeof app.bankCount === "number" && (
               <div className="flex justify-between gap-3">
                 <dt className="text-text-muted">銀行月結單</dt>
-                <dd>
-                  {app.bankCount}/6
-                </dd>
+                <dd>{app.bankCount}/6</dd>
               </div>
             )}
             <div className="flex justify-between gap-3">
@@ -174,7 +177,7 @@ export default function ApplicationDetailPage() {
 
         {status === "under_review" && (
           <Card className="text-sm text-text-secondary">
-            申請正在審批中。結果稍後會更新為「成功批核」或「申請失敗」。
+            申請正在審批中。結果稍後會更新為「成功批核」或「申請失敗」。如需補件，請使用下方「重新上載文件或補交文件」。
           </Card>
         )}
 
@@ -190,8 +193,17 @@ export default function ApplicationDetailPage() {
             <p className="text-sm leading-relaxed text-danger-600">
               {app.failureReason?.trim() || "未有提供失敗原因"}
             </p>
+            <p className="mt-2 text-xs text-text-secondary">
+              可於下方補交／重新上載文件，系統會將狀態改回「審批中」。
+            </p>
           </Card>
         )}
+
+        <ApplicationDocsSupplement
+          applicationId={app.id}
+          app={app}
+          onAppUpdated={setApp}
+        />
 
         <Link href="/app/applications">
           <Button fullWidth variant="outline">
