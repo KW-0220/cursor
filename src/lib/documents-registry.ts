@@ -1,0 +1,257 @@
+import "server-only";
+import { promises as fs } from "fs";
+import path from "path";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { getSupabaseSecretKey, getSupabaseUrl } from "@/lib/supabase/env";
+
+export type DocumentKind =
+  | "br"
+  | "audited"
+  | "identity"
+  | "company_other"
+  | "bank"
+  | "other";
+
+export type StoredDocument = {
+  id: string;
+  customerId: string | null;
+  applicationId: string;
+  kind: DocumentKind;
+  slot: string;
+  fileName: string;
+  mimeType: string;
+  size: number;
+  /** Supabase Storage path 或 local relative path */
+  storagePath: string;
+  storage: "supabase" | "local";
+  createdAt: string;
+};
+
+const BUCKET = "customer-documents";
+const DATA_DIR = path.join(process.cwd(), "data");
+const META_FILE = path.join(DATA_DIR, "documents.json");
+const LOCAL_DIR = path.join(DATA_DIR, "documents");
+const REDIS_KEY = "slf:documents";
+
+let memoryStore: StoredDocument[] | null = null;
+
+function redisConfigured() {
+  return Boolean(
+    (process.env.UPSTASH_REDIS_REST_URL &&
+      process.env.UPSTASH_REDIS_REST_TOKEN) ||
+      (process.env.KV_REST_API_URL && process.env.KV_REST_API_TOKEN),
+  );
+}
+
+async function redisGet(key: string): Promise<unknown> {
+  const url =
+    process.env.UPSTASH_REDIS_REST_URL?.trim() ||
+    process.env.KV_REST_API_URL?.trim();
+  const token =
+    process.env.UPSTASH_REDIS_REST_TOKEN?.trim() ||
+    process.env.KV_REST_API_TOKEN?.trim();
+  if (!url || !token) return null;
+  const res = await fetch(`${url}/get/${encodeURIComponent(key)}`, {
+    headers: { Authorization: `Bearer ${token}` },
+    cache: "no-store",
+  });
+  if (!res.ok) return null;
+  const data = (await res.json()) as { result: unknown };
+  return data.result ?? null;
+}
+
+async function redisSet(key: string, value: string) {
+  const url =
+    process.env.UPSTASH_REDIS_REST_URL?.trim() ||
+    process.env.KV_REST_API_URL?.trim();
+  const token =
+    process.env.UPSTASH_REDIS_REST_TOKEN?.trim() ||
+    process.env.KV_REST_API_TOKEN?.trim();
+  if (!url || !token) return false;
+  const res = await fetch(`${url}/set/${encodeURIComponent(key)}`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(value),
+  });
+  return res.ok;
+}
+
+function parseList(raw: unknown): StoredDocument[] {
+  if (Array.isArray(raw)) return raw as StoredDocument[];
+  if (typeof raw === "string") {
+    try {
+      const parsed: unknown = JSON.parse(raw);
+      return Array.isArray(parsed) ? (parsed as StoredDocument[]) : [];
+    } catch {
+      return [];
+    }
+  }
+  return [];
+}
+
+async function ensureLoaded(): Promise<StoredDocument[]> {
+  if (memoryStore) return memoryStore;
+  if (redisConfigured()) {
+    try {
+      const fromRedis = await redisGet(REDIS_KEY);
+      if (fromRedis != null && fromRedis !== "") {
+        memoryStore = parseList(fromRedis);
+        return memoryStore;
+      }
+    } catch {
+      /* fall through */
+    }
+  }
+  try {
+    await fs.mkdir(DATA_DIR, { recursive: true });
+    const raw = await fs.readFile(META_FILE, "utf8");
+    memoryStore = parseList(raw);
+  } catch {
+    memoryStore = [];
+  }
+  return memoryStore;
+}
+
+async function persist(records: StoredDocument[]) {
+  memoryStore = records;
+  if (redisConfigured()) {
+    await redisSet(REDIS_KEY, JSON.stringify(records));
+  }
+  try {
+    await fs.mkdir(DATA_DIR, { recursive: true });
+    await fs.writeFile(META_FILE, JSON.stringify(records, null, 2), "utf8");
+  } catch {
+    /* ignore */
+  }
+}
+
+function supabaseStorageReady() {
+  return Boolean(getSupabaseUrl() && getSupabaseSecretKey());
+}
+
+async function uploadBytes(params: {
+  storagePath: string;
+  bytes: Buffer;
+  mimeType: string;
+}): Promise<"supabase" | "local"> {
+  if (supabaseStorageReady()) {
+    try {
+      const db = createAdminClient();
+      const { error } = await db.storage
+        .from(BUCKET)
+        .upload(params.storagePath, params.bytes, {
+          contentType: params.mimeType || "application/octet-stream",
+          upsert: true,
+        });
+      if (!error) return "supabase";
+      console.error("[documents] supabase upload failed", error.message);
+    } catch (err) {
+      console.error("[documents] supabase upload error", err);
+    }
+  }
+  await fs.mkdir(LOCAL_DIR, { recursive: true });
+  const localPath = path.join(LOCAL_DIR, params.storagePath.replace(/\//g, "__"));
+  await fs.writeFile(localPath, params.bytes);
+  return "local";
+}
+
+export async function listDocuments(filter?: {
+  customerId?: string;
+  applicationId?: string;
+}) {
+  const all = await ensureLoaded();
+  return all
+    .filter((d) => {
+      if (filter?.customerId && d.customerId !== filter.customerId) return false;
+      if (filter?.applicationId && d.applicationId !== filter.applicationId)
+        return false;
+      return true;
+    })
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+}
+
+export async function getDocument(id: string) {
+  const all = await ensureLoaded();
+  return all.find((d) => d.id === id) ?? null;
+}
+
+export async function saveDocument(input: {
+  customerId?: string | null;
+  applicationId: string;
+  kind: DocumentKind;
+  slot: string;
+  fileName: string;
+  mimeType: string;
+  bytes: Buffer;
+}) {
+  const id = `DOC-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+  const safeName = input.fileName.replace(/[^\w.\-()\u4e00-\u9fff]+/g, "_");
+  const storagePath = `${input.applicationId}/${input.slot}-${safeName}`;
+  const storage = await uploadBytes({
+    storagePath,
+    bytes: input.bytes,
+    mimeType: input.mimeType,
+  });
+  const record: StoredDocument = {
+    id,
+    customerId: input.customerId ?? null,
+    applicationId: input.applicationId,
+    kind: input.kind,
+    slot: input.slot,
+    fileName: input.fileName,
+    mimeType: input.mimeType,
+    size: input.bytes.length,
+    storagePath,
+    storage,
+    createdAt: new Date().toISOString(),
+  };
+  const all = await ensureLoaded();
+  all.unshift(record);
+  await persist(all);
+  return record;
+}
+
+export async function readDocumentBytes(
+  doc: StoredDocument,
+): Promise<Buffer | null> {
+  if (doc.storage === "supabase" && supabaseStorageReady()) {
+    try {
+      const db = createAdminClient();
+      const { data, error } = await db.storage
+        .from(BUCKET)
+        .download(doc.storagePath);
+      if (error || !data) {
+        console.error("[documents] download failed", error?.message);
+      } else {
+        const ab = await data.arrayBuffer();
+        return Buffer.from(ab);
+      }
+    } catch (err) {
+      console.error("[documents] download error", err);
+    }
+  }
+  try {
+    const localPath = path.join(
+      LOCAL_DIR,
+      doc.storagePath.replace(/\//g, "__"),
+    );
+    return await fs.readFile(localPath);
+  } catch {
+    return null;
+  }
+}
+
+export function documentKindLabel(kind: DocumentKind | string) {
+  const map: Record<string, string> = {
+    br: "商業登記證 BR",
+    audited: "審計報告",
+    identity: "身份證明",
+    company_other: "公司其他文件",
+    bank: "銀行月結單",
+    other: "其他",
+  };
+  return map[kind] || kind;
+}

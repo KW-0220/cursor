@@ -106,6 +106,23 @@ export async function supabaseListCustomers(client?: SupabaseClient) {
   return (data as CustomerRow[]).map(rowToCustomer);
 }
 
+export async function supabaseFindCustomerByEmail(
+  email: string,
+  client?: SupabaseClient,
+) {
+  const db = client ?? createAdminClient();
+  const key = email.trim().toLowerCase();
+  const { data, error } = await db
+    .from("customers")
+    .select("*")
+    .ilike("email", key)
+    .order("updated_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) throw error;
+  return data ? rowToCustomer(data as CustomerRow) : null;
+}
+
 export async function supabaseUpsertCustomer(
   input: CustomerRegistrationInput,
   client?: SupabaseClient,

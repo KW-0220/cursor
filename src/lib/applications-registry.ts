@@ -6,6 +6,15 @@ import {
   type ClientAppStatus,
 } from "@/lib/application-status";
 
+export type ApplicationDocumentRef = {
+  id: string;
+  kind: string;
+  slot: string;
+  fileName: string;
+  size: number;
+  mimeType: string;
+};
+
 export type ApplicationRecord = {
   id: string;
   loanType: "secured" | "unsecured" | null;
@@ -15,6 +24,12 @@ export type ApplicationRecord = {
   failureReason: string | null;
   docsPct?: number;
   bankCount?: number;
+  customerId?: string | null;
+  applicantNameZh?: string | null;
+  companyNameZh?: string | null;
+  email?: string | null;
+  phone?: string | null;
+  documents?: ApplicationDocumentRef[];
   createdAt: string;
   updatedAt: string;
 };
@@ -129,11 +144,11 @@ export async function getApplication(id: string) {
 }
 
 export async function upsertApplication(
-  input: Omit<ApplicationRecord, "createdAt" | "updatedAt" | "status" | "failureReason"> & {
-    status?: ClientAppStatus | string;
-    failureReason?: string | null;
-    createdAt?: string;
-    updatedAt?: string;
+  input: Partial<ApplicationRecord> & {
+    id: string;
+    loanType: "secured" | "unsecured" | null;
+    amount: number;
+    purpose: string;
   },
 ) {
   const records = await ensureLoaded();
@@ -142,7 +157,7 @@ export async function upsertApplication(
   const failureReason =
     status === "rejected"
       ? input.failureReason?.trim() || "未有提供失敗原因"
-      : null;
+      : input.failureReason ?? null;
 
   const idx = records.findIndex((r) => r.id === input.id);
   if (idx >= 0) {
@@ -150,7 +165,11 @@ export async function upsertApplication(
       ...records[idx],
       ...input,
       status,
-      failureReason,
+      failureReason:
+        status === "rejected"
+          ? failureReason
+          : null,
+      documents: input.documents ?? records[idx].documents ?? [],
       updatedAt: now,
     };
     records[idx] = updated;
@@ -165,14 +184,39 @@ export async function upsertApplication(
     purpose: input.purpose,
     docsPct: input.docsPct,
     bankCount: input.bankCount,
+    customerId: input.customerId ?? null,
+    applicantNameZh: input.applicantNameZh ?? null,
+    companyNameZh: input.companyNameZh ?? null,
+    email: input.email ?? null,
+    phone: input.phone ?? null,
+    documents: input.documents ?? [],
     status,
-    failureReason,
+    failureReason: status === "rejected" ? failureReason : null,
     createdAt: input.createdAt || now,
     updatedAt: now,
   };
   records.unshift(created);
   await persist(records);
   return created;
+}
+
+export async function attachDocumentsToApplication(
+  id: string,
+  docs: ApplicationDocumentRef[],
+) {
+  const records = await ensureLoaded();
+  const idx = records.findIndex((r) => r.id === id);
+  if (idx < 0) return null;
+  const existing = records[idx].documents ?? [];
+  const byId = new Map(existing.map((d) => [d.id, d]));
+  for (const d of docs) byId.set(d.id, d);
+  records[idx] = {
+    ...records[idx],
+    documents: [...byId.values()],
+    updatedAt: new Date().toISOString(),
+  };
+  await persist(records);
+  return records[idx];
 }
 
 export async function updateApplicationStatus(

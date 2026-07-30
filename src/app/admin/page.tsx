@@ -1,39 +1,125 @@
+"use client";
+
+import Link from "next/link";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Button } from "@/components/ui/button";
 import { Card, EmptyState, SectionHeader } from "@/components/ui/layout";
+import {
+  clientAppStatusLabel,
+  clientAppStatusTone,
+  normalizeClientAppStatus,
+} from "@/lib/application-status";
+import { cn, formatDateTime, formatHKD } from "@/lib/utils";
 
-export const dynamic = "force-dynamic";
-export const revalidate = 0;
-
-const adminKpis = [
-  { label: "新申請", value: "0" },
-  { label: "文件分析中", value: "0" },
-  { label: "需要補件", value: "0" },
-  { label: "待人工審核", value: "0" },
-  { label: "已送交貸款機構", value: "0" },
-  { label: "本月批核", value: "0" },
-  { label: "平均處理時間", value: "—" },
-];
+type AdminApp = {
+  id: string;
+  loanType: "secured" | "unsecured" | null;
+  amount: number;
+  purpose: string;
+  status: string;
+  failureReason?: string | null;
+  docsPct?: number;
+  bankCount?: number;
+  customerId?: string | null;
+  applicantNameZh?: string | null;
+  companyNameZh?: string | null;
+  email?: string | null;
+  documents?: Array<{ id: string; fileName: string; kind: string }>;
+  updatedAt: string;
+  createdAt: string;
+};
 
 export default function AdminDashboardPage() {
+  const [apps, setApps] = useState<AdminApp[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [filter, setFilter] = useState("全部");
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/applications", { cache: "no-store" });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "載入失敗");
+      setApps(data.applications ?? []);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "載入失敗");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const filtered = useMemo(() => {
+    return apps.filter((app) => {
+      const status = normalizeClientAppStatus(app.status);
+      if (filter === "有抵押") return app.loanType === "secured";
+      if (filter === "無抵押") return app.loanType === "unsecured";
+      if (filter === "需要補件") return (app.docsPct ?? 0) < 100;
+      if (filter === "審批中") return status === "under_review";
+      if (filter === "成功批核") return status === "approved";
+      if (filter === "申請失敗") return status === "rejected";
+      return true;
+    });
+  }, [apps, filter]);
+
+  const kpis = useMemo(() => {
+    const under = apps.filter(
+      (a) => normalizeClientAppStatus(a.status) === "under_review",
+    ).length;
+    const approved = apps.filter(
+      (a) => normalizeClientAppStatus(a.status) === "approved",
+    ).length;
+    const rejected = apps.filter(
+      (a) => normalizeClientAppStatus(a.status) === "rejected",
+    ).length;
+    const needDocs = apps.filter((a) => (a.docsPct ?? 0) < 100).length;
+    return [
+      { label: "新申請", value: String(apps.length) },
+      { label: "審批中", value: String(under) },
+      { label: "需要補件", value: String(needDocs) },
+      { label: "待人工審核", value: String(under) },
+      { label: "成功批核", value: String(approved) },
+      { label: "申請失敗", value: String(rejected) },
+      { label: "平均處理時間", value: "—" },
+    ];
+  }, [apps]);
+
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-navy-900">案件總覽</h1>
           <p className="mt-1 text-sm text-text-secondary">
-            KPI + 列表 · 僅顯示真實案件
+            即時同步客戶提交申請 · 含文件完整度
           </p>
         </div>
-        <p className="rounded-full bg-teal-100 px-3 py-1 text-xs font-semibold text-teal-800">
-          案件 0 · live
-        </p>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" onClick={() => void load()}>
+            重新整理
+          </Button>
+          <p className="rounded-full bg-teal-100 px-3 py-1 text-xs font-semibold text-teal-800">
+            案件 {apps.length} · live
+          </p>
+        </div>
       </div>
 
+      {error && (
+        <p className="rounded-xl bg-danger-100 px-3 py-2 text-sm text-danger-600">
+          {error}
+        </p>
+      )}
+
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-7">
-        {adminKpis.map((kpi) => (
+        {kpis.map((kpi) => (
           <Card key={kpi.label} className="py-3">
             <p className="text-xs text-text-muted">{kpi.label}</p>
             <p className="mt-1 text-2xl font-semibold tabular text-navy-900">
-              {kpi.value}
+              {loading ? "…" : kpi.value}
             </p>
           </Card>
         ))}
@@ -42,22 +128,28 @@ export default function AdminDashboardPage() {
       <Card>
         <SectionHeader
           title="篩選器"
-          subtitle="貸款類型 · 金額 · 初篩顏色 · 文件狀態 · 負責人 · 日期 · 行業 · 狀態"
+          subtitle="貸款類型 · 文件狀態 · 申請狀態"
         />
         <div className="flex flex-wrap gap-2">
           {[
             "全部",
             "有抵押",
             "無抵押",
-            "綠燈",
-            "黃燈",
-            "紅燈",
             "需要補件",
-            "我的案件",
+            "審批中",
+            "成功批核",
+            "申請失敗",
           ].map((f) => (
             <button
               key={f}
-              className="rounded-full bg-surface-2 px-3 py-1.5 text-xs font-medium text-text-secondary hover:bg-teal-100 hover:text-teal-600"
+              type="button"
+              onClick={() => setFilter(f)}
+              className={cn(
+                "rounded-full px-3 py-1.5 text-xs font-medium transition",
+                filter === f
+                  ? "bg-teal-100 text-teal-600"
+                  : "bg-surface-2 text-text-secondary hover:bg-teal-100 hover:text-teal-600",
+              )}
             >
               {f}
             </button>
@@ -71,15 +163,13 @@ export default function AdminDashboardPage() {
             <tr>
               {[
                 "申請編號",
-                "公司名稱",
+                "公司／申請人",
                 "貸款類型",
                 "申請金額",
-                "AI 初篩",
-                "文件完整度",
-                "負責顧問",
+                "用途",
+                "文件",
                 "目前狀態",
                 "最後更新",
-                "SLA",
               ].map((h) => (
                 <th key={h} className="px-4 py-3 font-medium">
                   {h}
@@ -87,13 +177,90 @@ export default function AdminDashboardPage() {
               ))}
             </tr>
           </thead>
+          <tbody>
+            {filtered.map((app) => {
+              const status = normalizeClientAppStatus(app.status);
+              const docCount = app.documents?.length ?? 0;
+              return (
+                <tr
+                  key={app.id}
+                  className="border-b border-border last:border-0 hover:bg-surface-2/50"
+                >
+                  <td className="px-4 py-3">
+                    <Link
+                      href={
+                        app.customerId
+                          ? `/admin/customers#${app.customerId}`
+                          : `/admin/customers`
+                      }
+                      className="font-medium text-teal-600 hover:underline"
+                    >
+                      {app.id}
+                    </Link>
+                  </td>
+                  <td className="px-4 py-3">
+                    <p className="font-medium text-navy-900">
+                      {app.companyNameZh || "—"}
+                    </p>
+                    <p className="text-xs text-text-muted">
+                      {app.applicantNameZh || app.email || "—"}
+                    </p>
+                  </td>
+                  <td className="px-4 py-3">
+                    {app.loanType === "secured"
+                      ? "有抵押"
+                      : app.loanType === "unsecured"
+                        ? "無抵押"
+                        : "—"}
+                  </td>
+                  <td className="px-4 py-3 tabular">
+                    {formatHKD(app.amount)}
+                  </td>
+                  <td className="max-w-[160px] truncate px-4 py-3 text-text-secondary">
+                    {app.purpose}
+                  </td>
+                  <td className="px-4 py-3 text-xs text-text-secondary">
+                    {app.docsPct ?? 0}%
+                    {docCount > 0 ? ` · ${docCount} 份` : ""}
+                    {typeof app.bankCount === "number"
+                      ? ` · 月結 ${app.bankCount}/6`
+                      : ""}
+                  </td>
+                  <td className="px-4 py-3">
+                    <span
+                      className={cn(
+                        "inline-flex rounded-full px-2.5 py-1 text-xs font-medium",
+                        clientAppStatusTone(status),
+                      )}
+                    >
+                      {clientAppStatusLabel(status)}
+                    </span>
+                    {status === "rejected" && app.failureReason && (
+                      <p className="mt-1 max-w-[180px] text-[11px] text-danger-600">
+                        {app.failureReason}
+                      </p>
+                    )}
+                  </td>
+                  <td className="px-4 py-3 text-xs text-text-secondary">
+                    {formatDateTime(app.updatedAt)}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
         </table>
-        <div className="p-4">
-          <EmptyState
-            title="暫無案件（0）"
-            description="尚未有真實申請進入後台。客戶完成申請後會出現在此列表。"
-          />
-        </div>
+        {!loading && filtered.length === 0 && (
+          <div className="p-4">
+            <EmptyState
+              title={apps.length === 0 ? "暫無案件（0）" : "無符合篩選的案件"}
+              description={
+                apps.length === 0
+                  ? "客戶完成申請後會出現在此列表。"
+                  : "試試其他篩選條件。"
+              }
+            />
+          </div>
+        )}
       </Card>
     </div>
   );

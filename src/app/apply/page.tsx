@@ -88,6 +88,8 @@ export default function ApplyWizardPage() {
   const [draftRestoredAt, setDraftRestoredAt] = useState<string | null>(null);
   const [savingDraft, setSavingDraft] = useState(false);
   const [saveFlash, setSaveFlash] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
   useEffect(() => {
     void (async () => {
@@ -215,12 +217,34 @@ export default function ApplyWizardPage() {
   const next = () => setStep((s) => Math.min(steps.length - 1, s + 1));
   const back = () => setStep((s) => Math.max(0, s - 1));
 
-  function submitApplication() {
-    if (!allConsented) return;
+  async function submitApplication() {
+    if (!allConsented || submitting) return;
+    setSubmitting(true);
+    setSubmitError(null);
     const id = `SLF-${new Date().getFullYear()}-${String(Date.now()).slice(-5)}`;
     const at = new Date().toISOString();
     setApplicationId(id);
     setSubmittedAt(new Date().toLocaleString("zh-HK", { hour12: false }));
+
+    let profile: {
+      email?: string | null;
+      nameZh?: string | null;
+      phone?: string | null;
+    } = {};
+    try {
+      const me = await fetch("/api/auth/me");
+      const meData = await me.json();
+      if (me.ok && meData.user) {
+        profile = {
+          email: meData.user.email ?? null,
+          nameZh: meData.user.nameZh ?? null,
+          phone: meData.user.phone ?? null,
+        };
+      }
+    } catch {
+      /* anon */
+    }
+
     try {
       const prev = JSON.parse(
         sessionStorage.getItem("slf_applications") || "[]",
@@ -247,6 +271,9 @@ export default function ApplyWizardPage() {
         })),
         status: "under_review" as const,
         failureReason: null as string | null,
+        applicantNameZh: profile.nameZh ?? null,
+        email: profile.email ?? null,
+        phone: profile.phone ?? null,
         createdAt: at,
         updatedAt: at,
       };
@@ -254,8 +281,8 @@ export default function ApplyWizardPage() {
         "slf_applications",
         JSON.stringify([record, ...prev]),
       );
-      // 同步後端，方便之後更新為成功批核／申請失敗＋原因
-      void fetch("/api/applications", {
+
+      const appRes = await fetch("/api/applications", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -267,13 +294,63 @@ export default function ApplyWizardPage() {
           bankCount: docsSummary.bankCount,
           status: "under_review",
           failureReason: null,
+          applicantNameZh: profile.nameZh ?? null,
+          email: profile.email ?? null,
+          phone: profile.phone ?? null,
         }),
-      }).catch(() => null);
+      });
+      const appData = await appRes.json().catch(() => ({}));
+      if (!appRes.ok) {
+        throw new Error(appData.message || appData.error || "申請同步失敗");
+      }
+      const customerId =
+        (appData.application?.customerId as string | null | undefined) ?? null;
+
+      // 上載已收集文件 → 後台客戶登記／案件
+      const form = new FormData();
+      if (customerId) form.append("customerId", customerId);
+      const pushFile = (file: File, kind: string, slot: string) => {
+        form.append("files", file, file.name);
+        form.append("kinds", kind);
+        form.append("slots", slot);
+      };
+      if (docs.br?.file) pushFile(docs.br.file, "br", "br");
+      docs.audited.forEach((f, i) => {
+        if (f?.file) pushFile(f.file, "audited", `audited:${i}`);
+      });
+      docs.identity.forEach((f, i) => {
+        if (f?.file) pushFile(f.file, "identity", `identity:${i}`);
+      });
+      docs.companyOther.forEach((f, i) => {
+        if (f?.file) pushFile(f.file, "company_other", `companyOther:${i}`);
+      });
+      for (const [month, meta] of Object.entries(docs.bank)) {
+        if (meta?.file) pushFile(meta.file, "bank", `bank:${month}`);
+      }
+
+      const fileCount = form.getAll("files").length;
+      if (fileCount > 0) {
+        const docRes = await fetch(`/api/applications/${id}/documents`, {
+          method: "POST",
+          body: form,
+        });
+        const docData = await docRes.json().catch(() => ({}));
+        if (!docRes.ok) {
+          throw new Error(
+            docData.message || docData.error || "文件上載失敗，請重試",
+          );
+        }
+      }
+
       clearApplyDraft(userKey);
-    } catch {
-      // ignore
+      setStep(7);
+    } catch (err) {
+      setSubmitError(
+        err instanceof Error ? err.message : "提交失敗，請重試",
+      );
+    } finally {
+      setSubmitting(false);
     }
-    setStep(7);
   }
 
   return (
@@ -715,6 +792,18 @@ export default function ApplyWizardPage() {
                 </label>
               ))}
             </div>
+            {submitError && (
+              <StateBanner
+                tone="error"
+                title="提交未完成"
+                description={submitError}
+              />
+            )}
+            {submitting && (
+              <p className="text-center text-sm text-text-secondary">
+                正在同步後台案件並上載文件，請稍候…
+              </p>
+            )}
           </>
         )}
 
@@ -777,10 +866,10 @@ export default function ApplyWizardPage() {
             {step === 6 ? (
               <Button
                 className="flex-1"
-                disabled={!allConsented}
-                onClick={submitApplication}
+                disabled={!allConsented || submitting}
+                onClick={() => void submitApplication()}
               >
-                提交申請
+                {submitting ? "提交及上載文件中…" : "提交申請"}
               </Button>
             ) : (
               <Button

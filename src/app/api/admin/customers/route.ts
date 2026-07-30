@@ -11,12 +11,72 @@ import { mysqlClearApplicantUsers } from "@/lib/db/auth-mysql";
 import { isMysqlConfigured } from "@/lib/db/mysql";
 import { clearSupabaseApplicantUsers } from "@/lib/supabase/admin";
 import { requireAdminContext } from "@/lib/supabase/context";
+import { listApplications } from "@/lib/applications-registry";
+import {
+  documentKindLabel,
+  listDocuments,
+} from "@/lib/documents-registry";
 import {
   supabaseListCustomers,
   supabaseUpsertCustomer,
 } from "@/lib/supabase/customers";
 
 export const runtime = "nodejs";
+
+async function withDocuments<T extends { id: string; email: string }>(
+  customers: T[],
+) {
+  const [allDocs, apps] = await Promise.all([
+    listDocuments(),
+    listApplications(),
+  ]);
+  const appIdsByCustomer = new Map<string, Set<string>>();
+  for (const app of apps) {
+    const keys: string[] = [];
+    if (app.customerId) keys.push(app.customerId);
+    if (app.email) {
+      const match = customers.find(
+        (c) => c.email.trim().toLowerCase() === app.email!.toLowerCase(),
+      );
+      if (match) keys.push(match.id);
+    }
+    for (const key of keys) {
+      const set = appIdsByCustomer.get(key) ?? new Set<string>();
+      set.add(app.id);
+      appIdsByCustomer.set(key, set);
+    }
+  }
+
+  return customers.map((c) => {
+    const appIds = appIdsByCustomer.get(c.id) ?? new Set<string>();
+    const docs = allDocs.filter(
+      (d) => d.customerId === c.id || appIds.has(d.applicationId),
+    );
+    const seen = new Set<string>();
+    const unique = docs.filter((d) => {
+      if (seen.has(d.id)) return false;
+      seen.add(d.id);
+      return true;
+    });
+    return {
+      ...c,
+      applicationIds: [...appIds],
+      documents: unique.map((d) => ({
+        id: d.id,
+        kind: d.kind,
+        kindLabel: documentKindLabel(d.kind),
+        slot: d.slot,
+        fileName: d.fileName,
+        mimeType: d.mimeType,
+        size: d.size,
+        applicationId: d.applicationId,
+        createdAt: d.createdAt,
+        downloadUrl: `/api/admin/documents?id=${encodeURIComponent(d.id)}`,
+      })),
+      documentCount: unique.length,
+    };
+  });
+}
 
 /** GET /api/admin/customers — 需 Supabase admin session（@supabase/server） */
 export async function GET(req: NextRequest) {
@@ -30,7 +90,9 @@ export async function GET(req: NextRequest) {
 
   const storage = getCustomerStorageMode();
   try {
-    const customers = await supabaseListCustomers(gate.data.supabaseAdmin);
+    const customers = await withDocuments(
+      await supabaseListCustomers(gate.data.supabaseAdmin),
+    );
     return NextResponse.json({
       ok: true,
       count: customers.length,
@@ -39,12 +101,13 @@ export async function GET(req: NextRequest) {
       durable: true,
       authMode: gate.data.authMode,
       backend: "supabase",
-      collectFrom: "POST /api/customers",
-      storageNote: "Supabase Postgres（@supabase/server + RLS／secret）",
+      collectFrom: "POST /api/customers + 申請提交文件",
+      storageNote:
+        "客戶：Supabase Postgres；文件：Supabase Storage（customer-documents）",
     });
   } catch (err) {
     // table / network 問題時回退舊 registry（仍要已通過 admin gate）
-    const customers = await listCustomers();
+    const customers = await withDocuments(await listCustomers());
     return NextResponse.json({
       ok: true,
       count: customers.length,

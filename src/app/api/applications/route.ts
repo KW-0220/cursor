@@ -6,7 +6,11 @@ import {
   updateApplicationStatus,
   upsertApplication,
 } from "@/lib/applications-registry";
-import { CLIENT_APP_STATUSES } from "@/lib/application-status";
+import {
+  CLIENT_APP_STATUSES,
+  normalizeClientAppStatus,
+} from "@/lib/application-status";
+import { getCustomerByEmail } from "@/lib/customer-registry";
 
 export const runtime = "nodejs";
 
@@ -19,6 +23,11 @@ const upsertSchema = z.object({
   bankCount: z.number().optional(),
   status: z.string().optional(),
   failureReason: z.string().nullable().optional(),
+  customerId: z.string().nullable().optional(),
+  applicantNameZh: z.string().nullable().optional(),
+  companyNameZh: z.string().nullable().optional(),
+  email: z.string().nullable().optional(),
+  phone: z.string().nullable().optional(),
 });
 
 const patchSchema = z.object({
@@ -54,7 +63,7 @@ export async function GET(req: NextRequest) {
   });
 }
 
-/** POST — 提交／同步申請（預設審批中） */
+/** POST — 提交／同步申請（預設審批中）；可帶客戶資料 */
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
@@ -65,9 +74,33 @@ export async function POST(req: NextRequest) {
         { status: 400 },
       );
     }
+
+    let customerId = parsed.data.customerId ?? null;
+    let companyNameZh = parsed.data.companyNameZh ?? null;
+    let applicantNameZh = parsed.data.applicantNameZh ?? null;
+    const email = parsed.data.email?.trim().toLowerCase() || null;
+
+    if (email && !customerId) {
+      try {
+        const customer = await getCustomerByEmail(email);
+        if (customer) {
+          customerId = customer.id;
+          companyNameZh = companyNameZh || customer.companyNameZh;
+          applicantNameZh = applicantNameZh || customer.applicantNameZh;
+        }
+      } catch {
+        /* ignore */
+      }
+    }
+
     const application = await upsertApplication({
       ...parsed.data,
-      status: parsed.data.status || "under_review",
+      customerId,
+      companyNameZh,
+      applicantNameZh,
+      email,
+      phone: parsed.data.phone ?? null,
+      status: normalizeClientAppStatus(parsed.data.status || "under_review"),
     });
     return NextResponse.json({ ok: true, application });
   } catch (err) {

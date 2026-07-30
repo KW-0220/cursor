@@ -13,6 +13,7 @@ import { isMysqlConfigured } from "@/lib/db/mysql";
 import {
   supabaseClearCustomers,
   supabaseCustomersReady,
+  supabaseFindCustomerByEmail,
   supabaseListCustomers,
   supabaseUpsertCustomer,
 } from "@/lib/supabase/customers";
@@ -224,6 +225,24 @@ export async function getCustomer(id: string) {
   }
   const records = await ensureLoaded();
   return records.find((r) => r.id === id) ?? null;
+}
+
+export async function getCustomerByEmail(email: string) {
+  const key = email.trim().toLowerCase();
+  if (!key) return null;
+  if (customersPreferSupabase()) {
+    try {
+      if (await supabaseCustomersReady()) {
+        return supabaseFindCustomerByEmail(key);
+      }
+    } catch (err) {
+      console.error("[customers] supabase findByEmail failed", err);
+    }
+  }
+  const all = await listCustomers();
+  return (
+    all.find((r) => r.email.trim().toLowerCase() === key) ?? null
+  );
 }
 
 export type ClearCustomersResult = {

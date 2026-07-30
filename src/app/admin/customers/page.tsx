@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Download, RefreshCw, Search } from "lucide-react";
+import { Download, FileText, RefreshCw, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/field";
 import {
@@ -10,6 +10,19 @@ import {
   SectionHeader,
   StateBanner,
 } from "@/components/ui/layout";
+
+type CustomerDoc = {
+  id: string;
+  kind: string;
+  kindLabel: string;
+  slot: string;
+  fileName: string;
+  mimeType: string;
+  size: number;
+  applicationId: string;
+  createdAt: string;
+  downloadUrl: string;
+};
 
 type Customer = {
   id: string;
@@ -35,11 +48,20 @@ type Customer = {
   notes?: string | null;
   createdAt: string;
   updatedAt: string;
+  documents?: CustomerDoc[];
+  documentCount?: number;
+  applicationIds?: string[];
 };
 
 function maskId(v: string) {
   if (v.length < 5) return v;
   return `${v.slice(0, 1)}***${v.slice(-3)}`;
+}
+
+function formatSize(n: number) {
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  return `${(n / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 export default function AdminCustomersPage() {
@@ -52,6 +74,7 @@ export default function AdminCustomersPage() {
   const [durable, setDurable] = useState(false);
   const [collectFrom, setCollectFrom] = useState("");
   const [wiping, setWiping] = useState(false);
+  const [expanded, setExpanded] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -74,6 +97,8 @@ export default function AdminCustomersPage() {
 
   useEffect(() => {
     void load();
+    const hash = window.location.hash.replace(/^#/, "");
+    if (hash) setExpanded(hash);
   }, [load]);
 
   async function wipeAll() {
@@ -109,6 +134,7 @@ export default function AdminCustomersPage() {
       c.brNumber,
       c.email,
       c.phone,
+      ...(c.applicationIds ?? []),
     ]
       .join(" ")
       .toLowerCase()
@@ -121,7 +147,7 @@ export default function AdminCustomersPage() {
         <div>
           <h1 className="text-2xl font-semibold text-navy-900">客戶登記資料庫</h1>
           <p className="mt-1 text-sm text-text-secondary">
-            儲存申請人／公司登記資料，可匯出 Excel（.xlsx）
+            登記資料 + 申請時收集的文件（可下載）
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -157,7 +183,7 @@ export default function AdminCustomersPage() {
             ? `已接持久儲存（${storage}）`
             : "尚未接 MySQL／Redis——前端寫入可能喺 Vercel 唔耐久"
         }
-        description={`前端收集：${collectFrom || "POST /api/customers"}（/register/identity → /register/company）。儲存：${storageNote || storage || "—"}。正式環境請設 MYSQL_* 或 UPSTASH_REDIS_REST_*。`}
+        description={`客戶登記：${collectFrom || "POST /api/customers"}。文件於申請提交時上載至 Storage。${storageNote || ""}`}
       />
 
       <Card className="flex flex-wrap items-center gap-3">
@@ -165,7 +191,7 @@ export default function AdminCustomersPage() {
           <Search className="size-4 text-text-muted" />
           <Input
             className="border-0 bg-transparent px-0 shadow-none focus:ring-0"
-            placeholder="搜尋編號／姓名／公司／BR／電郵／電話"
+            placeholder="搜尋編號／姓名／公司／BR／電郵／申請編號"
             value={q}
             onChange={(e) => setQ(e.target.value)}
           />
@@ -177,65 +203,103 @@ export default function AdminCustomersPage() {
         </p>
       </Card>
 
-      <SectionHeader title="登記列表" subtitle="身份證號碼於列表遮罩；Excel 含完整欄位供後台使用" />
+      <SectionHeader
+        title="登記列表"
+        subtitle="展開可查看已收集文件；點檔名下載"
+      />
 
-      <Card className="overflow-x-auto p-0">
-        <table className="w-full min-w-[960px] text-left text-sm">
-          <thead className="bg-surface-2 text-xs text-text-muted">
-            <tr>
-              <th className="px-4 py-3 font-medium">編號</th>
-              <th className="px-4 py-3 font-medium">申請人</th>
-              <th className="px-4 py-3 font-medium">公司</th>
-              <th className="px-4 py-3 font-medium">BR</th>
-              <th className="px-4 py-3 font-medium">聯絡</th>
-              <th className="px-4 py-3 font-medium">登記時間</th>
-              <th className="px-4 py-3 font-medium">來源</th>
-            </tr>
-          </thead>
-          <tbody>
-            {filtered.map((c) => (
-              <tr key={c.id} className="border-t border-border/70">
-                <td className="px-4 py-3 font-mono text-xs text-navy-900">
-                  {c.id}
-                </td>
-                <td className="px-4 py-3">
-                  <p className="font-medium text-navy-900">{c.applicantNameZh}</p>
-                  <p className="text-xs text-text-muted">
-                    {c.relation} · {maskId(c.idNumber)}
+      <div className="space-y-3">
+        {filtered.map((c) => {
+          const open = expanded === c.id;
+          const docs = c.documents ?? [];
+          return (
+            <div key={c.id} id={c.id}>
+            <Card className="space-y-3">
+              <button
+                type="button"
+                className="flex w-full flex-wrap items-start justify-between gap-3 text-left"
+                onClick={() => setExpanded(open ? null : c.id)}
+              >
+                <div>
+                  <p className="font-mono text-xs text-text-muted">{c.id}</p>
+                  <p className="mt-1 font-semibold text-navy-900">
+                    {c.companyNameZh}
                   </p>
-                </td>
-                <td className="px-4 py-3">
-                  <p className="font-medium text-navy-900">{c.companyNameZh}</p>
-                  <p className="text-xs text-text-muted">{c.industry}</p>
-                </td>
-                <td className="px-4 py-3 tabular">{c.brNumber}</td>
-                <td className="px-4 py-3">
-                  <p className="text-xs">{c.phone}</p>
-                  <p className="text-xs text-text-muted">{c.email}</p>
-                </td>
-                <td className="px-4 py-3 text-xs text-text-secondary">
-                  {new Date(c.createdAt).toLocaleString("zh-HK")}
-                </td>
-                <td className="px-4 py-3 text-xs">{c.source ?? "—"}</td>
-              </tr>
-            ))}
-            {!loading && filtered.length === 0 && (
-              <tr>
-                <td
-                  colSpan={7}
-                  className="px-4 py-10 text-center text-sm text-text-muted"
-                >
-                  未有符合的客戶紀錄
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </Card>
+                  <p className="text-sm text-text-secondary">
+                    {c.applicantNameZh} · {c.relation} · {maskId(c.idNumber)}
+                  </p>
+                  <p className="mt-1 text-xs text-text-muted">
+                    {c.email} · {c.phone} · BR {c.brNumber}
+                  </p>
+                </div>
+                <div className="text-right">
+                  <p className="inline-flex items-center gap-1 rounded-full bg-teal-100 px-2.5 py-1 text-xs font-medium text-teal-800">
+                    <FileText className="size-3.5" />
+                    文件 {c.documentCount ?? docs.length}
+                  </p>
+                  <p className="mt-2 text-xs text-text-muted">
+                    {open ? "收起" : "展開文件"}
+                  </p>
+                </div>
+              </button>
+
+              {open && (
+                <div className="border-t border-border pt-3">
+                  <p className="mb-2 text-xs font-medium text-text-muted">
+                    已收集文件（存放於此）
+                    {(c.applicationIds?.length ?? 0) > 0
+                      ? ` · 申請 ${c.applicationIds!.join("、")}`
+                      : ""}
+                  </p>
+                  {docs.length === 0 ? (
+                    <p className="text-sm text-text-muted">
+                      尚未有上載文件。客戶完成申請並提交後會顯示於此。
+                    </p>
+                  ) : (
+                    <ul className="space-y-2">
+                      {docs.map((d) => (
+                        <li
+                          key={d.id}
+                          className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-surface-2 px-3 py-2 text-sm"
+                        >
+                          <div>
+                            <p className="font-medium text-navy-900">
+                              {d.kindLabel}
+                              <span className="ml-2 text-xs font-normal text-text-muted">
+                                {d.slot}
+                              </span>
+                            </p>
+                            <p className="text-xs text-text-secondary">
+                              {d.fileName} · {formatSize(d.size)} ·{" "}
+                              {d.applicationId}
+                            </p>
+                          </div>
+                          <a href={d.downloadUrl}>
+                            <Button size="sm" variant="outline">
+                              <Download className="mr-1 size-3.5" />
+                              下載
+                            </Button>
+                          </a>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              )}
+            </Card>
+            </div>
+          );
+        })}
+        {!loading && filtered.length === 0 && (
+          <Card className="py-10 text-center text-sm text-text-muted">
+            未有符合的客戶紀錄
+          </Card>
+        )}
+      </div>
 
       <Disclaimer>
         {storageNote ||
-          "客戶資料屬敏感個人資料，下載 Excel 須按角色權限及審計要求處理。正式環境建議接專用資料庫／CRM，並啟用存取紀錄。"}
+          "客戶資料及上載文件屬敏感個人資料，下載須按角色權限及審計要求處理。"}
       </Disclaimer>
     </main>
   );
