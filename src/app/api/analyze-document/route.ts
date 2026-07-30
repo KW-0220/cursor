@@ -166,7 +166,7 @@ export async function POST(req: NextRequest) {
     const textPreview = plainText.slice(0, 1200);
     const hasVision = Boolean(imageUrls.length || imageUrl);
 
-    /** —— 銀行月結：現金流 6 大項 —— */
+    /** —— 銀行月結：現金流 6 大項（Gemini API） —— */
     if (docKind === "bank") {
       const bankUser = buildBankStatementUserText({
         fileName: manusFileName,
@@ -174,45 +174,69 @@ export async function POST(req: NextRequest) {
         companyNameHint,
         pastedText: plainText,
       });
-      const manus = await manusRespond({
-        system: BANK_STATEMENT_SYSTEM_PROMPT,
-        userText: hasVision
-          ? `${bankUser}\n\n（已附月結頁面影像，請一併辨識結餘／進帳／異常。）`
-          : bankUser,
-        imageUrl,
-        imageUrls,
-        maxWaitMs: 50_000,
-        pollMs: 1500,
-      });
+      const bankPrompt = hasVision
+        ? `${bankUser}\n\n（已附月結頁面影像，請一併辨識結餘／進帳／異常。）`
+        : bankUser;
 
-      let parsedJson: unknown;
-      try {
-        parsedJson = parseModelJsonObject(manus.text);
-      } catch {
-        return NextResponse.json(
-          {
-            error: "INVALID_MODEL_JSON",
-            message: "銀行月結模型回傳格式不符，請重試",
+      async function runBankExtract(userText: string) {
+        const manus = await manusRespond({
+          system: BANK_STATEMENT_SYSTEM_PROMPT,
+          userText,
+          imageUrl,
+          imageUrls,
+          maxWaitMs: 50_000,
+          pollMs: 1500,
+          jsonMode: true,
+          temperature: 0.1,
+          maxOutputTokens: 4096,
+        });
+        let parsedJson: unknown;
+        try {
+          parsedJson = parseModelJsonObject(manus.text);
+        } catch {
+          return {
+            ok: false as const,
+            manus,
+            error: "JSON_PARSE",
             detail: manus.text.slice(0, 500),
-          },
-          { status: 502 },
+          };
+        }
+        const parsed = parseBankStatementExtract(parsedJson, statementMonth);
+        if (!parsed.ok) {
+          return {
+            ok: false as const,
+            manus,
+            error: parsed.error,
+            detail: manus.text.slice(0, 500),
+          };
+        }
+        return { ok: true as const, manus, data: parsed.data };
+      }
+
+      let bankResult = await runBankExtract(bankPrompt);
+      // 格式不符自動再試一次：要求簡化 daily_balances
+      if (!bankResult.ok) {
+        bankResult = await runBankExtract(
+          `${bankPrompt}\n\n【重試】上一次 JSON 未能通過驗證（${bankResult.error}）。請重新輸出完整銀行月結 JSON；daily_balances 若唔肯定請填 []，金額用純數字。`,
         );
       }
 
-      const parsed = parseBankStatementExtract(parsedJson, statementMonth);
-      if (!parsed.ok) {
+      if (!bankResult.ok) {
         return NextResponse.json(
           {
             error: "INVALID_MODEL_JSON",
             message: "銀行月結模型回傳格式不符，請重試",
-            detail: parsed.error,
-            rawPreview: manus.text.slice(0, 500),
+            detail: bankResult.error,
+            rawPreview: bankResult.detail,
+            provider: getLlmProvider(),
+            model: bankResult.manus.model || model,
           },
           { status: 502 },
         );
       }
 
-      const bankExtract = parsed.data;
+      const manus = bankResult.manus;
+      const bankExtract = bankResult.data;
       const extract = bankExtractToFinancial(bankExtract);
 
       if (rawOnly) {
@@ -278,6 +302,8 @@ export async function POST(req: NextRequest) {
           : brUser,
         imageUrl,
         imageUrls,
+        jsonMode: true,
+        temperature: 0.1,
         maxWaitMs: 50_000,
         pollMs: 1500,
       });
@@ -376,6 +402,8 @@ export async function POST(req: NextRequest) {
           : auditedUser,
         imageUrl,
         imageUrls,
+        jsonMode: true,
+        temperature: 0.1,
         maxWaitMs: 90_000,
         pollMs: 2000,
       });
@@ -478,6 +506,8 @@ export async function POST(req: NextRequest) {
           : nar1User,
         imageUrl,
         imageUrls,
+        jsonMode: true,
+        temperature: 0.1,
         maxWaitMs: 50_000,
         pollMs: 1500,
       });
@@ -586,7 +616,9 @@ export async function POST(req: NextRequest) {
         : userText,
       imageUrl,
       imageUrls,
-      maxWaitMs: 50_000,
+      jsonMode: true,
+        temperature: 0.1,
+        maxWaitMs: 50_000,
       pollMs: 1500,
     });
 

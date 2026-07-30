@@ -180,7 +180,8 @@ function toGeminiContents(
   }
 
   const last = contents[contents.length - 1];
-  const images = [...new Set(imageUrls)].slice(0, 3);
+  // 銀行月結／審計最多帶 4 頁；再多會令 Gemini request 過大
+  const images = [...new Set(imageUrls)].slice(0, 4);
   const imageParts: GeminiPart[] = [];
   for (const url of images) {
     const parsed = parseDataUrl(url);
@@ -224,14 +225,20 @@ async function geminiGenerateContentOnce(params: {
   contents: Array<{ role: "user" | "model"; parts: GeminiPart[] }>;
   maxOutputTokens?: number;
   temperature?: number;
+  /** 文件抽取請開 json，減少 markdown fence／格式漂移 */
+  jsonMode?: boolean;
 }): Promise<{ text: string; model: string; id: string; status: string }> {
   const model = params.model.replace(/^models\//, "");
+  const generationConfig: Record<string, unknown> = {
+    temperature: params.temperature ?? 0.4,
+    maxOutputTokens: params.maxOutputTokens ?? 8192,
+  };
+  if (params.jsonMode) {
+    generationConfig.responseMimeType = "application/json";
+  }
   const body: Record<string, unknown> = {
     contents: params.contents,
-    generationConfig: {
-      temperature: params.temperature ?? 0.4,
-      maxOutputTokens: params.maxOutputTokens ?? 8192,
-    },
+    generationConfig,
   };
   if (params.system?.trim()) {
     body.systemInstruction = {
@@ -300,6 +307,7 @@ async function geminiGenerateContent(params: {
   history?: ChatTurn[];
   maxOutputTokens?: number;
   temperature?: number;
+  jsonMode?: boolean;
 }): Promise<{ text: string; model: string; id: string; status: string }> {
   const apiKey = resolveGeminiApiKey();
   if (!apiKey) throw new Error("MISSING_GEMINI_API_KEY");
@@ -313,26 +321,36 @@ async function geminiGenerateContent(params: {
 
   const models = geminiFallbackModels(geminiModelId());
   let lastErr: Error | null = null;
+  // jsonMode 唔支援時自動降級再試
+  const jsonModes =
+    params.jsonMode === false ? [false] : [true, false];
 
   for (const model of models) {
-    try {
-      return await geminiGenerateContentOnce({
-        apiKey,
-        model,
-        system: params.system,
-        contents,
-        maxOutputTokens: params.maxOutputTokens,
-        temperature: params.temperature,
-      });
-    } catch (e) {
-      lastErr = e instanceof Error ? e : new Error(String(e));
-      const retryable =
-        (e as { retryable?: boolean })?.retryable === true ||
-        /GEMINI_QUOTA|high demand|EMPTY_MODEL|not found|no longer available|GEMINI_HTTP_5/i.test(
-          lastErr.message,
+    for (const jsonMode of jsonModes) {
+      try {
+        return await geminiGenerateContentOnce({
+          apiKey,
+          model,
+          system: params.system,
+          contents,
+          maxOutputTokens: params.maxOutputTokens,
+          temperature: params.temperature,
+          jsonMode,
+        });
+      } catch (e) {
+        lastErr = e instanceof Error ? e : new Error(String(e));
+        const msg = lastErr.message;
+        const retryable =
+          (e as { retryable?: boolean })?.retryable === true ||
+          /GEMINI_QUOTA|high demand|EMPTY_MODEL|not found|no longer available|GEMINI_HTTP_5|invalid argument|responseMimeType/i.test(
+            msg,
+          );
+        if (!retryable) throw lastErr;
+        console.warn(
+          `[gemini] ${model} jsonMode=${jsonMode} failed:`,
+          msg,
         );
-      if (!retryable) throw lastErr;
-      console.warn(`[gemini] ${model} failed, trying fallback:`, lastErr.message);
+      }
     }
   }
 
@@ -360,6 +378,8 @@ export async function manusRespond(params: {
   maxWaitMs?: number;
   maxOutputTokens?: number;
   temperature?: number;
+  /** 文件／結構化抽取請傳 true（Gemini responseMimeType=application/json） */
+  jsonMode?: boolean;
 }): Promise<{ text: string; model: string; id: string; status: string }> {
   const imageUrls = [
     ...(params.imageUrls ?? []),
@@ -374,6 +394,7 @@ export async function manusRespond(params: {
       history: params.history,
       maxOutputTokens: params.maxOutputTokens,
       temperature: params.temperature,
+      jsonMode: params.jsonMode === true,
     });
   }
 
@@ -397,7 +418,7 @@ export async function manusRespond(params: {
         .join("\n\n"),
     },
   ];
-  for (const image_url of [...new Set(imageUrls)].slice(0, 3)) {
+  for (const image_url of [...new Set(imageUrls)].slice(0, 4)) {
     content.push({ type: "input_image", image_url });
   }
 

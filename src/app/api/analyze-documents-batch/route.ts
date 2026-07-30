@@ -157,6 +157,8 @@ export async function POST(req: NextRequest) {
           parts,
         }),
         imageUrls,
+        jsonMode: true,
+        temperature: 0.1,
         maxWaitMs: 100_000,
         pollMs: 2000,
       });
@@ -264,6 +266,8 @@ export async function POST(req: NextRequest) {
         system: AUDITED_EXTRACT_SYSTEM_PROMPT,
         userText: buildAuditedBatchUserText({ companyNameHint, parts }),
         imageUrls,
+        jsonMode: true,
+        temperature: 0.1,
         maxWaitMs: 100_000,
         pollMs: 2000,
       });

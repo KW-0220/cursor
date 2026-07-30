@@ -55,11 +55,82 @@ const DailyBalanceSchema = z
   })
   .passthrough();
 
-function looseArray<T extends z.ZodTypeAny>(item: T) {
-  return z
-    .union([z.array(item), z.null(), z.undefined()])
-    .transform((v) => (Array.isArray(v) ? v : []));
+function parseLooseNumber(v: unknown): number | null {
+  if (v == null || v === "") return null;
+  if (typeof v === "number") return Number.isFinite(v) ? v : null;
+  const n = Number(String(v).replace(/[,$\s]|HKD|hkd/gi, ""));
+  return Number.isFinite(n) ? n : null;
 }
+
+/** Gemini 常回 number[]／{balance}／{date:bal} map — 一律正規化 */
+function coerceDailyBalanceItem(
+  item: unknown,
+): { date: string; balance_hkd: number } | null {
+  if (item == null) return null;
+  if (typeof item === "number" || typeof item === "string") {
+    const n = parseLooseNumber(item);
+    if (n == null) return null;
+    return { date: "", balance_hkd: n };
+  }
+  if (typeof item !== "object") return null;
+  if (Array.isArray(item)) {
+    // ["2026-01-01", 12000] 或 [12000]
+    if (item.length >= 2 && typeof item[0] === "string") {
+      const bal = parseLooseNumber(item[1]);
+      if (bal == null) return null;
+      return { date: String(item[0]), balance_hkd: bal };
+    }
+    const bal = parseLooseNumber(item[0]);
+    if (bal == null) return null;
+    return { date: "", balance_hkd: bal };
+  }
+  const o = item as Record<string, unknown>;
+  const date = String(
+    o.date ?? o.Date ?? o.day ?? o.statement_date ?? o.as_of ?? "",
+  );
+  const bal = parseLooseNumber(
+    o.balance_hkd ??
+      o.balanceHkd ??
+      o.balance ??
+      o.closing_balance ??
+      o.closingBalance ??
+      o.amount_hkd ??
+      o.amount ??
+      o.value ??
+      o.ledger_balance,
+  );
+  if (bal == null) return null;
+  return { date, balance_hkd: bal };
+}
+
+function normalizeDailyBalancesInput(v: unknown): unknown[] {
+  if (v == null) return [];
+  if (Array.isArray(v)) {
+    return v
+      .map(coerceDailyBalanceItem)
+      .filter((x): x is { date: string; balance_hkd: number } => x != null);
+  }
+  // { "2026-01-01": 1000, "2026-01-02": 1100 }
+  if (typeof v === "object") {
+    return Object.entries(v as Record<string, unknown>)
+      .map(([date, balance]) => coerceDailyBalanceItem({ date, balance_hkd: balance }))
+      .filter((x): x is { date: string; balance_hkd: number } => x != null);
+  }
+  return [];
+}
+
+function looseArray<T extends z.ZodTypeAny>(item: T) {
+  return z.preprocess((v) => {
+    if (v == null) return [];
+    if (!Array.isArray(v)) return [];
+    return v;
+  }, z.array(item).catch([]));
+}
+
+const DailyBalancesField = z.preprocess(
+  normalizeDailyBalancesInput,
+  z.array(DailyBalanceSchema).catch([]),
+);
 
 export const BankStatementExtractSchema = z
   .object({
@@ -79,20 +150,26 @@ export const BankStatementExtractSchema = z
     net_cashflow: looseNum,
     credit_sources: looseArray(CreditSourceSchema),
     anomalies: looseArray(AnomalySchema),
-    daily_balances: looseArray(DailyBalanceSchema),
+    daily_balances: DailyBalancesField,
     cashflow_summary: looseStr,
     repayment_capacity: z
-      .union([
-        z
-          .object({
-            assessment: looseStr,
-            notes: looseStr,
-          })
-          .passthrough(),
-        z.null(),
-        z.undefined(),
-      ])
-      .transform((v) => v ?? null),
+      .preprocess((v) => {
+        if (v == null || v === "") return null;
+        if (typeof v === "string") {
+          return { assessment: v, notes: null };
+        }
+        return v;
+      }, z
+        .union([
+          z
+            .object({
+              assessment: looseStr,
+              notes: looseStr,
+            })
+            .passthrough(),
+          z.null(),
+        ])
+        .catch(null)),
   })
   .passthrough();
 
@@ -120,14 +197,14 @@ JSON 欄位（金額用純數字）：
   "net_cashflow": number|null,
   "credit_sources": [{"source":string,"total_hkd":number|null,"count":number|null,"frequency":string|null}],
   "anomalies": [{"kind":string|null,"date":string|null,"description":string,"amount_hkd":number|null}],
-  "daily_balances": [],
+  "daily_balances": [{"date":"YYYY-MM-DD","balance_hkd":number}],
   "cashflow_summary": string|null,
   "repayment_capacity": {"assessment":"adequate"|"tight"|"weak"|"unknown","notes":string|null}
 }
 
 重點：
 1) 現金流：只抽取文件上的 total_credits／total_debits；net_cashflow 由系統公式重算（credits−debits），你可填 null
-2) 結餘：opening_balance／closing_balance；若可見日結餘請填 daily_balances。average_daily_balance／min_daily_balance 由系統用日結餘公式重算，無日結餘則可填文件列示值或 null——勿自行估算
+2) 結餘：opening_balance／closing_balance；若可見日結餘請填 daily_balances（物件陣列，欄位 date + balance_hkd）。看不到日結餘就填 []，切勿用字串或其他結構。average_daily_balance／min_daily_balance 由系統重算，無日結餘則可填文件列示值或 null——勿自行估算
 3) 營業進帳 operating_credits：只填可合理歸類為營業相關入賬；唔好估；唔確定就 null
 4) 來源頻率：credit_sources 最多 6 個；credit_count／credit_days
 5) 異常：退票／自動轉帳失敗／透支 → anomalies，無則 []
@@ -320,57 +397,126 @@ export function toBankStatementExtract(
   return applyHardcodedBankFormulas(merged);
 }
 
+/** 抽出可能包喺 wrapper 入面嘅銀行 JSON */
+function unwrapBankPayload(raw: unknown): unknown {
+  if (!raw || typeof raw !== "object") return raw;
+  const o = raw as Record<string, unknown>;
+  if (o.statement && typeof o.statement === "object") return o.statement;
+  if (o.bank_statement && typeof o.bank_statement === "object") {
+    return o.bank_statement;
+  }
+  if (o.data && typeof o.data === "object" && !Array.isArray(o.data)) {
+    return o.data;
+  }
+  // { statements: [ one ] } → 取第一份
+  if (Array.isArray(o.statements) && o.statements.length === 1) {
+    return o.statements[0];
+  }
+  return raw;
+}
+
 /** 寬鬆解析：接受銀行 schema 或誤回嘅 financial schema */
 export function parseBankStatementExtract(
   raw: unknown,
   monthHint?: string,
 ): { ok: true; data: BankStatementExtract } | { ok: false; error: string } {
-  const parsed = BankStatementExtractSchema.safeParse(raw);
-  if (parsed.success) {
-    return {
-      ok: true,
-      data: toBankStatementExtract(parsed.data, monthHint),
-    };
-  }
+  const candidates = [raw, unwrapBankPayload(raw)];
 
-  // Manus 有時誤回舊 financial JSON
-  if (raw && typeof raw === "object") {
-    const o = raw as Record<string, unknown>;
-    const looksFinancial =
-      "revenue" in o || "EBITDA" in o || "company_name" in o;
-    const looksBank =
-      "total_credits" in o ||
-      "opening_balance" in o ||
-      "operating_credits" in o;
-
-    if (looksFinancial && !looksBank) {
-      // 禁止把審計 revenue 映射成月結存入——會嚴重扭曲營業額／ADB
-      return {
-        ok: false,
-        error:
-          "模型回傳財務報表格式（revenue／EBITDA），而非銀行月結現金流。請重試或改上清晰月結 PDF。",
-      };
-    }
-
-    // 部分欄位 salvage
-    const salvage = BankStatementExtractSchema.safeParse({
-      ...emptyBankStatementExtract(monthHint),
-      ...(o as object),
-    });
-    if (salvage.success) {
+  for (const candidate of candidates) {
+    const parsed = BankStatementExtractSchema.safeParse(candidate);
+    if (parsed.success) {
       return {
         ok: true,
-        data: toBankStatementExtract(salvage.data, monthHint),
+        data: toBankStatementExtract(parsed.data, monthHint),
       };
     }
   }
 
+  // Gemini 有時誤回舊 financial JSON
+  if (raw && typeof raw === "object") {
+    const o = unwrapBankPayload(raw) as Record<string, unknown>;
+    if (o && typeof o === "object") {
+      const looksFinancial =
+        "revenue" in o || "EBITDA" in o || "company_name" in o;
+      const looksBank =
+        "total_credits" in o ||
+        "opening_balance" in o ||
+        "closing_balance" in o ||
+        "operating_credits" in o ||
+        "daily_balances" in o;
+
+      if (looksFinancial && !looksBank) {
+        return {
+          ok: false,
+          error:
+            "模型回傳財務報表格式（revenue／EBITDA），而非銀行月結現金流。請重試或改上清晰月結 PDF。",
+        };
+      }
+
+      // 強制清掉易爆陣列再 salvage
+      const soft = {
+        ...emptyBankStatementExtract(monthHint),
+        ...o,
+        credit_sources: Array.isArray(o.credit_sources)
+          ? o.credit_sources
+          : [],
+        anomalies: Array.isArray(o.anomalies) ? o.anomalies : [],
+        daily_balances: normalizeDailyBalancesInput(o.daily_balances),
+      };
+      const salvage = BankStatementExtractSchema.safeParse(soft);
+      if (salvage.success) {
+        return {
+          ok: true,
+          data: toBankStatementExtract(salvage.data, monthHint),
+        };
+      }
+
+      // 最後兜底：只保留金額欄，daily_balances 清空
+      const minimal = BankStatementExtractSchema.safeParse({
+        ...emptyBankStatementExtract(monthHint),
+        month: o.month ?? monthHint ?? null,
+        bank_name: o.bank_name ?? null,
+        account_holder: o.account_holder ?? null,
+        account_last4: o.account_last4 ?? null,
+        opening_balance: o.opening_balance ?? null,
+        closing_balance: o.closing_balance ?? null,
+        average_daily_balance: o.average_daily_balance ?? null,
+        min_daily_balance: o.min_daily_balance ?? null,
+        total_credits: o.total_credits ?? null,
+        total_debits: o.total_debits ?? null,
+        operating_credits: o.operating_credits ?? null,
+        credit_count: o.credit_count ?? null,
+        credit_days: o.credit_days ?? null,
+        cashflow_summary:
+          typeof o.cashflow_summary === "string" ? o.cashflow_summary : null,
+        daily_balances: [],
+        credit_sources: [],
+        anomalies: [],
+      });
+      if (minimal.success) {
+        const hasAmount =
+          minimal.data.total_credits != null ||
+          minimal.data.opening_balance != null ||
+          minimal.data.closing_balance != null;
+        if (hasAmount) {
+          return {
+            ok: true,
+            data: toBankStatementExtract(minimal.data, monthHint),
+          };
+        }
+      }
+    }
+  }
+
+  const parsed = BankStatementExtractSchema.safeParse(raw);
   return {
     ok: false,
-    error: parsed.error.issues
-      .slice(0, 3)
-      .map((i) => `${i.path.join(".")}: ${i.message}`)
-      .join("; "),
+    error: parsed.success
+      ? "BANK_PARSE_FAILED"
+      : parsed.error.issues
+          .slice(0, 3)
+          .map((i) => `${i.path.join(".")}: ${i.message}`)
+          .join("; "),
   };
 }
 

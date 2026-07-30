@@ -347,7 +347,7 @@ export async function extractDocumentText(params: {
         : docKind === "nar1"
           ? 3
           : docKind === "bank"
-            ? 3
+            ? 4
             : 1;
     try {
       let pageNumbers: number[] | undefined;
