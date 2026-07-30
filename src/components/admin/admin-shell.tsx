@@ -13,14 +13,12 @@ import {
   ClipboardList,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
 
 const nav = [
   { href: "/admin", label: "案件總覽", icon: LayoutDashboard },
   { href: "/admin/customers", label: "客戶登記資料庫", icon: Database },
-  { href: "/admin/cases/SLF-2026-00482", label: "財務簡報示範", icon: FileSearch },
-  { href: "/admin/leads/SLF-2026-00482", label: "Lead 預審轉介", icon: Bot },
-  { href: "/admin/policy/SLF-2026-00482", label: "政策核對（十項）", icon: ClipboardList },
   { href: "/admin/cashflow-rules", label: "現金流審批規則", icon: Settings2 },
   { href: "/admin/ai-analyze", label: "AI 文件分析", icon: Bot },
   { href: "/admin/supplements", label: "補件管理", icon: ClipboardList },
@@ -42,14 +40,18 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     void (async () => {
       try {
-        const res = await fetch("/api/auth/me");
-        const data = await res.json();
-        if (!res.ok || !data.user || data.user.role !== "admin") {
+        const supabase = createClient();
+        const { data, error } = await supabase.auth.getUser();
+        const user = data.user;
+        const role = user?.app_metadata?.role;
+        if (error || !user || role !== "admin") {
           router.replace("/auth/login");
           return;
         }
-        setAdminEmail(data.user.email);
-        setAdminName(data.user.nameZh);
+        setAdminEmail(user.email ?? null);
+        setAdminName(
+          (user.user_metadata?.nameZh as string | undefined) || "系統管理員",
+        );
         setChecking(false);
       } catch {
         router.replace("/auth/login");
@@ -58,7 +60,13 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
   }, [router]);
 
   async function logout() {
-    await fetch("/api/auth/me", { method: "DELETE" });
+    try {
+      const supabase = createClient();
+      await supabase.auth.signOut();
+    } catch {
+      /* ignore */
+    }
+    await fetch("/api/auth/me", { method: "DELETE" }).catch(() => null);
     router.push("/auth/login");
     router.refresh();
   }

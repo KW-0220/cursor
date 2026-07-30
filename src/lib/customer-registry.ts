@@ -4,13 +4,17 @@ import path from "path";
 import { z } from "zod";
 import {
   customersUseMysql,
-  mysqlCountCustomers,
   mysqlGetCustomer,
-  mysqlInsertCustomer,
   mysqlListCustomers,
   mysqlUpsertCustomer,
 } from "@/lib/db/customers-mysql";
 import { isMysqlConfigured } from "@/lib/db/mysql";
+import {
+  supabaseCustomersReady,
+  supabaseListCustomers,
+  supabaseUpsertCustomer,
+} from "@/lib/supabase/customers";
+import { getSupabaseSecretKey, getSupabaseUrl } from "@/lib/supabase/env";
 
 export const CustomerRegistrationSchema = z.object({
   id: z.string().optional(),
@@ -132,10 +136,19 @@ async function redisSet(key: string, value: string) {
   return res.ok;
 }
 
-export function getCustomerStorageMode(): "mysql" | "redis" | "file_or_memory" {
+export function getCustomerStorageMode():
+  | "supabase"
+  | "mysql"
+  | "redis"
+  | "file_or_memory" {
+  if (getSupabaseUrl() && getSupabaseSecretKey()) return "supabase";
   if (isMysqlConfigured()) return "mysql";
   if (redisConfigured()) return "redis";
   return "file_or_memory";
+}
+
+export function customersPreferSupabase() {
+  return getCustomerStorageMode() === "supabase";
 }
 
 function parseCustomerList(raw: unknown): CustomerRegistrationRecord[] {
@@ -210,13 +223,16 @@ function nextId(records: CustomerRegistrationRecord[]) {
 }
 
 export async function listCustomers() {
-  if (customersUseMysql()) {
-    const count = await mysqlCountCustomers();
-    if (count === 0 && !process.env.VERCEL) {
-      for (const seed of seedRecords()) {
-        await mysqlInsertCustomer(seed);
+  if (customersPreferSupabase()) {
+    try {
+      if (await supabaseCustomersReady()) {
+        return supabaseListCustomers();
       }
+    } catch (err) {
+      console.error("[customers] supabase list failed, fallback", err);
     }
+  }
+  if (customersUseMysql()) {
     return mysqlListCustomers();
   }
   const records = await ensureLoaded();
@@ -224,6 +240,14 @@ export async function listCustomers() {
 }
 
 export async function getCustomer(id: string) {
+  if (customersPreferSupabase()) {
+    try {
+      const all = await supabaseListCustomers();
+      return all.find((r) => r.id === id) ?? null;
+    } catch {
+      /* fall through */
+    }
+  }
   if (customersUseMysql()) {
     return mysqlGetCustomer(id);
   }
@@ -232,6 +256,13 @@ export async function getCustomer(id: string) {
 }
 
 export async function upsertCustomer(input: CustomerRegistrationInput) {
+  if (customersPreferSupabase()) {
+    try {
+      return await supabaseUpsertCustomer(input);
+    } catch (err) {
+      console.error("[customers] supabase upsert failed, fallback", err);
+    }
+  }
   if (customersUseMysql()) {
     return mysqlUpsertCustomer(input);
   }

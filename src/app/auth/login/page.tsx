@@ -95,7 +95,48 @@ export default function LoginPage() {
     setHint(null);
   }
 
+  async function submitAdminSupabase() {
+    setError(null);
+    setHint(null);
+    setBusy(true);
+    try {
+      const boot = await fetch("/api/admin/bootstrap", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password }),
+      });
+      const bootData = await boot.json();
+      if (!boot.ok) {
+        setError(bootData.message || bootData.error || "管理員驗證失敗");
+        return;
+      }
+
+      const { createClient } = await import("@/lib/supabase/client");
+      const supabase = createClient();
+      const { error: signErr } = await supabase.auth.signInWithPassword({
+        email: email.trim().toLowerCase(),
+        password,
+      });
+      if (signErr) {
+        setError(signErr.message || "Supabase 登入失敗");
+        return;
+      }
+
+      setHint("管理員登入成功（Supabase），正在進入後台…");
+      router.push("/admin");
+      router.refresh();
+    } catch {
+      setError("網絡錯誤，請稍後再試");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function submitEmail(asAdmin = false) {
+    if (asAdmin) {
+      await submitAdminSupabase();
+      return;
+    }
     setError(null);
     setHint(null);
     if (!asAdmin && intent === "register") {
