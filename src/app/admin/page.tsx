@@ -25,6 +25,12 @@ type AdminApp = {
   companyNameZh?: string | null;
   email?: string | null;
   documents?: Array<{ id: string; fileName: string; kind: string }>;
+  aiAnalysis?: {
+    summary?: string;
+    decision?: string;
+    decisionReason?: string | null;
+    bank?: { overall?: string; narrative?: string };
+  } | null;
   updatedAt: string;
   createdAt: string;
 };
@@ -235,9 +241,29 @@ export default function AdminDashboardPage() {
                     >
                       {clientAppStatusLabel(status)}
                     </span>
-                    {status === "rejected" && app.failureReason && (
-                      <p className="mt-1 max-w-[180px] text-[11px] text-danger-600">
-                        {app.failureReason}
+                    {app.aiAnalysis?.bank?.overall && (
+                      <p className="mt-1 text-[11px] text-text-muted">
+                        AI 還款能力：
+                        {app.aiAnalysis.bank.overall === "adequate"
+                          ? "尚可"
+                          : app.aiAnalysis.bank.overall === "tight"
+                            ? "偏緊"
+                            : app.aiAnalysis.bank.overall === "weak"
+                              ? "偏弱"
+                              : "未知"}
+                      </p>
+                    )}
+                    {status === "rejected" &&
+                      (app.failureReason ||
+                        app.aiAnalysis?.decisionReason) && (
+                        <p className="mt-1 max-w-[220px] text-[11px] text-danger-600">
+                          {app.failureReason ||
+                            app.aiAnalysis?.decisionReason}
+                        </p>
+                      )}
+                    {status !== "rejected" && app.aiAnalysis?.summary && (
+                      <p className="mt-1 max-w-[220px] text-[11px] text-text-secondary">
+                        {app.aiAnalysis.summary}
                       </p>
                     )}
                   </td>

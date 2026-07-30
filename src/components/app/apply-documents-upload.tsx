@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Field, Input } from "@/components/ui/field";
 import {
@@ -9,6 +9,8 @@ import {
   SectionHeader,
   StateBanner,
 } from "@/components/ui/layout";
+import type { ApplyAnalysisSnapshot } from "@/lib/ai-application-decision";
+import { emptyApplyAnalysisSnapshot } from "@/lib/ai-application-decision";
 import type { FinancialExtract } from "@/lib/financial-extract";
 import { toStructuredExtractJson } from "@/lib/financial-extract";
 import type {
@@ -30,6 +32,8 @@ import {
   toAuditedExtract,
 } from "@/lib/audited-report-extract";
 import { formatHKD } from "@/lib/utils";
+
+export type { ApplyAnalysisSnapshot };
 
 export type UploadedMeta = {
   name: string;
@@ -648,10 +652,53 @@ function MultiUpload({
   );
 }
 
+function buildAnalysisSnapshot(
+  results: AnalyzeItemResult[],
+): ApplyAnalysisSnapshot {
+  if (results.length === 0) return emptyApplyAnalysisSnapshot();
+
+  const bankResults = results.filter((r) => r.docKind === "bank");
+  const bankOk = bankResults.filter((r) => r.ok && r.bankExtract);
+  const bankFail = bankResults.filter((r) => !r.ok);
+  const brief =
+    bankOk.length > 0
+      ? mergeBankStatementExtracts(bankOk.map((r) => r.bankExtract!))
+      : null;
+
+  const brResult = results.find((r) => r.docKind === "br" && r.ok && r.brExtract);
+  const brFail = results.find((r) => r.docKind === "br" && !r.ok);
+
+  const auditedResults = results.filter((r) => r.docKind === "audited");
+  const auditedOk = auditedResults.filter((r) => r.ok && r.auditedExtract);
+  const auditedFail = auditedResults.filter((r) => !r.ok);
+  const auditedMerged =
+    auditedOk.length > 0
+      ? mergeAuditedExtracts(auditedOk.map((r) => r.auditedExtract!))
+      : null;
+
+  return {
+    hasRun: true,
+    bankBrief: brief,
+    br: brResult?.brExtract ?? null,
+    brError: brFail?.message ?? null,
+    audited: auditedMerged,
+    auditedError:
+      auditedFail.length > 0
+        ? auditedFail.map((r) => r.message || r.fileName).join("；")
+        : null,
+    bankOkCount: bankOk.length,
+    bankFailCount: bankFail.length,
+    brOk: Boolean(brResult),
+    auditedOkCount: auditedOk.length,
+    auditedFailCount: auditedFail.length,
+  };
+}
+
 export function ApplyDocumentsUpload({
   months,
   docs,
   onChange,
+  onAnalysisChange,
   loanType = "unsecured",
   amountHkd = 1500000,
   purpose = "營運資金",
@@ -660,6 +707,7 @@ export function ApplyDocumentsUpload({
   months: string[];
   docs: ApplyDocsState;
   onChange: (next: ApplyDocsState) => void;
+  onAnalysisChange?: (snap: ApplyAnalysisSnapshot) => void;
   loanType?: string;
   amountHkd?: number;
   purpose?: string;
@@ -680,6 +728,10 @@ export function ApplyDocumentsUpload({
   const [analyzeResults, setAnalyzeResults] = useState<AnalyzeItemResult[]>(
     [],
   );
+
+  useEffect(() => {
+    onAnalysisChange?.(buildAnalysisSnapshot(analyzeResults));
+  }, [analyzeResults, onAnalysisChange]);
 
   async function analyzeOne(
     label: string,

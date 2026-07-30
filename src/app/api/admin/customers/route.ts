@@ -49,6 +49,13 @@ async function withDocuments<T extends { id: string; email: string }>(
 
   return customers.map((c) => {
     const appIds = appIdsByCustomer.get(c.id) ?? new Set<string>();
+    const linkedApps = apps.filter(
+      (a) =>
+        appIds.has(a.id) ||
+        (a.customerId && a.customerId === c.id) ||
+        (a.email &&
+          a.email.trim().toLowerCase() === c.email.trim().toLowerCase()),
+    );
     const docs = allDocs.filter(
       (d) => d.customerId === c.id || appIds.has(d.applicationId),
     );
@@ -61,6 +68,17 @@ async function withDocuments<T extends { id: string; email: string }>(
     return {
       ...c,
       applicationIds: [...appIds],
+      applications: linkedApps.map((a) => ({
+        id: a.id,
+        status: a.status,
+        failureReason: a.failureReason,
+        amount: a.amount,
+        purpose: a.purpose,
+        loanType: a.loanType,
+        aiAnalysis: a.aiAnalysis ?? null,
+        updatedAt: a.updatedAt,
+        createdAt: a.createdAt,
+      })),
       documents: unique.map((d) => ({
         id: d.id,
         kind: d.kind,

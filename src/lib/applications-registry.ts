@@ -1,6 +1,7 @@
 import "server-only";
 import { promises as fs } from "fs";
 import path from "path";
+import type { ApplicationAiAnalysis } from "@/lib/ai-application-decision";
 import {
   normalizeClientAppStatus,
   type ClientAppStatus,
@@ -35,6 +36,8 @@ export type ApplicationRecord = {
   email?: string | null;
   phone?: string | null;
   documents?: ApplicationDocumentRef[];
+  /** 提交時持久化的文件 AI 分析＋批核決定 */
+  aiAnalysis?: ApplicationAiAnalysis | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -187,6 +190,10 @@ export async function upsertApplication(
           ? failureReason
           : null,
       documents: input.documents ?? records[idx].documents ?? [],
+      aiAnalysis:
+        input.aiAnalysis !== undefined
+          ? input.aiAnalysis
+          : records[idx].aiAnalysis ?? null,
       updatedAt: now,
     };
     records[idx] = updated;
@@ -207,6 +214,7 @@ export async function upsertApplication(
     email: input.email ?? null,
     phone: input.phone ?? null,
     documents: input.documents ?? [],
+    aiAnalysis: input.aiAnalysis ?? null,
     status,
     failureReason: status === "rejected" ? failureReason : null,
     createdAt: input.createdAt || now,

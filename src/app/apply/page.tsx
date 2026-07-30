@@ -10,8 +10,13 @@ import {
   isApplyDocsComplete,
   lastSixBankMonths,
   summarizeApplyDocs,
+  type ApplyAnalysisSnapshot,
   type ApplyDocsState,
 } from "@/components/app/apply-documents-upload";
+import {
+  buildApplicationAiDecision,
+  emptyApplyAnalysisSnapshot,
+} from "@/lib/ai-application-decision";
 import {
   CollateralAnalysisCard,
   CollateralDocsSection,
@@ -90,6 +95,9 @@ export default function ApplyWizardPage() {
   const [saveFlash, setSaveFlash] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [analysisSnap, setAnalysisSnap] = useState<ApplyAnalysisSnapshot>(() =>
+    emptyApplyAnalysisSnapshot(),
+  );
 
   useEffect(() => {
     void (async () => {
@@ -246,6 +254,26 @@ export default function ApplyWizardPage() {
     }
 
     try {
+      const existingDebtHkd =
+        hasExistingLoan && outstanding
+          ? Number(String(outstanding).replace(/[,]/g, ""))
+          : null;
+      const aiAnalysis = buildApplicationAiDecision(analysisSnap, {
+        existingDebtHkd:
+          existingDebtHkd != null && Number.isFinite(existingDebtHkd)
+            ? existingDebtHkd
+            : null,
+      });
+      const status = aiAnalysis.decision;
+      const failureReason =
+        status === "rejected"
+          ? aiAnalysis.decisionReason || "AI 分析未達批核標準"
+          : null;
+      const companyNameZh =
+        aiAnalysis.businessRegistration.companyNameZh ||
+        aiAnalysis.auditedAccounts.companyName ||
+        null;
+
       const prev = JSON.parse(
         sessionStorage.getItem("slf_applications") || "[]",
       ) as unknown[];
@@ -269,8 +297,10 @@ export default function ApplyWizardPage() {
           completeness: itemCompleteness(i),
           net: preliminaryNetValue(i),
         })),
-        status: "under_review" as const,
-        failureReason: null as string | null,
+        status,
+        failureReason,
+        aiAnalysis,
+        companyNameZh,
         applicantNameZh: profile.nameZh ?? null,
         email: profile.email ?? null,
         phone: profile.phone ?? null,
@@ -292,8 +322,10 @@ export default function ApplyWizardPage() {
           purpose,
           docsPct,
           bankCount: docsSummary.bankCount,
-          status: "under_review",
-          failureReason: null,
+          status,
+          failureReason,
+          aiAnalysis,
+          companyNameZh,
           applicantNameZh: profile.nameZh ?? null,
           email: profile.email ?? null,
           phone: profile.phone ?? null,
@@ -616,6 +648,7 @@ export default function ApplyWizardPage() {
               months={BANK_MONTHS}
               docs={docs}
               onChange={setDocs}
+              onAnalysisChange={setAnalysisSnap}
               loanType={loanType ?? "unsecured"}
               amountHkd={amountHkd}
               purpose={purpose || "營運資金"}

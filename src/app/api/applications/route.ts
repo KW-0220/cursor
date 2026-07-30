@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import type { ApplicationAiAnalysis } from "@/lib/ai-application-decision";
 import {
   getApplication,
   listApplications,
@@ -28,6 +29,7 @@ const upsertSchema = z.object({
   companyNameZh: z.string().nullable().optional(),
   email: z.string().nullable().optional(),
   phone: z.string().nullable().optional(),
+  aiAnalysis: z.unknown().nullable().optional(),
 });
 
 const patchSchema = z.object({
@@ -101,6 +103,9 @@ export async function POST(req: NextRequest) {
       email,
       phone: parsed.data.phone ?? null,
       status: normalizeClientAppStatus(parsed.data.status || "under_review"),
+      aiAnalysis:
+        (parsed.data.aiAnalysis as ApplicationAiAnalysis | null | undefined) ??
+        null,
     });
     return NextResponse.json({ ok: true, application });
   } catch (err) {
