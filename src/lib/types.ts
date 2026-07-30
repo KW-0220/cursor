@@ -154,15 +154,15 @@ export interface ChatMessage {
 
 export const STATUS_LABEL: Record<ApplicationStatus, string> = {
   Draft: "尚未完成",
-  Submitted: "已提交",
-  "AI Processing": "文件分析中",
-  "Under Review": "顧問審核中",
-  "Additional Info Required": "需要補充資料",
-  Matched: "已配對貸款方案",
-  "Sent to Lender": "已送交貸款機構",
-  Approved: "已獲批核",
-  "Not Approved": "未能批核",
-  Withdrawn: "已撤回",
+  Submitted: "審批中",
+  "AI Processing": "審批中",
+  "Under Review": "審批中",
+  "Additional Info Required": "審批中",
+  Matched: "審批中",
+  "Sent to Lender": "審批中",
+  Approved: "成功批核",
+  "Not Approved": "申請失敗",
+  Withdrawn: "申請失敗",
 };
 
 export const DOC_STATUS_LABEL: Record<DocumentStatus, string> = {

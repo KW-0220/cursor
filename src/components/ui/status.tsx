@@ -5,15 +5,15 @@ import { AlertTriangle, CheckCircle2, CircleAlert, Clock3, FileWarning, Loader2,
 
 const statusTone: Record<ApplicationStatus, string> = {
   Draft: "bg-surface-2 text-text-secondary",
-  Submitted: "bg-teal-100 text-teal-600",
-  "AI Processing": "bg-teal-100 text-teal-600",
+  Submitted: "bg-navy-900/10 text-navy-800",
+  "AI Processing": "bg-navy-900/10 text-navy-800",
   "Under Review": "bg-navy-900/10 text-navy-800",
-  "Additional Info Required": "bg-warning-100 text-warning-600",
-  Matched: "bg-success-100 text-success-600",
+  "Additional Info Required": "bg-navy-900/10 text-navy-800",
+  Matched: "bg-navy-900/10 text-navy-800",
   "Sent to Lender": "bg-navy-900/10 text-navy-800",
   Approved: "bg-success-100 text-success-600",
   "Not Approved": "bg-danger-100 text-danger-600",
-  Withdrawn: "bg-surface-2 text-text-secondary",
+  Withdrawn: "bg-danger-100 text-danger-600",
 };
 
 export function StatusTag({ status }: { status: ApplicationStatus }) {

@@ -245,7 +245,8 @@ export default function ApplyWizardPage() {
           completeness: itemCompleteness(i),
           net: preliminaryNetValue(i),
         })),
-        status: "submitted" as const,
+        status: "under_review" as const,
+        failureReason: null as string | null,
         createdAt: at,
         updatedAt: at,
       };
@@ -253,6 +254,21 @@ export default function ApplyWizardPage() {
         "slf_applications",
         JSON.stringify([record, ...prev]),
       );
+      // 同步後端，方便之後更新為成功批核／申請失敗＋原因
+      void fetch("/api/applications", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id,
+          loanType,
+          amount: amountHkd,
+          purpose,
+          docsPct,
+          bankCount: docsSummary.bankCount,
+          status: "under_review",
+          failureReason: null,
+        }),
+      }).catch(() => null);
       clearApplyDraft(userKey);
     } catch {
       // ignore
@@ -707,19 +723,22 @@ export default function ApplyWizardPage() {
             <div className="mx-auto flex size-16 items-center justify-center rounded-full bg-success-100 text-2xl text-success-600">
               ✓
             </div>
-            <h2 className="mt-4 text-xl font-bold text-navy-900">已提交申請</h2>
+            <h2 className="mt-4 text-xl font-bold text-navy-900">申請已進入審批</h2>
             <p className="mt-2 text-sm text-text-secondary">
               申請編號 {applicationId}
             </p>
+            <p className="mt-2 inline-flex rounded-full bg-navy-900/10 px-2.5 py-1 text-xs font-medium text-navy-800">
+              審批中
+            </p>
             {submittedAt && (
-              <p className="mt-1 text-xs text-text-muted">
+              <p className="mt-2 text-xs text-text-muted">
                 提交時間 {submittedAt}
               </p>
             )}
             <p className="mx-auto mt-4 max-w-sm text-sm leading-relaxed text-text-secondary">
               我們已收到你的申請資料及必須文件
               {loanType === "secured" ? "（含抵押品資料）" : ""}
-              。下一步為文件檢查、抵押品初步分析與正式估值安排；不會在此顯示最終批核結果。
+              。目前狀態為「審批中」；結果稍後會更新為「成功批核」或「申請失敗」。
             </p>
             <Link href="/app/applications" className="mt-6 block">
               <Button fullWidth size="lg">
