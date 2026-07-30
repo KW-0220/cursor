@@ -61,37 +61,6 @@ const REDIS_KEY = "slf:customers";
 /** 進程內 fallback（Vercel 無持久碟時仍可用於同一實例） */
 let memoryStore: CustomerRegistrationRecord[] | null = null;
 
-function seedRecords(): CustomerRegistrationRecord[] {
-  const now = new Date().toISOString();
-  return [
-    {
-      id: "CUS-2026-0001",
-      applicantNameZh: "陳大文",
-      applicantNameEn: "Chan Tai Man",
-      idNumber: "A123456(7)",
-      phone: "+852 9123 4567",
-      email: "tm.chan@smartcreate.example",
-      title: "董事",
-      relation: "董事",
-      companyNameZh: "智創科技有限公司",
-      companyNameEn: "SmartCreate Technology Ltd.",
-      brNumber: "12345678",
-      crNumber: "7890123",
-      foundedAt: "2018-03-12",
-      companyType: "有限公司",
-      industry: "資訊科技服務",
-      address: "香港九龍觀塘成業街 27 號日昇中心 12 樓 A 室",
-      employees: 28,
-      website: "https://smartcreate.example",
-      contactPerson: "陳大文",
-      source: "seed",
-      notes: "示範客戶",
-      createdAt: now,
-      updatedAt: now,
-    },
-  ];
-}
-
 function redisConfigured() {
   return Boolean(
     (process.env.UPSTASH_REDIS_REST_URL &&
@@ -188,8 +157,8 @@ async function ensureLoaded(): Promise<CustomerRegistrationRecord[]> {
     const raw = await fs.readFile(DATA_FILE, "utf8");
     memoryStore = parseCustomerList(raw);
   } catch {
-    // Vercel 無碟：空庫起步（唔再每次 cold start 灌 seed，避免蓋過真實登記觀感）
-    memoryStore = process.env.VERCEL ? [] : seedRecords();
+    // 空庫起步；不再灌示範客戶
+    memoryStore = [];
     try {
       await fs.mkdir(DATA_DIR, { recursive: true });
       await fs.writeFile(

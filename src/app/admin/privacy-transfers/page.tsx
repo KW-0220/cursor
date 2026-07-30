@@ -1,5 +1,4 @@
-import { Card, SectionHeader } from "@/components/ui/layout";
-import { DEMO_ADMIN_TRANSFERS } from "@/lib/third-party-share";
+import { Card, EmptyState, SectionHeader } from "@/components/ui/layout";
 
 const headers = [
   "分享日期及時間",
@@ -25,7 +24,7 @@ export default function PrivacyTransfersAdminPage() {
           A02 · 與授權紀錄分開；狀態含已授權未分享／傳送中／成功／失敗／已撤回等
         </p>
       </div>
-      <SectionHeader title="傳送日誌（示範）" />
+      <SectionHeader title="傳送日誌" />
       <Card className="overflow-x-auto p-0">
         <table className="w-full min-w-[1100px] text-left text-xs">
           <thead className="border-b border-border bg-surface-2 text-text-muted">
@@ -37,30 +36,13 @@ export default function PrivacyTransfersAdminPage() {
               ))}
             </tr>
           </thead>
-          <tbody>
-            {DEMO_ADMIN_TRANSFERS.map((row) => (
-              <tr
-                key={row.authId + row.sharedAt}
-                className="border-b border-border last:border-0"
-              >
-                <td className="px-3 py-2 tabular">{row.sharedAt}</td>
-                <td className="px-3 py-2">{row.recipient}</td>
-                <td className="px-3 py-2">{row.method}</td>
-                <td className="px-3 py-2">{row.payload}</td>
-                <td className="px-3 py-2">{row.docVersions}</td>
-                <td className="px-3 py-2">{row.encrypted}</td>
-                <td className="px-3 py-2 font-medium text-navy-900">
-                  {row.status}
-                </td>
-                <td className="px-3 py-2">{row.received}</td>
-                <td className="px-3 py-2">{row.failure}</td>
-                <td className="px-3 py-2">{row.retries}</td>
-                <td className="px-3 py-2">{row.operator}</td>
-                <td className="px-3 py-2">{row.authId}</td>
-              </tr>
-            ))}
-          </tbody>
         </table>
+        <div className="p-4">
+          <EmptyState
+            title="暫無傳送紀錄"
+            description="實際資料傳送發生後會寫入此處。示範資料已移除。"
+          />
+        </div>
       </Card>
     </div>
   );

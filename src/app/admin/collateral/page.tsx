@@ -13,7 +13,7 @@ import {
 } from "@/lib/collateral";
 import { formatHKD } from "@/lib/utils";
 
-/** C18 後台抵押品審批摘要（讀取客戶端示範資料；正式環境接案件 API） */
+/** C18 後台抵押品審批摘要（讀取本機申請暫存；正式環境接案件 API） */
 export default function AdminCollateralPage() {
   const [items, setItems] = useState<CollateralItem[]>([]);
 
@@ -26,8 +26,7 @@ export default function AdminCollateralPage() {
       <div>
         <h1 className="text-2xl font-bold text-navy-900">抵押品審批摘要</h1>
         <p className="mt-1 text-sm text-text-secondary">
-          C18 · 文件完整度、初步淨值、三色燈、正式估值狀態（示範讀取本機
-          anon 資料）
+          C18 · 文件完整度、初步淨值、三色燈、正式估值狀態
         </p>
       </div>
 
@@ -40,7 +39,7 @@ export default function AdminCollateralPage() {
       <SectionHeader title={`案件抵押品（${items.length}）`} />
       {items.length === 0 ? (
         <Card className="text-sm text-text-muted">
-          尚未有本機抵押品示範資料。請於申請流程選擇「有抵押貸款」新增後重新整理。
+          暫無抵押品資料。客戶於申請流程選擇「有抵押貸款」並新增後會顯示於此。
         </Card>
       ) : (
         <div className="space-y-4">
