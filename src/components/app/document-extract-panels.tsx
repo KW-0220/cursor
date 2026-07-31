@@ -1,18 +1,59 @@
 "use client";
 
 import type { BankCashflowBrief } from "@/lib/bank-statement-extract";
-import { formatHkd } from "@/lib/bank-statement-extract";
+import {
+  formatHkd,
+  type BankSystemCheck,
+} from "@/lib/bank-statement-extract";
 import type { BrExtract } from "@/lib/br-extract";
 import type { AuditedReportExtract } from "@/lib/audited-report-extract";
 import {
   boolLabel,
   buildAuditedComparisonRows,
+  buildAuditedCreditMetrics,
+  type AuditedCreditMetrics,
 } from "@/lib/audited-report-extract";
+import type { IdentityExtract } from "@/lib/identity-extract";
 import { StateBanner } from "@/components/ui/layout";
-import { formatHKD } from "@/lib/utils";
+import { cn, formatHKD } from "@/lib/utils";
 
-export function AuditedExtractPanel({ a }: { a: AuditedReportExtract }) {
+function fmtAmt(n: number | null | undefined) {
+  if (n == null || Number.isNaN(n)) return "—";
+  return formatHKD(n);
+}
+
+function checkTone(status: string) {
+  if (status === "pass") return "text-emerald-700";
+  if (status === "fail" || status === "red") return "text-red-700";
+  if (status === "amber") return "text-amber-700";
+  return "text-text-muted";
+}
+
+function checkLabel(status: string) {
+  if (status === "pass") return "通過";
+  if (status === "fail") return "不通過";
+  if (status === "amber") return "黃燈／跟進";
+  return "未定";
+}
+
+export function AuditedExtractPanel({
+  a,
+  monthlyDebtPayments,
+  gearingThreshold,
+  showCreditMetrics = true,
+}: {
+  a: AuditedReportExtract;
+  monthlyDebtPayments?: number | null;
+  gearingThreshold?: number;
+  showCreditMetrics?: boolean;
+}) {
   const rows = buildAuditedComparisonRows(a);
+  const metrics = showCreditMetrics
+    ? buildAuditedCreditMetrics(a, {
+        monthlyDebtPayments: monthlyDebtPayments ?? null,
+        gearingThreshold,
+      })
+    : null;
   const missingPl = !rows.some(
     (r) =>
       r.revenue != null || r.profitBeforeTax != null || r.netProfit != null,
@@ -78,45 +119,314 @@ export function AuditedExtractPanel({ a }: { a: AuditedReportExtract }) {
               </thead>
               <tbody>
                 {rows.map((r, i) => (
-                  <tr key={`${r.financialYear}-${i}`} className="border-t border-border/70">
+                  <tr
+                    key={`${r.financialYear}-${i}`}
+                    className="border-t border-border/70"
+                  >
                     <td className="px-3 py-2 font-medium text-navy-900">
                       {r.financialYear || `年度${i + 1}`}
                     </td>
+                    <td className="px-3 py-2 tabular">{fmtAmt(r.revenue)}</td>
                     <td className="px-3 py-2 tabular">
-                      {r.revenue != null ? formatHKD(r.revenue) : "—"}
+                      {fmtAmt(r.profitBeforeTax)}
                     </td>
-                    <td className="px-3 py-2 tabular">
-                      {r.profitBeforeTax != null
-                        ? formatHKD(r.profitBeforeTax)
-                        : "—"}
-                    </td>
-                    <td className="px-3 py-2 tabular">
-                      {r.netProfit != null ? formatHKD(r.netProfit) : "—"}
-                    </td>
+                    <td className="px-3 py-2 tabular">{fmtAmt(r.netProfit)}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
         )}
+      </div>
+
+      {metrics && <AuditedCreditMetricsBlock metrics={metrics} rows={rows} />}
+    </div>
+  );
+}
+
+function AuditedCreditMetricsBlock({
+  metrics,
+  rows,
+}: {
+  metrics: AuditedCreditMetrics;
+  rows: ReturnType<typeof buildAuditedComparisonRows>;
+}) {
+  const c = metrics.ebitdaComponents;
+  const bs = metrics.balanceSheet;
+  return (
+    <>
+      <div>
+        <p className="mb-2 text-xs font-semibold text-navy-900">4.3 EBITDA</p>
+        <dl className="space-y-1.5 text-sm">
+          <div className="flex justify-between gap-2">
+            <dt className="text-text-secondary">EBITDA 結果（政策）</dt>
+            <dd className="tabular font-medium">
+              {fmtAmt(metrics.latestEbitdaPolicy)}
+            </dd>
+          </div>
+          <div className="flex justify-between gap-2">
+            <dt className="text-text-secondary">除稅前溢利</dt>
+            <dd className="tabular">{fmtAmt(c.profitBeforeTax)}</dd>
+          </div>
+          <div className="flex justify-between gap-2">
+            <dt className="text-text-secondary">融資成本</dt>
+            <dd className="tabular">{fmtAmt(c.financeCosts)}</dd>
+          </div>
+          <div className="flex justify-between gap-2">
+            <dt className="text-text-secondary">折舊</dt>
+            <dd className="tabular">{fmtAmt(c.depreciation)}</dd>
+          </div>
+          <div className="flex justify-between gap-2">
+            <dt className="text-text-secondary">攤銷</dt>
+            <dd className="tabular">{fmtAmt(c.amortisation)}</dd>
+          </div>
+          <div className="flex justify-between gap-2">
+            <dt className="text-text-secondary">報告直接披露</dt>
+            <dd className="tabular">{fmtAmt(c.disclosed)}</dd>
+          </div>
+          <div className="flex justify-between gap-2">
+            <dt className="text-text-secondary">原始文件頁碼</dt>
+            <dd>{c.sourcePages?.trim() || "—"}</dd>
+          </div>
+          <div className="flex justify-between gap-2">
+            <dt className="text-text-secondary">AI 信心度</dt>
+            <dd>
+              {c.confidence != null
+                ? `${Math.round(c.confidence * 100)}%`
+                : "—"}
+            </dd>
+          </div>
+          <div className="flex justify-between gap-2">
+            <dt className="text-text-secondary">是否經人工修改</dt>
+            <dd>{c.humanModified ? "是" : "否"}</dd>
+          </div>
+        </dl>
+        <p className="mt-2 text-xs text-text-muted">
+          公式：除稅前溢利 ＋ 融資成本 ＋ 折舊 ＋ 攤銷（有披露則優先披露值）
+        </p>
         {rows.some((r) => r.ebitda != null) && (
-          <p className="mt-2 text-xs text-text-muted">
-            EBITDA（Audited 公式：Net Profit＋Interest＋Tax＋D＋A）：
+          <p className="mt-1 text-xs text-text-muted">
+            參考（Net Profit＋Interest＋Tax＋D＋A）：
             {rows
               .map(
                 (r) =>
-                  `${r.financialYear}: ${
-                    r.ebitda != null ? formatHKD(r.ebitda) : "—"
-                  }`,
+                  `${r.financialYear}: ${fmtAmt(r.ebitda)}`,
               )
               .join(" · ")}
           </p>
         )}
-        <p className="mt-1 text-xs text-text-muted">
-          D&amp;A 優先取自現金流量表或財務報表附註；損益表未必單獨列出。
-        </p>
       </div>
-    </div>
+
+      <div>
+        <p className="mb-2 text-xs font-semibold text-navy-900">
+          4.4 資產負債資料
+        </p>
+        <dl className="space-y-1.5 text-sm">
+          {(
+            [
+              ["Total Assets", bs.totalAssets],
+              ["Current Assets", bs.currentAssets],
+              ["Cash and Bank", bs.cashAndBank],
+              ["Total Liabilities", bs.totalLiabilities],
+              ["Current Liabilities", bs.currentLiabilities],
+              ["Borrowings", bs.borrowings],
+              ["Shareholders’ Equity", bs.shareholdersEquity],
+              ["Intangible Assets", bs.intangibleAssets],
+              ["Goodwill", bs.goodwill],
+            ] as [string, number | null][]
+          ).map(([label, value]) => (
+            <div key={label} className="flex justify-between gap-2">
+              <dt className="text-text-secondary">{label}</dt>
+              <dd className="tabular font-medium">{fmtAmt(value)}</dd>
+            </div>
+          ))}
+          <div className="flex justify-between gap-2">
+            <dt className="text-text-secondary">來源頁碼</dt>
+            <dd>{bs.sourcePages?.trim() || "—"}</dd>
+          </div>
+        </dl>
+      </div>
+
+      <div>
+        <p className="mb-2 text-xs font-semibold text-navy-900">
+          4.5 Gearing Ratio
+        </p>
+        <dl className="space-y-1.5 text-sm">
+          <div className="flex justify-between gap-2">
+            <dt className="text-text-secondary">總負債</dt>
+            <dd className="tabular">{fmtAmt(bs.totalLiabilities)}</dd>
+          </div>
+          <div className="flex justify-between gap-2">
+            <dt className="text-text-secondary">股東權益</dt>
+            <dd className="tabular">{fmtAmt(bs.shareholdersEquity)}</dd>
+          </div>
+          <div className="flex justify-between gap-2">
+            <dt className="text-text-secondary">無形資產</dt>
+            <dd className="tabular">{fmtAmt(bs.intangibleAssets)}</dd>
+          </div>
+          <div className="flex justify-between gap-2">
+            <dt className="text-text-secondary">商譽</dt>
+            <dd className="tabular">{fmtAmt(bs.goodwill)}</dd>
+          </div>
+          <div className="flex justify-between gap-2">
+            <dt className="text-text-secondary">有形淨資產</dt>
+            <dd className="tabular font-medium">
+              {fmtAmt(metrics.tangibleNetWorth)}
+            </dd>
+          </div>
+          <div className="flex justify-between gap-2">
+            <dt className="text-text-secondary">Gearing Ratio</dt>
+            <dd className="tabular font-medium">
+              {metrics.gearing == null
+                ? "—"
+                : Number.isFinite(metrics.gearing)
+                  ? metrics.gearing.toFixed(2)
+                  : "∞"}
+            </dd>
+          </div>
+          <div className="flex justify-between gap-2">
+            <dt className="text-text-secondary">政策門檻</dt>
+            <dd>&lt; {metrics.gearingThreshold}</dd>
+          </div>
+          <div className="flex justify-between gap-2">
+            <dt className="text-text-secondary">初步狀態</dt>
+            <dd className={cn("font-medium", checkTone(metrics.gearingStatus))}>
+              {checkLabel(metrics.gearingStatus)}
+            </dd>
+          </div>
+        </dl>
+      </div>
+
+      <div>
+        <p className="mb-2 text-xs font-semibold text-navy-900">4.6 DSCR</p>
+        <dl className="space-y-1.5 text-sm">
+          <div className="flex justify-between gap-2">
+            <dt className="text-text-secondary">EBITDA（政策）</dt>
+            <dd className="tabular">{fmtAmt(metrics.latestEbitdaPolicy)}</dd>
+          </div>
+          <div className="flex justify-between gap-2">
+            <dt className="text-text-secondary">一年總債務支出</dt>
+            <dd className="tabular">{fmtAmt(metrics.annualDebtService)}</dd>
+          </div>
+          <div className="flex justify-between gap-2">
+            <dt className="text-text-secondary">DSCR</dt>
+            <dd className="tabular font-medium">
+              {metrics.dscr != null ? `${metrics.dscr.toFixed(2)}x` : "—"}
+            </dd>
+          </div>
+          <div className="flex justify-between gap-2">
+            <dt className="text-text-secondary">狀態</dt>
+            <dd className={cn("font-medium", checkTone(metrics.dscrStatus))}>
+              {checkLabel(metrics.dscrStatus)}
+            </dd>
+          </div>
+        </dl>
+        <p className="mt-2 text-xs text-text-secondary">{metrics.dscrNote}</p>
+      </div>
+
+      <div>
+        <p className="mb-2 text-xs font-semibold text-navy-900">
+          4.7 三年營業額穩定性
+        </p>
+        {metrics.insufficientYears && (
+          <StateBanner
+            tone="warning"
+            title="不足三年資料"
+            description="目前抽出少於三個財政年度，穩定性判斷僅供參考。"
+          />
+        )}
+        {metrics.revenueYoY.length === 0 ? (
+          <p className="text-text-muted">尚無足夠年度比較營業額。</p>
+        ) : (
+          <ul className="space-y-1.5 text-sm">
+            {metrics.revenueYoY.map((y) => (
+              <li
+                key={`${y.from}-${y.to}`}
+                className="flex flex-wrap justify-between gap-2"
+              >
+                <span>
+                  {y.from} → {y.to}
+                </span>
+                <span className="tabular">
+                  {y.changePct == null
+                    ? "—"
+                    : `${(y.changePct * 100).toFixed(1)}%`}
+                  {y.prev != null && y.curr != null
+                    ? `（${fmtAmt(y.prev)} → ${fmtAmt(y.curr)}）`
+                    : ""}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+        {metrics.consecutiveDecline && (
+          <p className="mt-2 text-xs font-medium text-amber-800">
+            偵測到連續下降趨勢，需政策覆核。
+          </p>
+        )}
+      </div>
+    </>
+  );
+}
+
+export function IdentityExtractPanel({
+  identity,
+  personRole,
+}: {
+  identity: IdentityExtract;
+  personRole?: string | null;
+}) {
+  const rows: [string, string | null][] = [
+    ["人士角色", personRole ?? null],
+    ["證件類型", identity.doc_type],
+    ["中文姓名", identity.full_name_zh],
+    ["英文姓名", identity.full_name_en],
+    ["證件號碼", identity.id_number],
+    ["國籍", identity.nationality],
+    ["出生日期", identity.date_of_birth],
+    ["性別", identity.sex],
+    ["簽發日期", identity.issue_date],
+    ["屆滿日期", identity.expiry_date],
+  ];
+  return (
+    <dl className="space-y-2 text-sm">
+      {rows.map(([label, value]) => (
+        <div
+          key={label}
+          className="flex flex-col gap-0.5 sm:flex-row sm:justify-between sm:gap-3"
+        >
+          <dt className="shrink-0 text-text-secondary">{label}</dt>
+          <dd className="font-medium text-navy-900 sm:text-right">
+            {value?.trim() ? value : "—"}
+          </dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
+export function BankSystemChecksPanel({
+  checks,
+}: {
+  checks: BankSystemCheck[];
+}) {
+  return (
+    <ul className="space-y-2 text-sm">
+      {checks.map((c) => (
+        <li
+          key={c.id}
+          className="rounded-lg border border-border/70 bg-surface-1 px-3 py-2"
+        >
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <span className="font-medium text-navy-900">{c.label}</span>
+            <span className={cn("text-xs font-semibold", checkTone(c.status))}>
+              {checkLabel(c.status)}
+            </span>
+          </div>
+          <p className="mt-1 text-xs text-text-secondary">{c.detail}</p>
+        </li>
+      ))}
+    </ul>
   );
 }
 
@@ -133,7 +443,10 @@ export function BrExtractPanel({ br }: { br: BrExtract }) {
   return (
     <dl className="space-y-2 text-sm">
       {rows.map(([label, value]) => (
-        <div key={label} className="flex flex-col gap-0.5 sm:flex-row sm:justify-between sm:gap-3">
+        <div
+          key={label}
+          className="flex flex-col gap-0.5 sm:flex-row sm:justify-between sm:gap-3"
+        >
           <dt className="shrink-0 text-text-secondary">{label}</dt>
           <dd className="font-medium text-navy-900 sm:text-right">
             {value?.trim() ? value : "—"}
@@ -288,7 +601,9 @@ export function BankCashflowBriefPanel({ brief }: { brief: BankCashflowBrief }) 
       <section className="space-y-2">
         <h4 className="text-sm font-semibold text-navy-900">5. 戶口異常紀錄</h4>
         {brief.anomalies.length === 0 ? (
-          <p className="text-xs text-text-muted">未見明顯異常紀錄（或文件未列）。</p>
+          <p className="text-xs text-text-muted">
+            未見明顯異常紀錄（或文件未列）。
+          </p>
         ) : (
           <ul className="space-y-2 text-sm">
             {brief.anomalies.map((a, i) => (

@@ -1,7 +1,13 @@
 import { z } from "zod";
 import {
   ebitdaFromComponents,
+  ebitdaFromPbt,
   FORMULA_DEFINITIONS,
+  gearingRatio,
+  tangibleNetWorth,
+  dscr,
+  yoyChange,
+  annualDebtServiceFromMonthly,
 } from "@/lib/formulas";
 import type { FinancialExtract } from "./financial-extract";
 
@@ -101,6 +107,20 @@ export const AuditedReportExtractSchema = z
       .array(AuditedYearSchema)
       .nullish()
       .transform((v) => v ?? []),
+    /** 4.4 資產負債（通常取最近年度結算） */
+    total_assets: looseNum,
+    current_assets: looseNum,
+    cash_and_bank: looseNum,
+    total_liabilities: looseNum,
+    current_liabilities: looseNum,
+    borrowings: looseNum,
+    shareholders_equity: looseNum,
+    intangible_assets: looseNum,
+    goodwill: looseNum,
+    /** 來源頁碼／附註提示（字串即可） */
+    ebitda_source_pages: looseStr,
+    balance_sheet_source_pages: looseStr,
+    extract_confidence: looseNum,
   })
   .passthrough();
 
@@ -114,6 +134,12 @@ export type AuditedYearComparisonRow = {
   grossProfit: number | null;
   operatingProfit: number | null;
   ebitda: number | null;
+  /** 政策公式：PBT + finance + D + A */
+  ebitdaPolicy: number | null;
+  financeCosts: number | null;
+  depreciation: number | null;
+  amortisation: number | null;
+  ebitdaDisclosed: number | null;
 };
 
 export const AUDITED_EXTRACT_SYSTEM_PROMPT = `你是香港中小企貸款預審助手，專門閱讀 Audited Report／經審計財務報表（Audited Financial Statements）。
@@ -174,9 +200,15 @@ Audited Report 係計算 EBITDA 最權威數據來源。只根據提供文字／
 - depreciation／amortisation：優先 Cash Flow Statement 或 Notes；合併 D&A 可全放 depreciation，amortisation=0
 - ebitda_disclosed：文件直接披露先填
 
+欄位說明（4.4 資產負債 — 取最近年度 Balance Sheet／Statement of Financial Position）：
+- total_assets, current_assets, cash_and_bank, total_liabilities, current_liabilities, borrowings, shareholders_equity, intangible_assets, goodwill
+- ebitda_source_pages／balance_sheet_source_pages：頁碼或附註字串
+- extract_confidence：0–1
+
 金額為純數字（不要貨幣符號／逗號）。括號負數轉成負號，例如 (12,345) → -12345。
-若 amount_unit=thousands，years 內數字仍填報表上見到的數字（唔好自己 ×1000）；系統會處理。
-不要猜測。缺資料填 null。years 至少應含有本期；有上期比較就一併放入。`;
+若 amount_unit=thousands，years／資產負債數字仍填報表上見到的數字（唔好自己 ×1000）；系統會處理。
+不要猜測。缺資料填 null。years 至少應含有本期；有上期比較就一併放入。
+JSON 必須另含 total_assets／current_assets／cash_and_bank／total_liabilities／current_liabilities／borrowings／shareholders_equity／intangible_assets／goodwill／ebitda_source_pages／balance_sheet_source_pages／extract_confidence（缺則 null）。`;
 
 export function buildAuditedExtractUserText(input: {
   fileName?: string;
@@ -184,15 +216,15 @@ export function buildAuditedExtractUserText(input: {
   pastedText?: string;
 }) {
   return [
-    "這是 Audited Report／經審計財務報表。請抽取 4.1 公司及報告基本資料，以及 4.2 最近最多三年營業額及盈利（years）。",
+    "這是 Audited Report／經審計財務報表。請抽取 4.1 基本資料、4.2 最多三年 years[]，以及 4.4 最近年度資產負債。",
     "【關鍵】一定要讀損益表／全面收益表頁的 Turnover／營業額、Profit before tax／除稅前溢利、Profit for the year／淨利潤。只有公司名同核數師唔算完成。",
     "若有本期／上期兩欄，請分成 years 兩年（新→舊）。",
-    "EBITDA 權威算法：Net Profit＋Interest＋Tax＋Depreciation＋Amortisation（D&A 優先 Cash Flow／Notes）。你只抽數字。",
+    "EBITDA：有披露填 ebitda_disclosed；並抽 PBT／finance_costs／D&A／net_profit／tax。資產負債抽總資產／總負債／權益／無形／商譽等。",
     input.fileName ? `檔名：${input.fileName}` : null,
     input.companyNameHint ? `申請公司提示：${input.companyNameHint}` : null,
     input.pastedText
       ? `文件文字／OCR：\n---\n${input.pastedText.slice(0, 120_000)}\n---`
-      : "（無文字層或文字不足，請根據附上的頁面影像辨識——影像應為損益表相關頁）",
+      : "（無文字層或文字不足，請根據附上的頁面影像辨識——影像應為損益表／資產負債相關頁）",
   ]
     .filter(Boolean)
     .join("\n\n");
@@ -231,6 +263,18 @@ export function emptyAuditedExtract(): AuditedReportExtract {
     has_full_notes: null,
     amount_unit: null,
     years: [],
+    total_assets: null,
+    current_assets: null,
+    cash_and_bank: null,
+    total_liabilities: null,
+    current_liabilities: null,
+    borrowings: null,
+    shareholders_equity: null,
+    intangible_assets: null,
+    goodwill: null,
+    ebitda_source_pages: null,
+    balance_sheet_source_pages: null,
+    extract_confidence: null,
   };
 }
 
@@ -338,6 +382,15 @@ function applyAmountUnit(data: AuditedReportExtract): AuditedReportExtract {
       tax: mul(y.tax),
       ebitda_disclosed: mul(y.ebitda_disclosed),
     })),
+    total_assets: mul(data.total_assets),
+    current_assets: mul(data.current_assets),
+    cash_and_bank: mul(data.cash_and_bank),
+    total_liabilities: mul(data.total_liabilities),
+    current_liabilities: mul(data.current_liabilities),
+    borrowings: mul(data.borrowings),
+    shareholders_equity: mul(data.shareholders_equity),
+    intangible_assets: mul(data.intangible_assets),
+    goodwill: mul(data.goodwill),
   };
 }
 
@@ -539,6 +592,7 @@ export function toAuditedExtract(raw: unknown): AuditedReportExtract {
 }
 
 function yearEbitda(y: AuditedYearExtract): number | null {
+  if (y.ebitda_disclosed != null) return y.ebitda_disclosed;
   const computed = ebitdaFromComponents(
     y.net_profit,
     y.finance_costs,
@@ -547,7 +601,22 @@ function yearEbitda(y: AuditedYearExtract): number | null {
     y.amortisation,
   );
   if (computed != null) return computed;
-  return y.ebitda_disclosed ?? null;
+  return ebitdaFromPbt(
+    y.profit_before_tax,
+    y.finance_costs,
+    y.depreciation,
+    y.amortisation,
+  );
+}
+
+function yearEbitdaPolicy(y: AuditedYearExtract): number | null {
+  if (y.ebitda_disclosed != null) return y.ebitda_disclosed;
+  return ebitdaFromPbt(
+    y.profit_before_tax,
+    y.finance_costs,
+    y.depreciation,
+    y.amortisation,
+  );
 }
 
 /** 三年比較表列（新→舊，最多 3） */
@@ -569,7 +638,180 @@ export function buildAuditedComparisonRows(
     grossProfit: y.gross_profit,
     operatingProfit: y.operating_profit,
     ebitda: yearEbitda(y),
+    ebitdaPolicy: yearEbitdaPolicy(y),
+    financeCosts: y.finance_costs,
+    depreciation: y.depreciation,
+    amortisation: y.amortisation,
+    ebitdaDisclosed: y.ebitda_disclosed,
   }));
+}
+
+export type AuditedCreditMetrics = {
+  latestEbitda: number | null;
+  latestEbitdaPolicy: number | null;
+  ebitdaComponents: {
+    profitBeforeTax: number | null;
+    financeCosts: number | null;
+    depreciation: number | null;
+    amortisation: number | null;
+    disclosed: number | null;
+    sourcePages: string | null;
+    confidence: number | null;
+    humanModified: boolean;
+  };
+  balanceSheet: {
+    totalAssets: number | null;
+    currentAssets: number | null;
+    cashAndBank: number | null;
+    totalLiabilities: number | null;
+    currentLiabilities: number | null;
+    borrowings: number | null;
+    shareholdersEquity: number | null;
+    intangibleAssets: number | null;
+    goodwill: number | null;
+    sourcePages: string | null;
+  };
+  tangibleNetWorth: number | null;
+  gearing: number | null;
+  gearingThreshold: number;
+  gearingStatus: "pass" | "fail" | "unknown";
+  annualDebtService: number | null;
+  dscr: number | null;
+  dscrStatus: "pass" | "amber" | "fail" | "unknown";
+  dscrNote: string;
+  revenueYoY: Array<{
+    from: string;
+    to: string;
+    prev: number | null;
+    curr: number | null;
+    changePct: number | null;
+  }>;
+  consecutiveDecline: boolean;
+  insufficientYears: boolean;
+  formulaNotes: string[];
+};
+
+/** 4.3–4.7 衍生指標（系統公式；AI 只抽原料） */
+export function buildAuditedCreditMetrics(
+  extract: AuditedReportExtract,
+  opts?: {
+    monthlyDebtPayments?: number | null;
+    gearingThreshold?: number;
+    humanModified?: boolean;
+  },
+): AuditedCreditMetrics {
+  const rows = buildAuditedComparisonRows(extract);
+  const latest = rows[0];
+  const monthly = opts?.monthlyDebtPayments ?? null;
+  const annualDebt =
+    monthly == null
+      ? null
+      : annualDebtServiceFromMonthly([monthly]);
+  const tnw = tangibleNetWorth(
+    extract.shareholders_equity,
+    extract.intangible_assets,
+    extract.goodwill,
+  );
+  const gearing = gearingRatio(extract.total_liabilities, tnw);
+  const threshold = opts?.gearingThreshold ?? 4;
+  let gearingStatus: AuditedCreditMetrics["gearingStatus"] = "unknown";
+  if (gearing != null && Number.isFinite(gearing)) {
+    gearingStatus = gearing < threshold ? "pass" : "fail";
+  }
+
+  const ebitdaForDscr = latest?.ebitdaPolicy ?? latest?.ebitda ?? null;
+  let dscrVal: number | null = null;
+  let dscrStatus: AuditedCreditMetrics["dscrStatus"] = "unknown";
+  let dscrNote = "尚未提供現有每月供款，未能計算完整 DSCR。";
+  if (monthly == null) {
+    if (ebitdaForDscr != null && ebitdaForDscr > 0) {
+      dscrStatus = "amber";
+      dscrNote =
+        "EBITDA 為正數，但債務供款未完整——顯示黃燈，需人工跟進；不可顯示完整通過。";
+    } else if (ebitdaForDscr != null && ebitdaForDscr <= 0) {
+      dscrStatus = "fail";
+      dscrNote = "EBITDA 非正數，且缺乏債務供款資料。";
+    }
+  } else if (annualDebt != null && annualDebt <= 0) {
+    dscrStatus = "pass";
+    dscrNote = "已申報每月供款為 0；請再次確認。";
+  } else {
+    dscrVal = dscr(ebitdaForDscr, annualDebt);
+    if (dscrVal != null && ebitdaForDscr != null && annualDebt != null) {
+      if (ebitdaForDscr > annualDebt) {
+        dscrStatus = "pass";
+        dscrNote = `DSCR ${dscrVal.toFixed(2)}x（EBITDA > 一年總債務支出）。`;
+      } else {
+        dscrStatus = "fail";
+        dscrNote = `DSCR ${dscrVal.toFixed(2)}x（EBITDA 未能覆蓋一年總債務支出）。`;
+      }
+    }
+  }
+
+  const revenueYoY: AuditedCreditMetrics["revenueYoY"] = [];
+  for (let i = 0; i < rows.length - 1; i++) {
+    const curr = rows[i]!;
+    const prev = rows[i + 1]!;
+    revenueYoY.push({
+      from: prev.financialYear,
+      to: curr.financialYear,
+      prev: prev.revenue,
+      curr: curr.revenue,
+      changePct:
+        prev.revenue != null && curr.revenue != null
+          ? yoyChange(prev.revenue, curr.revenue)
+          : null,
+    });
+  }
+  const consecutiveDecline =
+    revenueYoY.length >= 2 &&
+    revenueYoY.every((y) => y.changePct != null && y.changePct < 0);
+
+  return {
+    latestEbitda: latest?.ebitda ?? null,
+    latestEbitdaPolicy: latest?.ebitdaPolicy ?? null,
+    ebitdaComponents: {
+      profitBeforeTax: latest?.profitBeforeTax ?? null,
+      financeCosts: latest?.financeCosts ?? null,
+      depreciation: latest?.depreciation ?? null,
+      amortisation: latest?.amortisation ?? null,
+      disclosed: latest?.ebitdaDisclosed ?? null,
+      sourcePages: extract.ebitda_source_pages,
+      confidence: extract.extract_confidence,
+      humanModified: Boolean(opts?.humanModified),
+    },
+    balanceSheet: {
+      totalAssets: extract.total_assets,
+      currentAssets: extract.current_assets,
+      cashAndBank: extract.cash_and_bank,
+      totalLiabilities: extract.total_liabilities,
+      currentLiabilities: extract.current_liabilities,
+      borrowings: extract.borrowings,
+      shareholdersEquity: extract.shareholders_equity,
+      intangibleAssets: extract.intangible_assets,
+      goodwill: extract.goodwill,
+      sourcePages: extract.balance_sheet_source_pages,
+    },
+    tangibleNetWorth: tnw,
+    gearing,
+    gearingThreshold: threshold,
+    gearingStatus,
+    annualDebtService: annualDebt,
+    dscr: dscrVal,
+    dscrStatus,
+    dscrNote,
+    revenueYoY,
+    consecutiveDecline,
+    insufficientYears: rows.length < 3,
+    formulaNotes: [
+      "EBITDA（政策）= 除稅前溢利 + 融資成本 + 折舊 + 攤銷（有披露則優先披露值）",
+      FORMULA_DEFINITIONS.ebitda,
+      FORMULA_DEFINITIONS.tangibleNetWorth,
+      FORMULA_DEFINITIONS.gearing,
+      FORMULA_DEFINITIONS.dscr,
+      FORMULA_DEFINITIONS.yoy,
+    ],
+  };
 }
 
 /** 合併多份 Audited Report 抽取（按 fiscal year 去重，保留較完整者） */
@@ -599,6 +841,30 @@ export function mergeAuditedExtracts(
       base.going_concern_uncertainty = e.going_concern_uncertainty;
     if (base.has_full_notes == null && e.has_full_notes != null)
       base.has_full_notes = e.has_full_notes;
+
+    if (base.total_assets == null && e.total_assets != null)
+      base.total_assets = e.total_assets;
+    if (base.current_assets == null && e.current_assets != null)
+      base.current_assets = e.current_assets;
+    if (base.cash_and_bank == null && e.cash_and_bank != null)
+      base.cash_and_bank = e.cash_and_bank;
+    if (base.total_liabilities == null && e.total_liabilities != null)
+      base.total_liabilities = e.total_liabilities;
+    if (base.current_liabilities == null && e.current_liabilities != null)
+      base.current_liabilities = e.current_liabilities;
+    if (base.borrowings == null && e.borrowings != null)
+      base.borrowings = e.borrowings;
+    if (base.shareholders_equity == null && e.shareholders_equity != null)
+      base.shareholders_equity = e.shareholders_equity;
+    if (base.intangible_assets == null && e.intangible_assets != null)
+      base.intangible_assets = e.intangible_assets;
+    if (base.goodwill == null && e.goodwill != null) base.goodwill = e.goodwill;
+    if (!base.ebitda_source_pages && e.ebitda_source_pages)
+      base.ebitda_source_pages = e.ebitda_source_pages;
+    if (!base.balance_sheet_source_pages && e.balance_sheet_source_pages)
+      base.balance_sheet_source_pages = e.balance_sheet_source_pages;
+    if (base.extract_confidence == null && e.extract_confidence != null)
+      base.extract_confidence = e.extract_confidence;
 
     for (const y of e.years) {
       const key = (y.financial_year || y.year_end_date || "").toLowerCase();

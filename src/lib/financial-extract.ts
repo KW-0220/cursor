@@ -57,8 +57,14 @@ export type EbitdaCoverageAnalysis = {
   };
 };
 
-/** 申請文件類型：決定 prompt 期望，唔代表讀唔到 PDF */
-export type DocKind = "br" | "nar1" | "bank" | "financial" | "audited" | "auto";
+export type DocKind =
+  | "br"
+  | "nar1"
+  | "bank"
+  | "financial"
+  | "audited"
+  | "identity"
+  | "auto";
 
 export function normalizeDocKind(raw: unknown): DocKind {
   const v = String(raw ?? "")
@@ -69,13 +75,17 @@ export function normalizeDocKind(raw: unknown): DocKind {
     v === "nar1" ||
     v === "bank" ||
     v === "financial" ||
-    v === "audited"
+    v === "audited" ||
+    v === "identity"
   ) {
     return v;
   }
   // aliases
   if (v === "audit" || v === "audited_report" || v === "audit_report") {
     return "audited";
+  }
+  if (v === "id" || v === "hkid" || v === "passport" || v === "identity_doc") {
+    return "identity";
   }
   return "auto";
 }

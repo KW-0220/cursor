@@ -12,7 +12,9 @@ import {
 import {
   AuditedExtractPanel,
   BankCashflowBriefPanel,
+  BankSystemChecksPanel,
   BrExtractPanel,
+  IdentityExtractPanel,
   assessmentLabel,
 } from "@/components/app/document-extract-panels";
 import { lastSixBankMonths } from "@/components/app/apply-documents-upload";
@@ -26,6 +28,7 @@ import {
 } from "@/components/ui/layout";
 import type { BankStatementExtract } from "@/lib/bank-statement-extract";
 import {
+  buildBankSystemChecks,
   mergeBankStatementExtracts,
   toBankStatementExtract,
 } from "@/lib/bank-statement-extract";
@@ -36,10 +39,11 @@ import {
   mergeAuditedExtracts,
   toAuditedExtract,
 } from "@/lib/audited-report-extract";
+import { toIdentityExtract } from "@/lib/identity-extract";
 import { cn, formatDateTime } from "@/lib/utils";
 
-/** 與客戶申請端一致：只允許 BR／銀行月結／審計報告 */
-type ClientDocKind = "br" | "bank" | "audited";
+type AdminDocKind = "br" | "bank" | "audited" | "identity";
+type PersonRole = "董事" | "股東" | "個人擔保人";
 
 type AnalyzePayload = Record<string, unknown> & {
   ok?: boolean;
@@ -47,11 +51,13 @@ type AnalyzePayload = Record<string, unknown> & {
   message?: string;
   fileName?: string;
   docKind?: string;
+  personRole?: string | null;
   model?: string;
   extractHint?: string | null;
   bankExtract?: unknown;
   brExtract?: unknown;
   auditedExtract?: unknown;
+  identityExtract?: unknown;
   analysis?: {
     summary?: string;
     overall?: string;
@@ -66,8 +72,9 @@ type QueueItem = {
   file: File | null;
   pastedText: string;
   label: string;
-  docKind: ClientDocKind;
+  docKind: AdminDocKind;
   statementMonth: string | null;
+  personRole: PersonRole | null;
   status: "queued" | "running" | "done" | "error";
   error?: string;
   result?: AnalyzePayload;
@@ -87,11 +94,7 @@ type ArchiveListItem = {
   archivedAt: string;
 };
 
-const DOC_KINDS: Array<{ value: ClientDocKind; label: string }> = [
-  { value: "br", label: "商業登記證 BR" },
-  { value: "bank", label: "銀行月結單" },
-  { value: "audited", label: "審計報告（Audited）" },
-];
+const PERSON_ROLES: PersonRole[] = ["董事", "股東", "個人擔保人"];
 
 function fileFingerprint(file: File) {
   return `file:${file.name.trim().toLowerCase()}|${file.size}|${file.lastModified}`;
@@ -107,7 +110,32 @@ function pasteFingerprint(text: string) {
   return `paste:${t.length}:${(h >>> 0).toString(16)}`;
 }
 
-function ClientResultBody({ result }: { result: AnalyzePayload }) {
+function isPdfFile(file: File) {
+  const name = file.name.toLowerCase();
+  return (
+    file.type === "application/pdf" ||
+    name.endsWith(".pdf") ||
+    file.type === ""
+  );
+}
+
+function RequirementsList({ items }: { items: string[] }) {
+  return (
+    <ul className="list-disc space-y-1 pl-5 text-xs text-text-secondary">
+      {items.map((t) => (
+        <li key={t}>{t}</li>
+      ))}
+    </ul>
+  );
+}
+
+function ClientResultBody({
+  result,
+  monthlyDebtPayments,
+}: {
+  result: AnalyzePayload;
+  monthlyDebtPayments?: number | null;
+}) {
   const kind = (result.docKind || "") as string;
   const hint =
     typeof result.extractHint === "string" ? result.extractHint : null;
@@ -131,7 +159,10 @@ function ClientResultBody({ result }: { result: AnalyzePayload }) {
         {hint && (
           <StateBanner tone="info" title="抽取提示" description={hint} />
         )}
-        <AuditedExtractPanel a={a} />
+        <AuditedExtractPanel
+          a={a}
+          monthlyDebtPayments={monthlyDebtPayments}
+        />
       </div>
     );
   }
@@ -149,13 +180,29 @@ function ClientResultBody({ result }: { result: AnalyzePayload }) {
     );
   }
 
+  if (kind === "identity" && result.identityExtract) {
+    return (
+      <div className="space-y-2">
+        {hint && (
+          <StateBanner tone="info" title="抽取提示" description={hint} />
+        )}
+        <IdentityExtractPanel
+          identity={toIdentityExtract(result.identityExtract)}
+          personRole={
+            typeof result.personRole === "string" ? result.personRole : null
+          }
+        />
+      </div>
+    );
+  }
+
   return (
     <StateBanner
       tone="warning"
       title="未有結構化抽取結果"
       description={
         result.message ||
-        "請確認文件類型（BR／銀行月結／審計）與上載檔案相符後重試。"
+        "請確認文件類型與上載檔案相符後重試。"
       }
     />
   );
@@ -164,19 +211,25 @@ function ClientResultBody({ result }: { result: AnalyzePayload }) {
 export function AiAnalyzeWorkspace({
   enableArchive = true,
 }: {
-  /** @deprecated 與客戶端對齊後不再顯示三色燈 */
   showTrafficLight?: boolean;
   enableArchive?: boolean;
 }) {
   const months = useMemo(() => lastSixBankMonths(), []);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const bankInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
+  const brInputRef = useRef<HTMLInputElement>(null);
+  const auditedInputRef = useRef<HTMLInputElement>(null);
+  const identityInputRef = useRef<HTMLInputElement>(null);
+
   const [tab, setTab] = useState<"analyze" | "archive">("analyze");
   const [companyName, setCompanyName] = useState("");
-  const [docKind, setDocKind] = useState<ClientDocKind>("br");
-  const [bankMonth, setBankMonth] = useState(
+  const [personRole, setPersonRole] = useState<PersonRole>("董事");
+  const [monthlyDebtPayments, setMonthlyDebtPayments] = useState("");
+  const [gearingThreshold, setGearingThreshold] = useState("4");
+  const [pasteText, setPasteText] = useState("");
+  const [pasteKind, setPasteKind] = useState<AdminDocKind>("br");
+  const [pasteBankMonth, setPasteBankMonth] = useState(
     months[months.length - 1] ?? "",
   );
-  const [pasteText, setPasteText] = useState("");
   const [queue, setQueue] = useState<QueueItem[]>([]);
   const [running, setRunning] = useState(false);
   const [expanded, setExpanded] = useState<string | null>(null);
@@ -192,6 +245,16 @@ export function AiAnalyzeWorkspace({
   const [archiveQ, setArchiveQ] = useState("");
   const [archivingId, setArchivingId] = useState<string | null>(null);
 
+  const monthlyDebtNum = useMemo(() => {
+    const n = Number(monthlyDebtPayments.replace(/,/g, "").trim());
+    return Number.isFinite(n) && monthlyDebtPayments.trim() ? n : null;
+  }, [monthlyDebtPayments]);
+
+  const gearingThresholdNum = useMemo(() => {
+    const n = Number(gearingThreshold);
+    return Number.isFinite(n) && n > 0 ? n : 4;
+  }, [gearingThreshold]);
+
   const queuedCount = useMemo(
     () => queue.filter((q) => q.status === "queued").length,
     [queue],
@@ -201,17 +264,29 @@ export function AiAnalyzeWorkspace({
     [queue],
   );
 
-  /** 與客戶端相同：合併已完成嘅銀行月結 → 六大項現金流預審 */
-  const mergedBankBrief = useMemo(() => {
+  const bankStatements = useMemo(() => {
     const banks: BankStatementExtract[] = [];
     for (const q of queue) {
       if (q.status !== "done" || q.docKind !== "bank" || !q.result?.bankExtract)
         continue;
       banks.push(toBankStatementExtract(q.result.bankExtract));
     }
-    if (!banks.length) return null;
-    return mergeBankStatementExtracts(banks);
+    return banks;
   }, [queue]);
+
+  const mergedBankBrief = useMemo(() => {
+    if (!bankStatements.length) return null;
+    return mergeBankStatementExtracts(bankStatements);
+  }, [bankStatements]);
+
+  const bankChecks = useMemo(
+    () =>
+      buildBankSystemChecks(bankStatements, {
+        expectedMonths: months,
+        companyNameHint: companyName,
+      }),
+    [bankStatements, months, companyName],
+  );
 
   const mergedAudited = useMemo(() => {
     const list: AuditedReportExtract[] = [];
@@ -227,6 +302,25 @@ export function AiAnalyzeWorkspace({
     if (!list.length) return null;
     return mergeAuditedExtracts(list);
   }, [queue]);
+
+  const brDone = useMemo(
+    () =>
+      queue.find(
+        (q) => q.docKind === "br" && q.status === "done" && q.result?.brExtract,
+      ) ?? null,
+    [queue],
+  );
+
+  const identityDone = useMemo(
+    () =>
+      queue.filter(
+        (q) =>
+          q.docKind === "identity" &&
+          q.status === "done" &&
+          q.result?.identityExtract,
+      ),
+    [queue],
+  );
 
   const loadArchives = useCallback(async () => {
     if (!enableArchive) return;
@@ -253,26 +347,62 @@ export function AiAnalyzeWorkspace({
     if (tab === "archive") void loadArchives();
   }, [tab, loadArchives]);
 
-  function addFiles(list: FileList | File[] | null) {
-    const files = Array.from(list ?? []).filter((f) => f.size > 0);
-    if (!files.length) return;
-    if (docKind === "bank" && !bankMonth) {
-      setError("銀行月結單必須選擇月份（與客戶申請端相同）");
-      return;
-    }
+  function pushAccepted(
+    accepted: QueueItem[],
+    dupNames: string[],
+    kindLabel: string,
+  ) {
+    if (accepted.length) {
+      setQueue((prev) => [...prev, ...accepted]);
+      setFlash(
+        `已加入 ${accepted.length} 份${kindLabel}` +
+          (dupNames.length ? `；略過重覆 ${dupNames.length}` : ""),
+      );
+    } else setFlash(null);
 
+    if (dupNames.length) {
+      setError(
+        `禁止上載重覆文件：${dupNames.slice(0, 5).join("、")}` +
+          (dupNames.length > 5 ? ` 等 ${dupNames.length} 個` : ""),
+      );
+    } else setError(null);
+  }
+
+  function collectAccepted(
+    files: File[],
+    opts: {
+      docKind: AdminDocKind;
+      statementMonth?: string | null;
+      personRole?: PersonRole | null;
+      pdfOnly?: boolean;
+    },
+  ) {
     const existing = new Set(queue.map((q) => q.fingerprint));
     const archivedNames = new Set(
       archives
         .map((a) => a.fileName?.trim().toLowerCase())
         .filter((n): n is string => Boolean(n)),
     );
-
     const accepted: QueueItem[] = [];
     const dupNames: string[] = [];
+    const rejected: string[] = [];
     const seenInBatch = new Set<string>();
 
     for (const file of files) {
+      if (opts.pdfOnly && !isPdfFile(file)) {
+        rejected.push(file.name);
+        continue;
+      }
+      // 拒絕對銀行月結用圖檔副檔名（即使 MIME 空白）
+      if (opts.pdfOnly) {
+        const lower = file.name.toLowerCase();
+        if (
+          /\.(jpe?g|png|gif|webp|heic|xlsx?|xls|csv)$/i.test(lower)
+        ) {
+          rejected.push(file.name);
+          continue;
+        }
+      }
       const fp = fileFingerprint(file);
       const nameKey = file.name.trim().toLowerCase();
       if (
@@ -283,6 +413,21 @@ export function AiAnalyzeWorkspace({
         dupNames.push(file.name);
         continue;
       }
+      // 銀行：同一月份只留一份
+      if (
+        opts.docKind === "bank" &&
+        opts.statementMonth &&
+        (queue.some(
+          (q) =>
+            q.docKind === "bank" &&
+            q.statementMonth === opts.statementMonth &&
+            q.status !== "error",
+        ) ||
+          accepted.some((q) => q.statementMonth === opts.statementMonth))
+      ) {
+        dupNames.push(`${file.name}（${opts.statementMonth} 已有）`);
+        continue;
+      }
       seenInBatch.add(fp);
       accepted.push({
         localId: `Q-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
@@ -290,32 +435,78 @@ export function AiAnalyzeWorkspace({
         file,
         pastedText: "",
         label:
-          docKind === "bank"
-            ? `${file.name}（${bankMonth}）`
-            : file.name,
-        docKind,
-        statementMonth: docKind === "bank" ? bankMonth : null,
+          opts.docKind === "bank"
+            ? `${file.name}（${opts.statementMonth}）`
+            : opts.docKind === "identity"
+              ? `${file.name}（${opts.personRole || "身份證明"}）`
+              : file.name,
+        docKind: opts.docKind,
+        statementMonth: opts.statementMonth ?? null,
+        personRole: opts.personRole ?? null,
         status: "queued",
       });
     }
 
-    if (accepted.length) {
-      setQueue((prev) => [...prev, ...accepted]);
-      setFlash(
-        `已加入 ${accepted.length} 份${
-          DOC_KINDS.find((d) => d.value === docKind)?.label || ""
-        }` + (dupNames.length ? `；略過重覆 ${dupNames.length}` : ""),
-      );
-    } else setFlash(null);
-
-    if (dupNames.length) {
+    if (rejected.length) {
       setError(
-        `禁止上載重覆文件：${dupNames.slice(0, 5).join("、")}` +
-          (dupNames.length > 5 ? ` 等 ${dupNames.length} 個` : ""),
+        `只接受 PDF：已拒絕 ${rejected.slice(0, 5).join("、")}` +
+          (rejected.length > 5 ? ` 等 ${rejected.length} 個` : "") +
+          "（不接受 JPG／PNG／截圖／Excel）",
       );
-    } else setError(null);
+    }
 
-    if (inputRef.current) inputRef.current.value = "";
+    return { accepted, dupNames };
+  }
+
+  function addBankFile(month: string, list: FileList | null) {
+    const files = Array.from(list ?? []).filter((f) => f.size > 0);
+    if (!files.length) return;
+    const { accepted, dupNames } = collectAccepted(files.slice(0, 1), {
+      docKind: "bank",
+      statementMonth: month,
+      pdfOnly: true,
+    });
+    pushAccepted(accepted, dupNames, `銀行月結（${month}）`);
+    const el = bankInputRefs.current[month];
+    if (el) el.value = "";
+  }
+
+  function addBrFiles(list: FileList | null) {
+    const files = Array.from(list ?? []).filter((f) => f.size > 0);
+    if (!files.length) return;
+    const { accepted, dupNames } = collectAccepted(files.slice(0, 1), {
+      docKind: "br",
+    });
+    pushAccepted(accepted, dupNames, "商業登記證 BR");
+    if (brInputRef.current) brInputRef.current.value = "";
+  }
+
+  function addAuditedFiles(list: FileList | null) {
+    const files = Array.from(list ?? []).filter((f) => f.size > 0);
+    if (!files.length) return;
+    const existingAudited = queue.filter((q) => q.docKind === "audited").length;
+    const room = Math.max(0, 3 - existingAudited);
+    const { accepted, dupNames } = collectAccepted(files.slice(0, room || 1), {
+      docKind: "audited",
+      pdfOnly: true,
+    });
+    if (!room) {
+      setError("Audited Report 最多上載 3 份（最近三年）");
+      return;
+    }
+    pushAccepted(accepted, dupNames, "Audited Report");
+    if (auditedInputRef.current) auditedInputRef.current.value = "";
+  }
+
+  function addIdentityFiles(list: FileList | null) {
+    const files = Array.from(list ?? []).filter((f) => f.size > 0);
+    if (!files.length) return;
+    const { accepted, dupNames } = collectAccepted(files, {
+      docKind: "identity",
+      personRole,
+    });
+    pushAccepted(accepted, dupNames, `身份證明（${personRole}）`);
+    if (identityInputRef.current) identityInputRef.current.value = "";
   }
 
   function addPasteJob() {
@@ -324,7 +515,7 @@ export function AiAnalyzeWorkspace({
       setError("請先貼上文字");
       return;
     }
-    if (docKind === "bank" && !bankMonth) {
+    if (pasteKind === "bank" && !pasteBankMonth) {
       setError("銀行月結單必須選擇月份");
       return;
     }
@@ -341,10 +532,15 @@ export function AiAnalyzeWorkspace({
         file: null,
         pastedText: text,
         label: `貼上文字（${text.length} 字）${
-          docKind === "bank" ? ` · ${bankMonth}` : ""
+          pasteKind === "bank"
+            ? ` · ${pasteBankMonth}`
+            : pasteKind === "identity"
+              ? ` · ${personRole}`
+              : ` · ${pasteKind}`
         }`,
-        docKind,
-        statementMonth: docKind === "bank" ? bankMonth : null,
+        docKind: pasteKind,
+        statementMonth: pasteKind === "bank" ? pasteBankMonth : null,
+        personRole: pasteKind === "identity" ? personRole : null,
         status: "queued",
       },
     ]);
@@ -363,15 +559,17 @@ export function AiAnalyzeWorkspace({
     setQueue((prev) => prev.filter((q) => q.status !== "done"));
   }
 
-  /** 與客戶端 apply-documents-upload.analyzeOne 相同契約 */
   async function analyzeOne(item: QueueItem): Promise<QueueItem> {
     const form = new FormData();
     if (item.file) form.set("file", item.file);
     if (item.pastedText) form.set("text", item.pastedText);
     form.set("docKind", item.docKind);
     if (item.statementMonth) form.set("statementMonth", item.statementMonth);
+    if (item.personRole) form.set("personRole", item.personRole);
     if (companyName.trim()) form.set("companyName", companyName.trim());
-    // 客戶端會帶 loan 欄位但 API 唔用；為一致仍可省略
+    if (item.docKind === "audited" && monthlyDebtNum != null) {
+      form.set("monthlyDebtPayments", String(monthlyDebtNum));
+    }
 
     const res = await fetch("/api/analyze-document", {
       method: "POST",
@@ -389,7 +587,11 @@ export function AiAnalyzeWorkspace({
     return {
       ...item,
       status: "done",
-      result: { ...data, docKind: data.docKind || item.docKind },
+      result: {
+        ...data,
+        docKind: data.docKind || item.docKind,
+        personRole: data.personRole ?? item.personRole,
+      },
       label: data.fileName || item.label,
     };
   }
@@ -405,9 +607,10 @@ export function AiAnalyzeWorkspace({
     setError(null);
     setFlash(null);
 
-    // 銀行多份：優先走客戶端同一 batch API（失敗再逐份）
     const bankPending = pending.filter((q) => q.docKind === "bank" && q.file);
-    const otherPending = pending.filter((q) => !(q.docKind === "bank" && q.file));
+    const otherPending = pending.filter(
+      (q) => !(q.docKind === "bank" && q.file),
+    );
 
     if (bankPending.length >= 2) {
       for (const item of bankPending) {
@@ -468,7 +671,6 @@ export function AiAnalyzeWorkspace({
             }),
           );
         } else {
-          // fallback sequential
           for (const item of bankPending) {
             const next = await analyzeOne(item);
             setQueue((prev) =>
@@ -516,7 +718,7 @@ export function AiAnalyzeWorkspace({
     }
 
     setRunning(false);
-    setFlash("佇列分析完成（規則與客戶申請端相同：BR／銀行現金流／Audited）。");
+    setFlash("佇列分析完成（按文件類別獨立抽取）。");
   }
 
   async function archiveItem(item: QueueItem) {
@@ -544,6 +746,14 @@ export function AiAnalyzeWorkspace({
         const a = toAuditedExtract(item.result.auditedExtract);
         summaryBits.push(
           [a.company_name, a.year_end_date, a.auditor_name]
+            .filter(Boolean)
+            .join(" · "),
+        );
+      }
+      if (item.docKind === "identity" && item.result.identityExtract) {
+        const id = toIdentityExtract(item.result.identityExtract);
+        summaryBits.push(
+          [item.personRole, id.full_name_zh || id.full_name_en, id.id_number]
             .filter(Boolean)
             .join(" · "),
         );
@@ -635,6 +845,9 @@ export function AiAnalyzeWorkspace({
       .includes(s);
   });
 
+  const queueByKind = (kind: AdminDocKind) =>
+    queue.filter((q) => q.docKind === kind);
+
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap gap-2">
@@ -677,79 +890,16 @@ export function AiAnalyzeWorkspace({
         <>
           <Card className="space-y-3">
             <SectionHeader
-              title="AI 文件分析（與客戶申請端相同規則）"
-              subtitle="文件類型：BR · 銀行月結（含月份）· Audited｜同一套抽取 prompt／合併現金流"
+              title="AI 文件分析（按類別分開上載）"
+              subtitle="每類文件獨立上載區＋獨立分析要求；禁止重覆檔案"
             />
-            <div className="grid gap-3 sm:grid-cols-2">
-              <Field label="文件類型（必選）">
-                <Select
-                  value={docKind}
-                  onChange={(e) => setDocKind(e.target.value as ClientDocKind)}
-                >
-                  {DOC_KINDS.map((k) => (
-                    <option key={k.value} value={k.value}>
-                      {k.label}
-                    </option>
-                  ))}
-                </Select>
-              </Field>
-              {docKind === "bank" && (
-                <Field label="月結單月份（與客戶端相同）">
-                  <Select
-                    value={bankMonth}
-                    onChange={(e) => setBankMonth(e.target.value)}
-                  >
-                    {months.map((m) => (
-                      <option key={m} value={m}>
-                        {m}
-                      </option>
-                    ))}
-                  </Select>
-                </Field>
-              )}
-              <Field label="公司名稱（選填提示）">
-                <Input
-                  value={companyName}
-                  onChange={(e) => setCompanyName(e.target.value)}
-                  placeholder="提示 AI 抽取"
-                />
-              </Field>
-            </div>
-
-            <input
-              ref={inputRef}
-              type="file"
-              multiple={docKind !== "br"}
-              accept=".pdf,.txt,.md,.csv,.png,.jpg,.jpeg,.webp,.heic,application/pdf,image/*"
-              className="hidden"
-              onChange={(e) => addFiles(e.target.files)}
-            />
-            <Button
-              type="button"
-              variant="outline"
-              fullWidth
-              onClick={() => inputRef.current?.click()}
-            >
-              <FileUp className="mr-1.5 size-4" />
-              選擇檔案（可多選；禁止重覆）
-            </Button>
-
-            <Field label="或貼上文字加入佇列">
-              <Textarea
-                value={pasteText}
-                onChange={(e) => setPasteText(e.target.value)}
-                placeholder="貼上結單／報告重點…"
+            <Field label="公司名稱（選填提示）">
+              <Input
+                value={companyName}
+                onChange={(e) => setCompanyName(e.target.value)}
+                placeholder="提示 AI 抽取／系統檢查同一公司"
               />
             </Field>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={addPasteJob}
-              disabled={!pasteText.trim()}
-            >
-              將文字加入佇列
-            </Button>
-
             <div className="flex flex-wrap gap-2">
               <Button
                 type="button"
@@ -788,18 +938,369 @@ export function AiAnalyzeWorkspace({
                 </Button>
               )}
             </div>
-            <Disclaimer>
-              規則與客戶申請「文件」步驟一致：強制 docKind=br|bank|audited；銀行帶
-              statementMonth；多份銀行可走 batch 再合併六大項現金流。唔再用
-              auto／三色燈初篩。
-            </Disclaimer>
+          </Card>
+
+          {/* —— 銀行月結 —— */}
+          <Card className="space-y-3">
+            <SectionHeader
+              title="1. 最近六個月銀行月結單"
+              subtitle="只接受 PDF · 六個月份必須連續 · 完整交易紀錄"
+            />
+            <div className="grid gap-3 lg:grid-cols-2">
+              <div className="space-y-2">
+                <p className="text-xs font-semibold text-navy-900">文件要求</p>
+                <RequirementsList
+                  items={[
+                    "公司最近六個月主要銀行戶口月結單",
+                    "只接受 PDF（銀行原始電子結單或完整掃描）",
+                    "六個月份必須連續",
+                    "必須包括完整交易紀錄及結單頁面",
+                    "不接受 JPG、PNG、截圖或 Excel 手動整理表",
+                  ]}
+                />
+              </div>
+              <div className="space-y-2">
+                <p className="text-xs font-semibold text-navy-900">使用目的／AI 分析</p>
+                <RequirementsList
+                  items={[
+                    "公司現金流",
+                    "每月及每日戶口結餘",
+                    "營業進帳、進帳頻率及來源",
+                    "戶口異常紀錄",
+                    "公司基本還款能力",
+                  ]}
+                />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <p className="text-xs font-semibold text-navy-900">
+                按月份分開上載（PDF）
+              </p>
+              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                {months.map((m) => {
+                  const existing = queue.find(
+                    (q) =>
+                      q.docKind === "bank" &&
+                      q.statementMonth === m &&
+                      q.status !== "error",
+                  );
+                  return (
+                    <div
+                      key={m}
+                      className="rounded-xl border border-border bg-surface-1 px-3 py-2"
+                    >
+                      <div className="mb-2 flex items-center justify-between gap-2">
+                        <span className="text-sm font-medium text-navy-900">
+                          {m}
+                        </span>
+                        <span className="text-[11px] text-text-muted">
+                          {existing
+                            ? existing.status === "done"
+                              ? "已分析"
+                              : existing.status === "running"
+                                ? "分析中"
+                                : "已加入"
+                            : "未上載"}
+                        </span>
+                      </div>
+                      <input
+                        ref={(el) => {
+                          bankInputRefs.current[m] = el;
+                        }}
+                        type="file"
+                        accept="application/pdf,.pdf"
+                        className="hidden"
+                        onChange={(e) => addBankFile(m, e.target.files)}
+                      />
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        fullWidth
+                        disabled={Boolean(existing) || running}
+                        onClick={() => bankInputRefs.current[m]?.click()}
+                      >
+                        <FileUp className="mr-1 size-3.5" />
+                        {existing ? "已佔位" : "上載 PDF"}
+                      </Button>
+                      {existing?.status === "queued" && (
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="ghost"
+                          className="mt-1 w-full"
+                          onClick={() => removeQueued(existing.localId)}
+                        >
+                          移除
+                        </Button>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+            {queueByKind("bank").length > 0 && (
+              <p className="text-xs text-text-muted">
+                銀行佇列：{queueByKind("bank").length} 份
+              </p>
+            )}
+          </Card>
+
+          {/* —— 身份證明 —— */}
+          <Card className="space-y-3">
+            <SectionHeader
+              title="2. 身份證明文件"
+              subtitle="所有董事、股東及個人擔保人（政策未定前按全員處理）"
+            />
+            <div className="grid gap-3 lg:grid-cols-2">
+              <div className="space-y-2">
+                <p className="text-xs font-semibold text-navy-900">必須提供人士</p>
+                <RequirementsList
+                  items={[
+                    "所有董事",
+                    "所有股東",
+                    "所有個人擔保人",
+                    "日後可於後台設定持股比例門檻（例如 ≥25%）；現階段按全員",
+                  ]}
+                />
+              </div>
+              <div className="space-y-2">
+                <p className="text-xs font-semibold text-navy-900">接受文件</p>
+                <RequirementsList
+                  items={["香港身份證", "護照"]}
+                />
+              </div>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Field label="人士角色">
+                <Select
+                  value={personRole}
+                  onChange={(e) =>
+                    setPersonRole(e.target.value as PersonRole)
+                  }
+                >
+                  {PERSON_ROLES.map((r) => (
+                    <option key={r} value={r}>
+                      {r}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+              <div className="flex items-end">
+                <input
+                  ref={identityInputRef}
+                  type="file"
+                  multiple
+                  accept=".pdf,.png,.jpg,.jpeg,.webp,application/pdf,image/*"
+                  className="hidden"
+                  onChange={(e) => addIdentityFiles(e.target.files)}
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  fullWidth
+                  onClick={() => identityInputRef.current?.click()}
+                >
+                  <FileUp className="mr-1.5 size-4" />
+                  上載身份證明（{personRole}）
+                </Button>
+              </div>
+            </div>
+            {identityDone.length > 0 && (
+              <div className="space-y-3">
+                {identityDone.map((item) => (
+                  <div
+                    key={item.localId}
+                    className="rounded-xl border border-border px-3 py-2"
+                  >
+                    <p className="mb-2 text-xs font-medium text-navy-900">
+                      {item.label}
+                    </p>
+                    <IdentityExtractPanel
+                      identity={toIdentityExtract(
+                        item.result!.identityExtract,
+                      )}
+                      personRole={item.personRole}
+                    />
+                  </div>
+                ))}
+              </div>
+            )}
+          </Card>
+
+          {/* —— BR —— */}
+          <Card className="space-y-3">
+            <SectionHeader
+              title="3. 商業登記證 BR"
+              subtitle="最新有效副本 · 公司名稱及登記號碼不可遮擋"
+            />
+            <div className="grid gap-3 lg:grid-cols-2">
+              <div className="space-y-2">
+                <p className="text-xs font-semibold text-navy-900">文件要求</p>
+                <RequirementsList
+                  items={[
+                    "最新及有效的商業登記證副本",
+                    "文件資料必須清晰可見",
+                    "公司名稱及商業登記號碼不可被遮擋",
+                  ]}
+                />
+              </div>
+              <div className="space-y-2">
+                <p className="text-xs font-semibold text-navy-900">AI 需要提取</p>
+                <RequirementsList
+                  items={[
+                    "公司中文名稱／英文名稱",
+                    "商業登記號碼",
+                    "業務地址",
+                    "業務性質（如有）",
+                    "生效日期／屆滿日期",
+                  ]}
+                />
+              </div>
+            </div>
+            <input
+              ref={brInputRef}
+              type="file"
+              accept=".pdf,.png,.jpg,.jpeg,.webp,application/pdf,image/*"
+              className="hidden"
+              onChange={(e) => addBrFiles(e.target.files)}
+            />
+            <Button
+              type="button"
+              variant="outline"
+              fullWidth
+              onClick={() => brInputRef.current?.click()}
+            >
+              <FileUp className="mr-1.5 size-4" />
+              上載商業登記證
+            </Button>
+            {brDone?.result?.brExtract ? (
+              <BrExtractPanel
+                br={toBrExtract(
+                  brDone.result.brExtract as Partial<BrExtract>,
+                )}
+              />
+            ) : null}
+          </Card>
+
+          {/* —— Audited —— */}
+          <Card className="space-y-3">
+            <SectionHeader
+              title="4. Audited Report（最近三年）"
+              subtitle="4.1–4.7：基本資料 · 盈利 · EBITDA · 資產負債 · Gearing · DSCR · 營業額穩定性"
+            />
+            <RequirementsList
+              items={[
+                "最近三年經審計財務報表（PDF）",
+                "EBITDA＝除稅前溢利＋融資成本＋折舊＋攤銷（有披露則直接提取）",
+                "Gearing＝總負債÷有形淨資產（權益－無形－商譽）",
+                "DSCR＝EBITDA÷一年總債務支出（月供×12）；缺供款且 EBITDA>0 → 黃燈跟進",
+              ]}
+            />
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Field label="現有每月供款總和（DSCR 用，選填）">
+                <Input
+                  value={monthlyDebtPayments}
+                  onChange={(e) => setMonthlyDebtPayments(e.target.value)}
+                  placeholder="例如 50000"
+                  inputMode="decimal"
+                />
+              </Field>
+              <Field label="Gearing 政策門檻">
+                <Input
+                  value={gearingThreshold}
+                  onChange={(e) => setGearingThreshold(e.target.value)}
+                  placeholder="4"
+                  inputMode="decimal"
+                />
+              </Field>
+            </div>
+            <input
+              ref={auditedInputRef}
+              type="file"
+              multiple
+              accept="application/pdf,.pdf"
+              className="hidden"
+              onChange={(e) => addAuditedFiles(e.target.files)}
+            />
+            <Button
+              type="button"
+              variant="outline"
+              fullWidth
+              onClick={() => auditedInputRef.current?.click()}
+            >
+              <FileUp className="mr-1.5 size-4" />
+              上載 Audited Report（最多 3 份 PDF）
+            </Button>
+            {queueByKind("audited").length > 0 && (
+              <p className="text-xs text-text-muted">
+                Audited 佇列：{queueByKind("audited").length}／3
+              </p>
+            )}
+          </Card>
+
+          {/* 可選：貼上文字 */}
+          <Card className="space-y-3">
+            <SectionHeader
+              title="或貼上文字（進階）"
+              subtitle="用於已 OCR 的文字／測試抽取"
+            />
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Field label="對應類別">
+                <Select
+                  value={pasteKind}
+                  onChange={(e) =>
+                    setPasteKind(e.target.value as AdminDocKind)
+                  }
+                >
+                  <option value="bank">銀行月結</option>
+                  <option value="identity">身份證明</option>
+                  <option value="br">商業登記證 BR</option>
+                  <option value="audited">Audited Report</option>
+                </Select>
+              </Field>
+              {pasteKind === "bank" && (
+                <Field label="月結月份">
+                  <Select
+                    value={pasteBankMonth}
+                    onChange={(e) => setPasteBankMonth(e.target.value)}
+                  >
+                    {months.map((m) => (
+                      <option key={m} value={m}>
+                        {m}
+                      </option>
+                    ))}
+                  </Select>
+                </Field>
+              )}
+            </div>
+            <Field label="文字內容">
+              <Textarea
+                value={pasteText}
+                onChange={(e) => setPasteText(e.target.value)}
+                placeholder="貼上結單／報告／證件 OCR 文字…"
+              />
+            </Field>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={addPasteJob}
+              disabled={!pasteText.trim()}
+            >
+              將文字加入佇列
+            </Button>
           </Card>
 
           {mergedBankBrief && (
-            <Card>
+            <Card className="space-y-4">
+              <SectionHeader
+                title="銀行月結 · 系統檢查"
+                subtitle="連續六個月／同一公司／同一戶口／完整性／可讀性"
+              />
+              <BankSystemChecksPanel checks={bankChecks} />
               <SectionHeader
                 title="六個月銀行現金流預審（合併）"
-                subtitle={`還款能力：${assessmentLabel(mergedBankBrief.repaymentCapacity.overall)} · 與客戶端相同`}
+                subtitle={`還款能力：${assessmentLabel(mergedBankBrief.repaymentCapacity.overall)}`}
               />
               <BankCashflowBriefPanel brief={mergedBankBrief} />
             </Card>
@@ -808,20 +1309,30 @@ export function AiAnalyzeWorkspace({
           {mergedAudited && (
             <Card>
               <SectionHeader
-                title="審計報告合併（與客戶端相同）"
-                subtitle="4.1 基本資料 · 4.2 三年比較"
+                title="Audited Report 合併分析（4.1–4.7）"
+                subtitle={
+                  monthlyDebtNum != null
+                    ? `已套用每月供款 ${monthlyDebtNum}`
+                    : "尚未填每月供款 → DSCR 黃燈跟進（若 EBITDA>0）"
+                }
               />
-              <AuditedExtractPanel a={mergedAudited} />
+              <AuditedExtractPanel
+                a={mergedAudited}
+                monthlyDebtPayments={monthlyDebtNum}
+                gearingThreshold={gearingThresholdNum}
+              />
             </Card>
           )}
 
           <Card className="space-y-2">
             <SectionHeader
               title={`分析佇列／結果（${queue.length}）`}
-              subtitle="展開顯示與客戶端相同的抽取面板"
+              subtitle="按類別展開個別結果"
             />
             {queue.length === 0 ? (
-              <p className="text-sm text-text-muted">尚未加入文件。</p>
+              <p className="text-sm text-text-muted">
+                請於上方各類別區塊分開上載文件。
+              </p>
             ) : (
               <ul className="space-y-2">
                 {queue.map((item) => {
@@ -852,8 +1363,8 @@ export function AiAnalyzeWorkspace({
                               {item.docKind}
                               {item.statementMonth
                                 ? ` · ${item.statementMonth}`
-                                : ""}{" "}
-                              ·{" "}
+                                : ""}
+                              {item.personRole ? ` · ${item.personRole}` : ""} ·{" "}
                               {item.status === "queued" && "等候中"}
                               {item.status === "running" && "分析中…"}
                               {item.status === "done" &&
@@ -899,7 +1410,10 @@ export function AiAnalyzeWorkspace({
                       </div>
                       {open && item.result && (
                         <div className="border-t border-border px-3 py-3">
-                          <ClientResultBody result={item.result} />
+                          <ClientResultBody
+                            result={item.result}
+                            monthlyDebtPayments={monthlyDebtNum}
+                          />
                         </div>
                       )}
                       {open && item.status === "error" && (
@@ -912,6 +1426,10 @@ export function AiAnalyzeWorkspace({
                 })}
               </ul>
             )}
+            <Disclaimer>
+              各類文件分開上載；銀行只收 PDF；身份證明標註董事／股東／擔保人；Audited
+              顯示 4.1–4.7 指標。AI 不直接決定批出貸款。
+            </Disclaimer>
           </Card>
         </>
       )}
@@ -921,7 +1439,7 @@ export function AiAnalyzeWorkspace({
           <Card className="space-y-3">
             <SectionHeader
               title="分析歸檔庫"
-              subtitle="已保存結果（客戶端規則抽取）"
+              subtitle="已保存結果"
             />
             <div className="flex flex-wrap gap-2">
               <Input
@@ -991,7 +1509,10 @@ export function AiAnalyzeWorkspace({
               {!archiveDetail ? (
                 <p className="text-sm text-text-muted">載入詳情…</p>
               ) : (
-                <ClientResultBody result={archiveDetail} />
+                <ClientResultBody
+                  result={archiveDetail}
+                  monthlyDebtPayments={monthlyDebtNum}
+                />
               )}
             </Card>
           )}

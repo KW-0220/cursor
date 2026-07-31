@@ -175,6 +175,32 @@ export function ebitdaFromComponents(
   );
 }
 
+/**
+ * EBITDA（政策／產品說明用）=
+ *   除稅前溢利 + 融資成本 + 折舊 + 攤銷
+ * （若報表已直接披露 EBITDA，優先用披露值）
+ */
+export function ebitdaFromPbt(
+  profitBeforeTaxHkd: number | null | undefined,
+  financeCostsHkd: number | null | undefined,
+  depreciationHkd: number | null | undefined,
+  amortisationHkd: number | null | undefined = 0,
+): number | null {
+  if (
+    profitBeforeTaxHkd == null ||
+    financeCostsHkd == null ||
+    depreciationHkd == null
+  ) {
+    return null;
+  }
+  return (
+    profitBeforeTaxHkd +
+    financeCostsHkd +
+    depreciationHkd +
+    (amortisationHkd ?? 0)
+  );
+}
+
 export function annualDebtServiceFromMonthly(
   monthlyPayments: Array<number | null | undefined>,
 ): number | null {

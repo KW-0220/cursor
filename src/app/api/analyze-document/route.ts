@@ -28,6 +28,7 @@ import {
   auditedExtractToFinancial,
   auditedFinancialsIncomplete,
   buildAuditedComparisonRows,
+  buildAuditedCreditMetrics,
   buildAuditedExtractUserText,
   enrichAuditedWithTextHeuristics,
   parseAuditedExtract,
@@ -39,6 +40,13 @@ import {
   nar1ExtractToFinancial,
   parseNar1Extract,
 } from "@/lib/nar1-extract";
+import {
+  IDENTITY_EXTRACT_SYSTEM_PROMPT,
+  buildIdentityExtractUserText,
+  identityExtractHint,
+  identityExtractToFinancial,
+  parseIdentityExtract,
+} from "@/lib/identity-extract";
 import {
   getLlmProvider,
   hasOpenAIKey,
@@ -101,6 +109,14 @@ export async function POST(req: NextRequest) {
     );
     const statementMonth =
       String(formData.get("statementMonth") ?? "").trim() || undefined;
+    const personRole =
+      String(formData.get("personRole") ?? "").trim() || undefined;
+    const monthlyDebtPaymentsRaw = String(
+      formData.get("monthlyDebtPayments") ?? "",
+    ).trim();
+    const monthlyDebtPayments = monthlyDebtPaymentsRaw
+      ? Number(monthlyDebtPaymentsRaw.replace(/,/g, ""))
+      : null;
 
     let fileName = "pasted-text.txt";
     let mimeType = "text/plain";
@@ -442,9 +458,19 @@ export async function POST(req: NextRequest) {
       const extract = auditedExtractToFinancial(auditedExtract);
       const comparisonTable = buildAuditedComparisonRows(auditedExtract);
       const incomplete = auditedFinancialsIncomplete(auditedExtract);
+      const creditMetrics = buildAuditedCreditMetrics(auditedExtract, {
+        monthlyDebtPayments:
+          monthlyDebtPayments != null && Number.isFinite(monthlyDebtPayments)
+            ? monthlyDebtPayments
+            : null,
+      });
 
       if (rawOnly) {
-        return NextResponse.json({ ...auditedExtract, comparisonTable });
+        return NextResponse.json({
+          ...auditedExtract,
+          comparisonTable,
+          creditMetrics,
+        });
       }
 
       return NextResponse.json({
@@ -461,6 +487,7 @@ export async function POST(req: NextRequest) {
         extractHint: auditedExtractHint(auditedExtract),
         auditedExtract,
         comparisonTable,
+        creditMetrics,
         financialsIncomplete: incomplete,
         extract,
         company_name: extract.company_name,
@@ -479,13 +506,110 @@ export async function POST(req: NextRequest) {
             comparisonTable.length
               ? `${comparisonTable.length} 個財政年度`
               : null,
+            creditMetrics.latestEbitdaPolicy != null
+              ? `EBITDA(政策) ${creditMetrics.latestEbitdaPolicy}`
+              : null,
             incomplete ? "損益數字未抽出" : null,
           ]
             .filter(Boolean)
             .join(" · "),
           applicantFacingMessage: incomplete
             ? "已讀到公司／核數師資料，但未抽出損益表數字。請確認 PDF 含損益表頁，或重新上載該幾頁後再分析。"
-            : "已完成 Audited Report 初步抽取（含三年比較），供顧問覆核。AI 不直接決定批出貸款。",
+            : "已完成 Audited Report 初步抽取（含三年比較／EBITDA／資產負債／Gearing／DSCR），供顧問覆核。AI 不直接決定批出貸款。",
+        },
+        disclaimer:
+          "此建議只供初步參考，實際貸款條件及批核結果由相關貸款機構決定。",
+      });
+    }
+
+    /** —— 身份證明（HKID／護照） —— */
+    if (docKind === "identity") {
+      const identityUser = buildIdentityExtractUserText({
+        fileName: manusFileName,
+        personRole,
+        pastedText: plainText,
+      });
+      const manus = await manusRespond({
+        system: IDENTITY_EXTRACT_SYSTEM_PROMPT,
+        userText: hasVision
+          ? `${identityUser}\n\n（已附證件頁面影像，請一併辨識姓名、證件號碼、日期。）`
+          : identityUser,
+        imageUrl,
+        imageUrls,
+        jsonMode: true,
+        temperature: 0.1,
+        maxWaitMs: 50_000,
+        pollMs: 1500,
+      });
+
+      let parsedJson: unknown;
+      try {
+        parsedJson = parseModelJsonObject(manus.text);
+      } catch {
+        return NextResponse.json(
+          {
+            error: "INVALID_MODEL_JSON",
+            message: "身份證明模型回傳格式不符，請重試",
+            detail: manus.text.slice(0, 500),
+          },
+          { status: 502 },
+        );
+      }
+
+      const parsed = parseIdentityExtract(parsedJson);
+      if (!parsed.ok) {
+        return NextResponse.json(
+          {
+            error: "INVALID_MODEL_JSON",
+            message: "身份證明模型回傳格式不符，請重試",
+            detail: parsed.error,
+            rawPreview: manus.text.slice(0, 500),
+          },
+          { status: 502 },
+        );
+      }
+
+      const identityExtract = parsed.data;
+      const extract = identityExtractToFinancial(identityExtract);
+
+      if (rawOnly) {
+        return NextResponse.json(identityExtract);
+      }
+
+      return NextResponse.json({
+        ok: true,
+        model: manus.model || model,
+        provider: getLlmProvider(),
+        taskId: manus.id,
+        fileName,
+        mimeType,
+        docKind,
+        personRole: personRole ?? null,
+        extractMethod,
+        textLength: plainText.length,
+        textPreview,
+        extractHint: identityExtractHint(identityExtract),
+        identityExtract,
+        extract,
+        company_name: extract.company_name,
+        financial_year: extract.financial_year,
+        revenue: extract.revenue,
+        EBITDA: extract.EBITDA,
+        net_profit: extract.net_profit,
+        existing_debt: extract.existing_debt,
+        analysis: {
+          documentType: "identity" as const,
+          overall: "amber" as const,
+          summary: [
+            personRole,
+            identityExtract.doc_type,
+            identityExtract.full_name_zh || identityExtract.full_name_en,
+            identityExtract.id_number,
+          ]
+            .filter(Boolean)
+            .join(" · "),
+          applicantFacingMessage:
+            "已完成身份證明初步抽取，供顧問核對董事／股東／擔保人。AI 不直接決定批出貸款。",
         },
         disclaimer:
           "此建議只供初步參考，實際貸款條件及批核結果由相關貸款機構決定。",

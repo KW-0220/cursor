@@ -761,3 +761,161 @@ export function formatHkd(n: number | null | undefined) {
   if (n == null || Number.isNaN(n)) return "—";
   return `HK$${Math.round(n).toLocaleString("en-HK")}`;
 }
+
+export type BankSystemCheckStatus = "pass" | "fail" | "unknown";
+
+export type BankSystemCheck = {
+  id: string;
+  label: string;
+  status: BankSystemCheckStatus;
+  detail: string;
+};
+
+/** 後台系統檢查：六個月連續／同一公司／同一戶口／完整性／可讀性 */
+export function buildBankSystemChecks(
+  statements: BankStatementExtract[],
+  opts?: {
+    expectedMonths?: string[];
+    companyNameHint?: string;
+  },
+): BankSystemCheck[] {
+  const expected = opts?.expectedMonths ?? [];
+  const months = statements
+    .map((s) => s.month)
+    .filter((m): m is string => Boolean(m))
+    .sort();
+  const uniqueMonths = [...new Set(months)];
+
+  const consecutive =
+    expected.length > 0
+      ? expected.every((m) => uniqueMonths.includes(m)) &&
+        uniqueMonths.length >= expected.length
+      : uniqueMonths.length >= 6 && areMonthsConsecutive(uniqueMonths);
+
+  const holders = [
+    ...new Set(
+      statements
+        .map((s) => (s.account_holder || "").trim().toLowerCase())
+        .filter(Boolean),
+    ),
+  ];
+  const hint = (opts?.companyNameHint || "").trim().toLowerCase();
+  let sameCompany: BankSystemCheckStatus = "unknown";
+  let sameCompanyDetail = "未能從月結抽出戶名。";
+  if (holders.length === 1) {
+    sameCompany = "pass";
+    sameCompanyDetail = `戶名一致：${statements.find((s) => s.account_holder)?.account_holder}`;
+    if (hint && !holders[0]!.includes(hint) && !hint.includes(holders[0]!)) {
+      sameCompany = "fail";
+      sameCompanyDetail += `（與提示公司「${opts?.companyNameHint}」不完全相符，請覆核）`;
+    }
+  } else if (holders.length > 1) {
+    sameCompany = "fail";
+    sameCompanyDetail = `多個戶名：${holders.join("、")}`;
+  }
+
+  const accounts = [
+    ...new Set(
+      statements
+        .map((s) =>
+          [s.bank_name, s.account_last4].filter(Boolean).join("|").toLowerCase(),
+        )
+        .filter(Boolean),
+    ),
+  ];
+  let sameAccount: BankSystemCheckStatus = "unknown";
+  let sameAccountDetail = "未能抽出銀行／戶口末四位。";
+  if (accounts.length === 1) {
+    sameAccount = "pass";
+    const sample = statements.find((s) => s.bank_name || s.account_last4);
+    sameAccountDetail = `${sample?.bank_name || "銀行"} · ****${sample?.account_last4 || ""}`;
+  } else if (accounts.length > 1) {
+    sameAccount = "fail";
+    sameAccountDetail = `偵測到多個主要戶口（${accounts.length}），請確認是否同一主要銀行戶口。`;
+  }
+
+  const incomplete = statements.filter(
+    (s) => s.opening_balance == null || s.closing_balance == null,
+  );
+  const completeStatus: BankSystemCheckStatus =
+    statements.length === 0
+      ? "unknown"
+      : incomplete.length === 0
+        ? "pass"
+        : "fail";
+
+  const unreadables = statements.filter(
+    (s) =>
+      s.total_credits == null &&
+      s.total_debits == null &&
+      !(s.credit_sources?.length) &&
+      !(s.daily_balances?.length),
+  );
+
+  return [
+    {
+      id: "consecutive_six",
+      label: "是否包含連續六個月",
+      status: consecutive ? "pass" : statements.length ? "fail" : "unknown",
+      detail: consecutive
+        ? `已覆蓋：${(expected.length ? expected : uniqueMonths).join("、")}`
+        : `已有月份：${uniqueMonths.join("、") || "無"}；預期：${expected.join("、") || "連續六個月"}`,
+    },
+    {
+      id: "same_company",
+      label: "是否屬於同一公司",
+      status: sameCompany,
+      detail: sameCompanyDetail,
+    },
+    {
+      id: "same_account",
+      label: "是否屬於同一主要銀行戶口",
+      status: sameAccount,
+      detail: sameAccountDetail,
+    },
+    {
+      id: "complete_statement",
+      label: "每份結單是否完整（期初／期末結餘）",
+      status: completeStatus,
+      detail:
+        completeStatus === "pass"
+          ? "各月均有期初及期末結餘"
+          : incomplete.length
+            ? `缺結餘：${incomplete.map((s) => s.month || "?").join("、")}`
+            : "尚無已分析月結",
+    },
+    {
+      id: "missing_pages",
+      label: "是否缺頁／交易可讀",
+      status:
+        statements.length === 0
+          ? "unknown"
+          : unreadables.length === 0
+            ? "pass"
+            : "fail",
+      detail:
+        unreadables.length === 0
+          ? "交易金額／描述大致可讀取"
+          : `疑似缺頁或不可讀：${unreadables.map((s) => s.month || "?").join("、")}`,
+    },
+  ];
+}
+
+function areMonthsConsecutive(sortedUnique: string[]): boolean {
+  if (sortedUnique.length < 2) return sortedUnique.length === 1;
+  for (let i = 1; i < sortedUnique.length; i++) {
+    const prev = parseYm(sortedUnique[i - 1]!);
+    const curr = parseYm(sortedUnique[i]!);
+    if (!prev || !curr) return false;
+    const diff =
+      (curr.y - prev.y) * 12 + (curr.m - prev.m);
+    if (diff !== 1) return false;
+  }
+  return true;
+}
+
+function parseYm(s: string): { y: number; m: number } | null {
+  const m = /^(\d{4})-(\d{2})$/.exec(s.trim());
+  if (!m) return null;
+  return { y: Number(m[1]), m: Number(m[2]) };
+}
