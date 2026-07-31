@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Download, FileText, RefreshCw, Search } from "lucide-react";
+import { Download, FileText, RefreshCw, Search, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/field";
 import {
@@ -281,6 +281,7 @@ export default function AdminCustomersPage() {
   const [durable, setDurable] = useState(false);
   const [collectFrom, setCollectFrom] = useState("");
   const [wiping, setWiping] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [orphans, setOrphans] = useState<
     Array<{
@@ -373,6 +374,31 @@ export default function AdminCustomersPage() {
       setError(e instanceof Error ? e.message : "清空失敗");
     } finally {
       setWiping(false);
+    }
+  }
+
+  async function deleteOne(c: Customer) {
+    const label = c.companyNameZh || c.applicantNameZh || c.id;
+    const ok = window.confirm(
+      `確定刪除客戶「${label}」？\n\n會一併刪除：\n· 關聯申請與文件\n· 登入帳戶（${c.email || "—"}）\n\n此操作不可復原。`,
+    );
+    if (!ok) return;
+    setDeletingId(c.id);
+    setError(null);
+    try {
+      const res = await fetch("/api/admin/customers?users=1", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: c.id }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || data.error || "刪除失敗");
+      if (expanded === c.id) setExpanded(null);
+      await load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "刪除失敗");
+    } finally {
+      setDeletingId(null);
     }
   }
 
@@ -536,12 +562,12 @@ export default function AdminCustomersPage() {
           return (
             <div key={c.id} id={c.id}>
               <Card className="space-y-3">
-                <button
-                  type="button"
-                  className="flex w-full flex-wrap items-start justify-between gap-3 text-left"
-                  onClick={() => setExpanded(open ? null : c.id)}
-                >
-                  <div>
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <button
+                    type="button"
+                    className="min-w-0 flex-1 text-left"
+                    onClick={() => setExpanded(open ? null : c.id)}
+                  >
                     <p className="font-mono text-xs text-text-muted">{c.id}</p>
                     <p className="mt-1 font-semibold text-navy-900">
                       {c.companyNameZh}
@@ -552,8 +578,8 @@ export default function AdminCustomersPage() {
                     <p className="mt-1 text-xs text-text-muted">
                       {c.email} · {c.phone} · BR {c.brNumber}
                     </p>
-                  </div>
-                  <div className="text-right">
+                  </button>
+                  <div className="flex shrink-0 flex-col items-end gap-2">
                     <div className="flex flex-wrap items-center justify-end gap-1.5">
                       {latestStatus && (
                         <span
@@ -570,11 +596,31 @@ export default function AdminCustomersPage() {
                         文件 {c.documentCount ?? docs.length}
                       </p>
                     </div>
-                    <p className="mt-2 text-xs text-text-muted">
-                      {open ? "收起" : "展開分析／文件"}
-                    </p>
+                    <div className="flex flex-wrap items-center justify-end gap-2">
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="border-red-300 text-red-700 hover:bg-red-50"
+                        disabled={deletingId === c.id || wiping}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          void deleteOne(c);
+                        }}
+                      >
+                        <Trash2 className="mr-1 size-3.5" />
+                        {deletingId === c.id ? "刪除中…" : "刪除"}
+                      </Button>
+                      <button
+                        type="button"
+                        className="text-xs text-text-muted hover:text-navy-900"
+                        onClick={() => setExpanded(open ? null : c.id)}
+                      >
+                        {open ? "收起" : "展開分析／文件"}
+                      </button>
+                    </div>
                   </div>
-                </button>
+                </div>
 
                 {open && (
                   <div className="space-y-4 border-t border-border pt-3">

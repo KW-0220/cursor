@@ -93,3 +93,31 @@ export async function clearSupabaseApplicantUsers(opts?: {
   await ensureSupabaseAdminUser({ email: keep });
   return { removed, keptAdmin: true as const };
 }
+
+/** 按電郵刪除單一申請人 Auth 帳戶（管理員／admin email 略過） */
+export async function deleteSupabaseUserByEmail(email: string) {
+  const key = email.trim().toLowerCase();
+  if (!key || key === "admin@sme.com") {
+    return { removed: false, skipped: true as const };
+  }
+  const admin = createAdminClient();
+  let page = 1;
+  for (;;) {
+    const listed = await admin.auth.admin.listUsers({ page, perPage: 200 });
+    if (listed.error) throw listed.error;
+    const users = listed.data.users;
+    if (!users.length) break;
+    const hit = users.find((u) => (u.email?.toLowerCase() ?? "") === key);
+    if (hit) {
+      if (hit.app_metadata?.role === "admin") {
+        return { removed: false, skipped: true as const };
+      }
+      const { error } = await admin.auth.admin.deleteUser(hit.id);
+      if (error) throw error;
+      return { removed: true, skipped: false as const };
+    }
+    if (users.length < 200) break;
+    page += 1;
+  }
+  return { removed: false, skipped: false as const };
+}

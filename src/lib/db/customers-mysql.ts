@@ -227,6 +227,15 @@ export async function mysqlClearCustomers(): Promise<number> {
   return Number(result.affectedRows) || 0;
 }
 
+export async function mysqlDeleteCustomer(id: string): Promise<boolean> {
+  const cid = id.trim();
+  if (!cid) return false;
+  const result = await mysqlExecute(`DELETE FROM customers WHERE id = ?`, [
+    cid,
+  ]);
+  return (Number(result.affectedRows) || 0) > 0;
+}
+
 export async function mysqlInsertCustomer(
   record: CustomerRegistrationRecord,
 ): Promise<void> {

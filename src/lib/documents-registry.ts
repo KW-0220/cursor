@@ -444,3 +444,20 @@ export async function deleteDocumentsByApplications(applicationIds: string[]) {
   await Promise.all(removed.map((d) => removeStorageObject(d)));
   return removed.length;
 }
+
+/** 刪除直接掛喺客戶上的文件（含未綁申請） */
+export async function deleteDocumentsByCustomer(customerId: string) {
+  const cid = customerId.trim();
+  if (!cid) return 0;
+  const all = await ensureLoaded();
+  const keep: StoredDocument[] = [];
+  const removed: StoredDocument[] = [];
+  for (const d of all) {
+    if (d.customerId === cid) removed.push(d);
+    else keep.push(d);
+  }
+  if (!removed.length) return 0;
+  await persist(keep);
+  await Promise.all(removed.map((d) => removeStorageObject(d)));
+  return removed.length;
+}

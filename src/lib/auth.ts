@@ -202,6 +202,21 @@ export async function clearApplicantUsers(): Promise<ClearApplicantUsersResult> 
   };
 }
 
+/** 按電郵刪除單一申請人帳戶（唔動管理員） */
+export async function removeApplicantUserByEmail(email: string) {
+  const key = email.trim().toLowerCase();
+  if (!key || isAdminEmail(key)) {
+    return { removed: false, skipped: true as const };
+  }
+  const users = await loadUsers();
+  const next = users.filter((u) => u.email.toLowerCase() !== key);
+  if (next.length === users.length) {
+    return { removed: false, skipped: false as const };
+  }
+  await saveUsers(next);
+  return { removed: true, skipped: false as const };
+}
+
 export async function registerUser(
   input: z.infer<typeof RegisterSchema>,
   vaultUsers?: AuthUser[],

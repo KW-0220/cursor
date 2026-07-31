@@ -181,6 +181,23 @@ export async function supabaseCustomersReady(client?: SupabaseClient) {
   return !error;
 }
 
+/** 刪除單一客戶登記列 */
+export async function supabaseDeleteCustomer(
+  id: string,
+  client?: SupabaseClient,
+) {
+  const cid = id.trim();
+  if (!cid) return false;
+  const db = client ?? createAdminClient();
+  const { data, error } = await db
+    .from("customers")
+    .delete()
+    .eq("id", cid)
+    .select("id");
+  if (error) throw error;
+  return (data?.length ?? 0) > 0;
+}
+
 /** 刪除全部客戶登記列（service／admin client） */
 export async function supabaseClearCustomers(client?: SupabaseClient) {
   const db = client ?? createAdminClient();

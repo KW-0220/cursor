@@ -5,6 +5,7 @@ import { z } from "zod";
 import {
   customersUseMysql,
   mysqlClearCustomers,
+  mysqlDeleteCustomer,
   mysqlGetCustomer,
   mysqlListCustomers,
   mysqlUpsertCustomer,
@@ -13,6 +14,7 @@ import { isMysqlConfigured } from "@/lib/db/mysql";
 import {
   supabaseClearCustomers,
   supabaseCustomersReady,
+  supabaseDeleteCustomer,
   supabaseFindCustomerByEmail,
   supabaseListCustomers,
   supabaseUpsertCustomer,
@@ -286,6 +288,78 @@ export async function clearAllCustomers(): Promise<ClearCustomersResult> {
     mysql,
     redisOrFile,
     storage: getCustomerStorageMode(),
+  };
+}
+
+export type DeleteCustomerResult = {
+  ok: boolean;
+  id: string;
+  email: string | null;
+  supabase: boolean;
+  mysql: boolean;
+  redisOrFile: boolean;
+};
+
+/** 刪除單一客戶（各後端各自嘗試；至少一處成功即 ok） */
+export async function deleteCustomer(
+  id: string,
+): Promise<DeleteCustomerResult> {
+  const cid = id.trim();
+  const empty: DeleteCustomerResult = {
+    ok: false,
+    id: cid,
+    email: null,
+    supabase: false,
+    mysql: false,
+    redisOrFile: false,
+  };
+  if (!cid) return empty;
+
+  let email: string | null = null;
+  try {
+    const existing = await getCustomer(cid);
+    email = existing?.email ?? null;
+  } catch {
+    /* ignore */
+  }
+
+  let supabase = false;
+  if (getSupabaseUrl() && getSupabaseSecretKey()) {
+    try {
+      supabase = await supabaseDeleteCustomer(cid);
+    } catch (err) {
+      console.error("[customers] supabase delete failed", err);
+    }
+  }
+
+  let mysql = false;
+  if (isMysqlConfigured()) {
+    try {
+      mysql = await mysqlDeleteCustomer(cid);
+    } catch (err) {
+      console.error("[customers] mysql delete failed", err);
+    }
+  }
+
+  let redisOrFile = false;
+  try {
+    const records = await ensureLoaded();
+    const next = records.filter((r) => r.id !== cid);
+    if (next.length !== records.length) {
+      await persist(next);
+      redisOrFile = true;
+    }
+  } catch (err) {
+    console.error("[customers] file/redis delete failed", err);
+  }
+
+  return {
+    ok: supabase || mysql || redisOrFile,
+    id: cid,
+    email,
+    supabase,
+    mysql,
+    redisOrFile,
   };
 }
 

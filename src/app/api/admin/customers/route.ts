@@ -1,18 +1,31 @@
 import { NextRequest, NextResponse } from "next/server";
-import { clearApplicantUsers } from "@/lib/auth";
+import {
+  clearApplicantUsers,
+  removeApplicantUserByEmail,
+} from "@/lib/auth";
 import {
   CustomerRegistrationSchema,
   clearAllCustomers,
+  deleteCustomer,
+  getCustomer,
   getCustomerStorageMode,
   listCustomers,
   upsertCustomer,
 } from "@/lib/customer-registry";
 import { mysqlClearApplicantUsers } from "@/lib/db/auth-mysql";
 import { isMysqlConfigured } from "@/lib/db/mysql";
-import { clearSupabaseApplicantUsers } from "@/lib/supabase/admin";
-import { requireAdminContext } from "@/lib/supabase/context";
-import { listApplications } from "@/lib/applications-registry";
 import {
+  clearSupabaseApplicantUsers,
+  deleteSupabaseUserByEmail,
+} from "@/lib/supabase/admin";
+import { requireAdminContext } from "@/lib/supabase/context";
+import {
+  deleteApplication,
+  listApplications,
+} from "@/lib/applications-registry";
+import {
+  deleteDocumentsByApplication,
+  deleteDocumentsByCustomer,
   documentKindLabel,
   listDocuments,
 } from "@/lib/documents-registry";
@@ -148,7 +161,8 @@ export async function GET(req: NextRequest) {
 
 /**
  * DELETE /api/admin/customers
- * 清空客戶登記資料庫；預設同時清空申請人帳戶（逼重新註冊）。
+ * - ?id=CUS-… 或 body { id } / { ids }：刪除指定客戶（一併刪關聯申請／文件）
+ * - 無 id：清空全部客戶登記；預設同時清空申請人帳戶（逼重新註冊）
  * Query: ?users=0 只清客戶、保留登入帳戶
  */
 export async function DELETE(req: NextRequest) {
@@ -163,6 +177,117 @@ export async function DELETE(req: NextRequest) {
   const wipeUsers =
     req.nextUrl.searchParams.get("users") !== "0" &&
     req.nextUrl.searchParams.get("users") !== "false";
+
+  const urlId = req.nextUrl.searchParams.get("id");
+  let ids: string[] = urlId ? [urlId] : [];
+  try {
+    const body = await req.json();
+    if (typeof body?.id === "string" && body.id.trim()) {
+      ids.push(body.id.trim());
+    }
+    if (Array.isArray(body?.ids)) {
+      ids.push(
+        ...body.ids.filter(
+          (x: unknown): x is string =>
+            typeof x === "string" && Boolean(x.trim()),
+        ),
+      );
+    }
+  } catch {
+    /* no body */
+  }
+  ids = [...new Set(ids.map((x) => x.trim()).filter(Boolean))];
+
+  // —— 單一／多筆刪除 ——
+  if (ids.length > 0) {
+    try {
+      const apps = await listApplications();
+      const results: Array<{
+        id: string;
+        ok: boolean;
+        email: string | null;
+        applicationsRemoved: number;
+        documentsRemoved: number;
+        userRemoved: boolean;
+      }> = [];
+
+      for (const id of ids) {
+        const before = await getCustomer(id);
+        const email =
+          before?.email?.trim().toLowerCase() ||
+          null;
+        const appIds = [
+          ...new Set(
+            apps
+              .filter(
+                (a) =>
+                  a.customerId === id ||
+                  (email && a.email?.trim().toLowerCase() === email),
+              )
+              .map((a) => a.id),
+          ),
+        ];
+
+        const customerHit = await deleteCustomer(id);
+
+        let documentsRemoved = 0;
+        for (const appId of appIds) {
+          documentsRemoved += await deleteDocumentsByApplication(appId);
+          await deleteApplication(appId);
+        }
+        documentsRemoved += await deleteDocumentsByCustomer(id);
+
+        let userRemoved = false;
+        if (wipeUsers && email) {
+          try {
+            const legacy = await removeApplicantUserByEmail(email);
+            const sb = await deleteSupabaseUserByEmail(email);
+            userRemoved = Boolean(legacy.removed || sb.removed);
+          } catch (err) {
+            console.error("[customers DELETE one] user wipe", err);
+          }
+        }
+
+        const ok =
+          customerHit.ok ||
+          Boolean(before) ||
+          appIds.length > 0 ||
+          documentsRemoved > 0 ||
+          userRemoved;
+
+        results.push({
+          id,
+          ok,
+          email: email || customerHit.email,
+          applicationsRemoved: appIds.length,
+          documentsRemoved,
+          userRemoved,
+        });
+      }
+
+      const removed = results.filter((r) => r.ok).length;
+      if (!removed) {
+        return NextResponse.json(
+          { error: "NOT_FOUND", message: "找不到要刪除的客戶", results },
+          { status: 404 },
+        );
+      }
+      return NextResponse.json({
+        ok: true,
+        removed,
+        results,
+        message: `已刪除 ${removed} 位客戶及其關聯申請／文件`,
+      });
+    } catch (err) {
+      return NextResponse.json(
+        {
+          error: "DELETE_FAILED",
+          message: err instanceof Error ? err.message : "UNKNOWN",
+        },
+        { status: 500 },
+      );
+    }
+  }
 
   try {
     const customers = await clearAllCustomers();
