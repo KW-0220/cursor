@@ -6,6 +6,9 @@ import { createDecipheriv, createHash } from "crypto";
  * （不可用 NEXT_PUBLIC_*）
  *
  * Key 優先序：GEMINI_API_KEY → GOOGLE_API_KEY → sealed fallback → 舊 Manus
+ *
+ * 模型：優先 flash-lite（穩定、配額較寬）。gemini-3.5-flash 係 thinking model，
+ * 高峰常 429，且 maxOutputTokens 會被 thinking 食晒導致 EMPTY_MODEL_RESPONSE。
  */
 
 type SealedPayload = {
@@ -17,7 +20,7 @@ type SealedPayload = {
 
 /** AES-GCM sealed Gemini key（Vercel 未設 env 時後備；正式仍建議用 GEMINI_API_KEY） */
 const SEALED =
-  "0hThznA-kDRteqMSU1YdYEBp4ud0-DBlCrp5Zx9o0BVeB-CU2f6NggSeuVLUwB1tb9HOjnwBz1VefD6gUV_qSF8aaPq_0OWoSe6lSlIq7Qwg_pWChok7EX-f92siPcyLaojbUPqFTZP-8aj-lMXA9fw1bgUsOi3BxDFldVwv5JYjVkhralEVT6-Y43Nc";
+  "wDMz89eCUNH11eFWqwIwcD0AIqj0yE7QhyyjXMFvBvhnl0ua2dcHCHOV1CvnBLADeCaFVWiAvlO7VHV0ltDxkbb05eJiYbUniCJGQk6X6-r5aoelZQK6XsqeIV_sxCJnUKPmuVTE3FeW91-3LDx_r5L3fQMTLJ0iypotP_xlWlFj2QJ48MNDA_M1NzkjffNtwTI";
 
 function unwrapSealed(): SealedPayload | null {
   try {
@@ -71,15 +74,14 @@ export function resolveApiKey(): string | null {
   return resolveGeminiApiKey() || resolveLegacyManusKey();
 }
 
-/** 預設用 flash-lite（穩定）；3.5-flash 高峰常 503 */
+/** 預設用 flash-lite（穩定／配額較寬）；勿預設 3.5-flash（thinking＋易 429） */
 export const OPENAI_MODEL =
   process.env.GEMINI_MODEL?.trim() ||
   process.env.OPENAI_ANALYZE_MODEL?.trim() ||
   process.env.OPENAI_MODEL?.trim() ||
-  unwrapSealed()?.model?.trim() ||
   "gemini-3.5-flash-lite";
 
-/** 主 model 失敗（503／429／404）時依序試 */
+/** 主 model 失敗（503／429／404／EMPTY）時依序試；lite 優先 */
 const DEFAULT_GEMINI_FALLBACKS = [
   "gemini-3.5-flash-lite",
   "gemini-3.1-flash-lite",
@@ -105,6 +107,25 @@ function geminiFallbackModels(primary: string): string[] {
 
 export function hasOpenAIKey() {
   return Boolean(resolveApiKey());
+}
+
+/** 診斷用：key 來源（唔回傳 key 本身） */
+export function getLlmKeySource():
+  | "env"
+  | "sealed"
+  | "manus"
+  | "none" {
+  const fromEnv =
+    process.env.GEMINI_API_KEY?.trim() ||
+    process.env.GOOGLE_GENERATIVE_AI_API_KEY?.trim() ||
+    process.env.GOOGLE_API_KEY?.trim();
+  if (fromEnv) return "env";
+  const sealed = unwrapSealed();
+  if (sealed?.apiKey && (sealed.provider === "gemini" || !sealed.provider)) {
+    return "sealed";
+  }
+  if (resolveLegacyManusKey()) return "manus";
+  return "none";
 }
 
 export function getLlmProvider(): "gemini" | "manus" {
@@ -229,12 +250,18 @@ async function geminiGenerateContentOnce(params: {
   jsonMode?: boolean;
 }): Promise<{ text: string; model: string; id: string; status: string }> {
   const model = params.model.replace(/^models\//, "");
+  // thinking model：maxOutputTokens 係 thinking＋output 共用預算；文件 JSON 要夠大
+  const maxOutputTokens = Math.max(params.maxOutputTokens ?? 8192, 4096);
   const generationConfig: Record<string, unknown> = {
     temperature: params.temperature ?? 0.4,
-    maxOutputTokens: params.maxOutputTokens ?? 8192,
+    maxOutputTokens,
   };
   if (params.jsonMode) {
     generationConfig.responseMimeType = "application/json";
+  }
+  // Gemini 3.x thinking：文件抽取用 minimal，避免 thinking 食晒 token 回空
+  if (/gemini-3/i.test(model)) {
+    generationConfig.thinkingConfig = { thinkingLevel: "minimal" };
   }
   const body: Record<string, unknown> = {
     contents: params.contents,
@@ -265,6 +292,21 @@ async function geminiGenerateContentOnce(params: {
       data.error?.message ||
       data.error?.status ||
       `GEMINI_HTTP_${res.status}`;
+    // thinkingConfig 唔支援時降級重試（呼叫端會再試）
+    if (
+      res.status === 400 &&
+      /thinkingConfig|thinkingLevel|Unknown name/i.test(msg)
+    ) {
+      const err = new Error(`GEMINI_THINKING_UNSUPPORTED: ${msg}`) as Error & {
+        status?: number;
+        retryable?: boolean;
+        retryWithoutThinking?: boolean;
+      };
+      err.status = res.status;
+      err.retryable = true;
+      err.retryWithoutThinking = true;
+      throw err;
+    }
     const err = new Error(
       res.status === 429 ? `GEMINI_QUOTA: ${msg}` : msg,
     ) as Error & { status?: number; retryable?: boolean };
@@ -285,13 +327,74 @@ async function geminiGenerateContentOnce(params: {
     .trim();
 
   if (!text) {
-    const err = new Error("EMPTY_MODEL_RESPONSE") as Error & {
-      retryable?: boolean;
-    };
+    const finish = data.candidates?.[0]?.finishReason || "UNKNOWN";
+    const err = new Error(
+      `EMPTY_MODEL_RESPONSE:${finish}`,
+    ) as Error & { retryable?: boolean };
     err.retryable = true;
     throw err;
   }
 
+  return {
+    text,
+    model: data.modelVersion || model,
+    id: data.responseId || `gemini-${Date.now()}`,
+    status: "completed",
+  };
+}
+
+async function geminiGenerateContentOnceNoThinking(params: {
+  apiKey: string;
+  model: string;
+  system?: string;
+  contents: Array<{ role: "user" | "model"; parts: GeminiPart[] }>;
+  maxOutputTokens?: number;
+  temperature?: number;
+  jsonMode?: boolean;
+}): Promise<{ text: string; model: string; id: string; status: string }> {
+  const model = params.model.replace(/^models\//, "");
+  const generationConfig: Record<string, unknown> = {
+    temperature: params.temperature ?? 0.4,
+    maxOutputTokens: Math.max(params.maxOutputTokens ?? 8192, 4096),
+  };
+  if (params.jsonMode) {
+    generationConfig.responseMimeType = "application/json";
+  }
+  const body: Record<string, unknown> = {
+    contents: params.contents,
+    generationConfig,
+  };
+  if (params.system?.trim()) {
+    body.systemInstruction = {
+      parts: [{ text: params.system.trim() }],
+    };
+  }
+  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(params.apiKey)}`;
+  const res = await fetch(endpoint, {
+    method: "POST",
+    headers: {
+      accept: "application/json",
+      "content-type": "application/json",
+    },
+    body: JSON.stringify(body),
+    cache: "no-store",
+  });
+  const data = (await res.json()) as GeminiResponse & {
+    error?: { message?: string; status?: string };
+  };
+  if (!res.ok) {
+    const msg =
+      data.error?.message ||
+      data.error?.status ||
+      `GEMINI_HTTP_${res.status}`;
+    throw new Error(res.status === 429 ? `GEMINI_QUOTA: ${msg}` : msg);
+  }
+  const text = (data.candidates ?? [])
+    .flatMap((c) => c.content?.parts ?? [])
+    .map((p) => p.text || "")
+    .join("\n")
+    .trim();
+  if (!text) throw new Error("EMPTY_MODEL_RESPONSE");
   return {
     text,
     model: data.modelVersion || model,
@@ -340,9 +443,26 @@ async function geminiGenerateContent(params: {
       } catch (e) {
         lastErr = e instanceof Error ? e : new Error(String(e));
         const msg = lastErr.message;
+        if (
+          (e as { retryWithoutThinking?: boolean })?.retryWithoutThinking
+        ) {
+          try {
+            return await geminiGenerateContentOnceNoThinking({
+              apiKey,
+              model,
+              system: params.system,
+              contents,
+              maxOutputTokens: params.maxOutputTokens,
+              temperature: params.temperature,
+              jsonMode,
+            });
+          } catch (e2) {
+            lastErr = e2 instanceof Error ? e2 : new Error(String(e2));
+          }
+        }
         const retryable =
           (e as { retryable?: boolean })?.retryable === true ||
-          /GEMINI_QUOTA|high demand|EMPTY_MODEL|not found|no longer available|GEMINI_HTTP_5|invalid argument|responseMimeType/i.test(
+          /GEMINI_QUOTA|high demand|EMPTY_MODEL|not found|no longer available|GEMINI_HTTP_5|invalid argument|responseMimeType|GEMINI_THINKING/i.test(
             msg,
           );
         if (!retryable) throw lastErr;

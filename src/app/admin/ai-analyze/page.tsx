@@ -6,7 +6,8 @@ export default function AdminAiAnalyzePage() {
       <div>
         <h1 className="text-2xl font-bold text-navy-900">AI 文件分析</h1>
         <p className="mt-1 text-sm text-text-secondary">
-          與客戶申請端相同規則：BR · 銀行月結現金流 · Audited 抽取｜可佇列／歸檔
+          按類別分開上載｜Gemini Backend（GEMINI_API_KEY）｜BR · 銀行月結 ·
+          身份證明 · Audited
         </p>
       </div>
       <AiAnalyzeWorkspace enableArchive />

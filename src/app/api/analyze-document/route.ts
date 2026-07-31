@@ -49,6 +49,8 @@ import {
 } from "@/lib/identity-extract";
 import {
   getLlmProvider,
+  getLlmKeySource,
+  getGeminiModel,
   hasOpenAIKey,
   manusRespond,
   parseModelJsonObject,
@@ -960,11 +962,32 @@ export async function POST(req: NextRequest) {
             ? "GEMINI_QUOTA"
             : "LLM_TIMEOUT",
           message: message.startsWith("GEMINI_QUOTA")
-            ? "Gemini 配額已用尽，請稍後再試或檢查 Google AI Studio billing。"
+            ? "Gemini 配額／速率限制（常見於 gemini-3.5-flash）。系統已優先用 flash-lite；請稍後再試，或到 Google AI Studio 檢查 billing／quota。"
             : "AI 分析逾時，請稍後再試。",
           detail: message,
         },
         { status: message.startsWith("GEMINI_QUOTA") ? 429 : 504 },
+      );
+    }
+    if (message === "MISSING_GEMINI_API_KEY") {
+      return NextResponse.json(
+        {
+          error: "MISSING_GEMINI_API_KEY",
+          message:
+            "未接駁 Gemini：請在 Vercel 設定 GEMINI_API_KEY（Backend only，勿用 NEXT_PUBLIC_）。",
+        },
+        { status: 503 },
+      );
+    }
+    if (/EMPTY_MODEL|GEMINI_ALL_MODELS_FAILED/i.test(message)) {
+      return NextResponse.json(
+        {
+          error: "GEMINI_EMPTY_RESPONSE",
+          message:
+            "Gemini 回傳空白（thinking／配額問題）。請重試；若持續失敗請確認 Vercel 已設 GEMINI_MODEL=gemini-3.5-flash-lite。",
+          detail: message,
+        },
+        { status: 502 },
       );
     }
     console.error("[analyze-document]", err);
@@ -983,27 +1006,85 @@ export async function POST(req: NextRequest) {
   }
 }
 
-/** GET：回傳 JSON schema 範例 */
-export async function GET() {
+/** GET：Gemini 接駁健康檢查；?schema=1 回範例 JSON */
+export async function GET(req: NextRequest) {
+  if (new URL(req.url).searchParams.get("schema") === "1") {
+    return NextResponse.json({
+      company_name: "ABC Limited",
+      financial_year: "2025",
+      revenue: 6200000,
+      EBITDA: 850000,
+      net_profit: 420000,
+      existing_debt: 500000,
+      earning_before_tax: 420000,
+      interest: 120000,
+      tax: 80000,
+      depreciation: 180000,
+      amortisation: 50000,
+      total_debt_payments: 600000,
+      ebitdaAnalysis: {
+        formula:
+          "EBITDA = Net Profit + Interest Expense + Tax Expense + Depreciation + Amortisation",
+        coverageRule: "EBITDA > Total Debt payments",
+        ebitdaComputed: 850000,
+        coversDebtPayments: true,
+      },
+    });
+  }
+
+  const configured = hasOpenAIKey();
+  const provider = getLlmProvider();
+  const keySource = getLlmKeySource();
+  const model = getGeminiModel();
+
+  let ping: {
+    ok: boolean;
+    detail?: string;
+    latencyMs?: number;
+  } = { ok: false };
+
+  if (configured && provider === "gemini") {
+    const t0 = Date.now();
+    try {
+      const r = await manusRespond({
+        userText: 'Reply JSON only: {"ok":true}',
+        jsonMode: true,
+        temperature: 0,
+        maxOutputTokens: 64,
+        maxWaitMs: 20_000,
+      });
+      ping = {
+        ok: /ok/i.test(r.text),
+        detail: r.model,
+        latencyMs: Date.now() - t0,
+      };
+    } catch (e) {
+      ping = {
+        ok: false,
+        detail: e instanceof Error ? e.message : "ping failed",
+        latencyMs: Date.now() - t0,
+      };
+    }
+  } else if (!configured) {
+    ping = {
+      ok: false,
+      detail: "MISSING_GEMINI_API_KEY",
+    };
+  }
+
   return NextResponse.json({
-    company_name: "ABC Limited",
-    financial_year: "2025",
-    revenue: 6200000,
-    EBITDA: 850000,
-    net_profit: 420000,
-    existing_debt: 500000,
-    earning_before_tax: 420000,
-    interest: 120000,
-    tax: 80000,
-    depreciation: 180000,
-    amortisation: 50000,
-    total_debt_payments: 600000,
-    ebitdaAnalysis: {
-      formula:
-        "EBITDA = Net Profit + Interest Expense + Tax Expense + Depreciation + Amortisation",
-      coverageRule: "EBITDA > Total Debt payments",
-      ebitdaComputed: 850000,
-      coversDebtPayments: true,
-    },
+    ok: configured && provider === "gemini" && ping.ok,
+    provider,
+    model,
+    configured,
+    keySource,
+    ping,
+    endpoint: "POST /api/analyze-document",
+    hint:
+      !configured
+        ? "請在 Vercel Environment Variables 設定 GEMINI_API_KEY（Production + Preview），不可用 NEXT_PUBLIC_"
+        : !ping.ok
+          ? "Key 已偵測但仍未能呼叫 Gemini（可能配額／模型）。系統會自動 fallback flash-lite。"
+          : "Gemini 已接駁，可進行文件分析。",
   });
 }

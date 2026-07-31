@@ -244,6 +244,15 @@ export function AiAnalyzeWorkspace({
   const [archiveDetailId, setArchiveDetailId] = useState<string | null>(null);
   const [archiveQ, setArchiveQ] = useState("");
   const [archivingId, setArchivingId] = useState<string | null>(null);
+  const [geminiHealth, setGeminiHealth] = useState<{
+    ok: boolean;
+    provider?: string;
+    model?: string;
+    configured?: boolean;
+    keySource?: string;
+    hint?: string;
+    ping?: { ok?: boolean; detail?: string; latencyMs?: number };
+  } | null>(null);
 
   const monthlyDebtNum = useMemo(() => {
     const n = Number(monthlyDebtPayments.replace(/,/g, "").trim());
@@ -339,9 +348,31 @@ export function AiAnalyzeWorkspace({
     }
   }, [enableArchive]);
 
+  const loadGeminiHealth = useCallback(async () => {
+    try {
+      const res = await fetch("/api/analyze-document", { cache: "no-store" });
+      const data = await res.json();
+      setGeminiHealth({
+        ok: Boolean(data.ok),
+        provider: data.provider,
+        model: data.model,
+        configured: data.configured,
+        keySource: data.keySource,
+        hint: data.hint,
+        ping: data.ping,
+      });
+    } catch {
+      setGeminiHealth({
+        ok: false,
+        hint: "無法檢查 Gemini 接駁狀態",
+      });
+    }
+  }, []);
+
   useEffect(() => {
     if (enableArchive) void loadArchives();
-  }, [enableArchive, loadArchives]);
+    void loadGeminiHealth();
+  }, [enableArchive, loadArchives, loadGeminiHealth]);
 
   useEffect(() => {
     if (tab === "archive") void loadArchives();
@@ -885,6 +916,34 @@ export function AiAnalyzeWorkspace({
       {flash && (
         <StateBanner tone="success" title="提示" description={flash} />
       )}
+      {geminiHealth && (
+        <StateBanner
+          tone={geminiHealth.ok ? "success" : "warning"}
+          title={
+            geminiHealth.ok
+              ? "Gemini API 已接駁"
+              : "Gemini API 未就緒／呼叫失敗"
+          }
+          description={[
+            geminiHealth.hint,
+            geminiHealth.provider
+              ? `provider=${geminiHealth.provider}`
+              : null,
+            geminiHealth.model ? `model=${geminiHealth.model}` : null,
+            geminiHealth.keySource
+              ? `keySource=${geminiHealth.keySource}`
+              : null,
+            geminiHealth.ping?.latencyMs != null
+              ? `ping ${geminiHealth.ping.latencyMs}ms`
+              : null,
+            geminiHealth.ping?.detail && !geminiHealth.ok
+              ? geminiHealth.ping.detail
+              : null,
+          ]
+            .filter(Boolean)
+            .join(" · ")}
+        />
+      )}
 
       {tab === "analyze" && (
         <>
@@ -915,6 +974,14 @@ export function AiAnalyzeWorkspace({
                 ) : (
                   `開始分析佇列（${queuedCount}）`
                 )}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                disabled={running}
+                onClick={() => void loadGeminiHealth()}
+              >
+                重新檢查 Gemini
               </Button>
               {enableArchive && doneCount > 0 && (
                 <Button
