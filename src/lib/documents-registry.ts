@@ -194,6 +194,15 @@ export async function getDocument(id: string) {
   return all.find((d) => d.id === id) ?? null;
 }
 
+function buildStoragePath(
+  applicationId: string,
+  slot: string,
+  fileName: string,
+) {
+  const safeName = fileName.replace(/[^\w.\-()\u4e00-\u9fff]+/g, "_");
+  return `${applicationId}/${slot}-${safeName}`;
+}
+
 export async function saveDocument(input: {
   customerId?: string | null;
   applicationId: string;
@@ -204,8 +213,11 @@ export async function saveDocument(input: {
   bytes: Buffer;
 }) {
   const id = `DOC-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
-  const safeName = input.fileName.replace(/[^\w.\-()\u4e00-\u9fff]+/g, "_");
-  const storagePath = `${input.applicationId}/${input.slot}-${safeName}`;
+  const storagePath = buildStoragePath(
+    input.applicationId,
+    input.slot,
+    input.fileName,
+  );
   const storage = await uploadBytes({
     storagePath,
     bytes: input.bytes,
@@ -228,6 +240,92 @@ export async function saveDocument(input: {
   all.unshift(record);
   await persist(all);
   return record;
+}
+
+/** 已直傳 Storage 後，只登記 metadata */
+export async function registerDocument(input: {
+  customerId?: string | null;
+  applicationId: string;
+  kind: DocumentKind;
+  slot: string;
+  fileName: string;
+  mimeType: string;
+  size: number;
+  storagePath: string;
+  storage?: "supabase" | "local";
+}) {
+  const record: StoredDocument = {
+    id: `DOC-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
+    customerId: input.customerId ?? null,
+    applicationId: input.applicationId,
+    kind: input.kind,
+    slot: input.slot,
+    fileName: input.fileName,
+    mimeType: input.mimeType,
+    size: input.size,
+    storagePath: input.storagePath,
+    storage: input.storage ?? "supabase",
+    createdAt: new Date().toISOString(),
+  };
+  const all = await ensureLoaded();
+  all.unshift(record);
+  await persist(all);
+  return record;
+}
+
+export type SignedDocumentUpload = {
+  kind: DocumentKind;
+  slot: string;
+  fileName: string;
+  mimeType: string;
+  size: number;
+  storagePath: string;
+  signedUrl: string;
+  token: string;
+};
+
+/** 產生直傳 Supabase 的 signed upload URL（繞過 Vercel 4.5MB body 限制） */
+export async function prepareSignedDocumentUploads(
+  applicationId: string,
+  files: Array<{
+    kind: DocumentKind;
+    slot: string;
+    fileName: string;
+    mimeType: string;
+    size: number;
+  }>,
+): Promise<SignedDocumentUpload[]> {
+  if (!supabaseStorageReady()) {
+    throw new Error("文件直傳未就緒（缺少 Supabase Storage）");
+  }
+  const db = createAdminClient();
+  const out: SignedDocumentUpload[] = [];
+  for (const f of files) {
+    if (f.size <= 0) continue;
+    if (f.size > 15 * 1024 * 1024) {
+      throw new Error(`${f.fileName} 超過 15MB`);
+    }
+    const storagePath = buildStoragePath(applicationId, f.slot, f.fileName);
+    const { data, error } = await db.storage
+      .from(BUCKET)
+      .createSignedUploadUrl(storagePath, { upsert: true });
+    if (error || !data?.signedUrl) {
+      throw new Error(
+        error?.message || `無法建立上載連結：${f.fileName}`,
+      );
+    }
+    out.push({
+      kind: f.kind,
+      slot: f.slot,
+      fileName: f.fileName,
+      mimeType: f.mimeType || "application/octet-stream",
+      size: f.size,
+      storagePath: data.path || storagePath,
+      signedUrl: data.signedUrl,
+      token: data.token,
+    });
+  }
+  return out;
 }
 
 export async function readDocumentBytes(

@@ -52,6 +52,7 @@ import {
 } from "@/lib/collateral";
 import { formatHKD } from "@/lib/utils";
 import type { LoanType } from "@/lib/types";
+import { uploadApplicationDocuments } from "@/lib/upload-application-documents";
 
 const steps = [
   "貸款類型",
@@ -338,40 +339,50 @@ export default function ApplyWizardPage() {
       const customerId =
         (appData.application?.customerId as string | null | undefined) ?? null;
 
-      // 上載已收集文件 → 後台客戶登記／案件
-      const form = new FormData();
-      if (customerId) form.append("customerId", customerId);
-      const pushFile = (file: File, kind: string, slot: string) => {
-        form.append("files", file, file.name);
-        form.append("kinds", kind);
-        form.append("slots", slot);
-      };
-      if (docs.br?.file) pushFile(docs.br.file, "br", "br");
+      // 上載已收集文件 → 後台（大檔自動直傳 Supabase）
+      const uploadItems: Array<{ file: File; kind: string; slot: string }> = [];
+      if (docs.br?.file) {
+        uploadItems.push({ file: docs.br.file, kind: "br", slot: "br" });
+      }
       docs.audited.forEach((f, i) => {
-        if (f?.file) pushFile(f.file, "audited", `audited:${i}`);
+        if (f?.file) {
+          uploadItems.push({
+            file: f.file,
+            kind: "audited",
+            slot: `audited:${i}`,
+          });
+        }
       });
       docs.identity.forEach((f, i) => {
-        if (f?.file) pushFile(f.file, "identity", `identity:${i}`);
+        if (f?.file) {
+          uploadItems.push({
+            file: f.file,
+            kind: "identity",
+            slot: `identity:${i}`,
+          });
+        }
       });
       docs.companyOther.forEach((f, i) => {
-        if (f?.file) pushFile(f.file, "company_other", `companyOther:${i}`);
+        if (f?.file) {
+          uploadItems.push({
+            file: f.file,
+            kind: "company_other",
+            slot: `companyOther:${i}`,
+          });
+        }
       });
       for (const [month, meta] of Object.entries(docs.bank)) {
-        if (meta?.file) pushFile(meta.file, "bank", `bank:${month}`);
+        if (meta?.file) {
+          uploadItems.push({
+            file: meta.file,
+            kind: "bank",
+            slot: `bank:${month}`,
+          });
+        }
       }
 
-      const fileCount = form.getAll("files").length;
-      if (fileCount > 0) {
-        const docRes = await fetch(`/api/applications/${id}/documents`, {
-          method: "POST",
-          body: form,
-        });
-        const docData = await docRes.json().catch(() => ({}));
-        if (!docRes.ok) {
-          throw new Error(
-            docData.message || docData.error || "文件上載失敗，請重試",
-          );
-        }
+      if (uploadItems.length > 0) {
+        await uploadApplicationDocuments(id, uploadItems, { customerId });
       }
 
       clearApplyDraft(userKey);
