@@ -57,6 +57,8 @@ type AnalyzePayload = Record<string, unknown> & {
 
 type QueueItem = {
   localId: string;
+  /** 去重鍵：檔案 name|size|lastModified 或 paste:hash */
+  fingerprint: string;
   file: File | null;
   pastedText: string;
   label: string;
@@ -65,6 +67,21 @@ type QueueItem = {
   result?: AnalyzePayload;
   archivedId?: string;
 };
+
+function fileFingerprint(file: File) {
+  return `file:${file.name.trim().toLowerCase()}|${file.size}|${file.lastModified}`;
+}
+
+function pasteFingerprint(text: string) {
+  const t = text.trim();
+  // 簡易穩定 hash（夠用嚟去重，唔使 crypto）
+  let h = 2166136261;
+  for (let i = 0; i < t.length; i++) {
+    h ^= t.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return `paste:${t.length}:${(h >>> 0).toString(16)}`;
+}
 
 type ArchiveListItem = {
   id: string;
@@ -295,24 +312,73 @@ export function AiAnalyzeWorkspace({
   }, [enableArchive]);
 
   useEffect(() => {
+    // 預載歸檔庫，上載時可擋同名重覆
+    if (enableArchive) void loadArchives();
+  }, [enableArchive, loadArchives]);
+
+  useEffect(() => {
     if (tab === "archive") void loadArchives();
   }, [tab, loadArchives]);
 
   function addFiles(list: FileList | File[] | null) {
     const files = Array.from(list ?? []).filter((f) => f.size > 0);
     if (!files.length) return;
-    setQueue((prev) => [
-      ...prev,
-      ...files.map((file) => ({
+
+    const existing = new Set(queue.map((q) => q.fingerprint));
+    const archivedNames = new Set(
+      archives
+        .map((a) => a.fileName?.trim().toLowerCase())
+        .filter((n): n is string => Boolean(n)),
+    );
+
+    const accepted: QueueItem[] = [];
+    const dupNames: string[] = [];
+    const seenInBatch = new Set<string>();
+
+    for (const file of files) {
+      const fp = fileFingerprint(file);
+      const nameKey = file.name.trim().toLowerCase();
+      if (
+        existing.has(fp) ||
+        seenInBatch.has(fp) ||
+        (nameKey && archivedNames.has(nameKey))
+      ) {
+        dupNames.push(file.name);
+        continue;
+      }
+      seenInBatch.add(fp);
+      accepted.push({
         localId: `Q-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
+        fingerprint: fp,
         file,
         pastedText: "",
         label: file.name,
-        status: "queued" as const,
-      })),
-    ]);
-    setFlash(`已加入 ${files.length} 個檔案（佇列可繼續加，無上限）`);
-    setError(null);
+        status: "queued",
+      });
+    }
+
+    if (accepted.length) {
+      setQueue((prev) => [...prev, ...accepted]);
+      setFlash(
+        `已加入 ${accepted.length} 個檔案` +
+          (dupNames.length ? `；略過重覆 ${dupNames.length} 個` : ""),
+      );
+    } else {
+      setFlash(null);
+    }
+
+    if (dupNames.length) {
+      setError(
+        `禁止上載重覆文件：${dupNames.slice(0, 5).join("、")}` +
+          (dupNames.length > 5 ? ` 等 ${dupNames.length} 個` : "") +
+          (accepted.length === 0
+            ? "（已在佇列或歸檔庫）"
+            : "（其餘已加入）"),
+      );
+    } else {
+      setError(null);
+    }
+
     if (inputRef.current) inputRef.current.value = "";
   }
 
@@ -322,10 +388,17 @@ export function AiAnalyzeWorkspace({
       setError("請先貼上文字");
       return;
     }
+    const fp = pasteFingerprint(text);
+    if (queue.some((q) => q.fingerprint === fp)) {
+      setError("禁止上載重覆內容：相同文字已在分析佇列");
+      setFlash(null);
+      return;
+    }
     setQueue((prev) => [
       ...prev,
       {
         localId: `Q-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
+        fingerprint: fp,
         file: null,
         pastedText: text,
         label: `貼上文字（${text.length} 字）`,
@@ -333,6 +406,7 @@ export function AiAnalyzeWorkspace({
       },
     ]);
     setPasteText("");
+    setError(null);
     setFlash("已將貼上文字加入分析佇列");
   }
 
@@ -669,7 +743,8 @@ export function AiAnalyzeWorkspace({
               )}
             </div>
             <Disclaimer>
-              單檔建議 ≤ 12MB。佇列無數量上限；AI 只做抽取／預審，不直接批核。
+              單檔建議 ≤ 12MB。佇列無數量上限，但禁止重覆檔案（同名已佇列／已歸檔會拒絕）。AI
+              只做抽取／預審，不直接批核。
             </Disclaimer>
           </Card>
 
