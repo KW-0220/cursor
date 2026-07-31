@@ -11,10 +11,18 @@ export const CLIENT_APP_STATUSES = [
 
 export type ClientAppStatus = (typeof CLIENT_APP_STATUSES)[number];
 
+/** 客戶端顯示用 */
 export const CLIENT_APP_STATUS_LABEL: Record<ClientAppStatus, string> = {
   under_review: "審批中",
   approved: "成功批核",
   rejected: "申請失敗",
+};
+
+/** 後台案件總覽顯示／下拉選項 */
+export const ADMIN_APP_STATUS_LABEL: Record<ClientAppStatus, string> = {
+  under_review: "審批中",
+  approved: "已批核",
+  rejected: "拒絕",
 };
 
 export const CLIENT_APP_STATUS_TONE: Record<ClientAppStatus, string> = {
@@ -32,6 +40,7 @@ export function normalizeClientAppStatus(raw: unknown): ClientAppStatus {
   if (
     s === "approved" ||
     s === "成功批核" ||
+    s === "已批核" ||
     s === "已獲批核" ||
     s === "matched"
   ) {
@@ -43,6 +52,7 @@ export function normalizeClientAppStatus(raw: unknown): ClientAppStatus {
     s === "not_approved" ||
     s === "not approved" ||
     s === "申請失敗" ||
+    s === "拒絕" ||
     s === "未能批核" ||
     s === "failed"
   ) {
@@ -57,6 +67,16 @@ export function clientAppStatusLabel(raw: unknown): string {
   return CLIENT_APP_STATUS_LABEL[normalizeClientAppStatus(raw)];
 }
 
+export function adminAppStatusLabel(raw: unknown): string {
+  return ADMIN_APP_STATUS_LABEL[normalizeClientAppStatus(raw)];
+}
+
 export function clientAppStatusTone(raw: unknown): string {
   return CLIENT_APP_STATUS_TONE[normalizeClientAppStatus(raw)];
+}
+
+export function isClientAppStatus(raw: unknown): raw is ClientAppStatus {
+  return CLIENT_APP_STATUSES.includes(
+    String(raw ?? "").trim() as ClientAppStatus,
+  );
 }

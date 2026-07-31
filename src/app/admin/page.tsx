@@ -4,11 +4,14 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Select } from "@/components/ui/field";
 import { Card, EmptyState, SectionHeader } from "@/components/ui/layout";
 import {
-  clientAppStatusLabel,
+  ADMIN_APP_STATUS_LABEL,
+  CLIENT_APP_STATUSES,
   clientAppStatusTone,
   normalizeClientAppStatus,
+  type ClientAppStatus,
 } from "@/lib/application-status";
 import { cn, formatDateTime, formatHKD } from "@/lib/utils";
 
@@ -43,6 +46,7 @@ export default function AdminDashboardPage() {
   const [filter, setFilter] = useState("全部");
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [clearing, setClearing] = useState(false);
+  const [updatingId, setUpdatingId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -70,8 +74,8 @@ export default function AdminDashboardPage() {
       if (filter === "無抵押") return app.loanType === "unsecured";
       if (filter === "需要補件") return (app.docsPct ?? 0) < 100;
       if (filter === "審批中") return status === "under_review";
-      if (filter === "成功批核") return status === "approved";
-      if (filter === "申請失敗") return status === "rejected";
+      if (filter === "已批核") return status === "approved";
+      if (filter === "拒絕") return status === "rejected";
       return true;
     });
   }, [apps, filter]);
@@ -92,11 +96,69 @@ export default function AdminDashboardPage() {
       { label: "審批中", value: String(under) },
       { label: "需要補件", value: String(needDocs) },
       { label: "待人工審核", value: String(under) },
-      { label: "成功批核", value: String(approved) },
-      { label: "申請失敗", value: String(rejected) },
+      { label: "已批核", value: String(approved) },
+      { label: "拒絕", value: String(rejected) },
       { label: "平均處理時間", value: "—" },
     ];
   }, [apps]);
+
+  async function updateStatus(app: AdminApp, next: ClientAppStatus) {
+    const current = normalizeClientAppStatus(app.status);
+    if (current === next) return;
+
+    let failureReason: string | null = app.failureReason ?? null;
+    if (next === "rejected") {
+      const reason = window.prompt(
+        `拒絕案件 ${app.id} 的原因（客戶端會顯示）：`,
+        failureReason || app.aiAnalysis?.decisionReason || "",
+      );
+      if (reason === null) return; // 取消
+      failureReason = reason.trim() || "後台拒絕（未填寫原因）";
+    } else {
+      const ok = window.confirm(
+        `將案件 ${app.id} 狀態改為「${ADMIN_APP_STATUS_LABEL[next]}」？`,
+      );
+      if (!ok) return;
+      failureReason = null;
+    }
+
+    setUpdatingId(app.id);
+    setError(null);
+    try {
+      const res = await fetch("/api/admin/applications", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: app.id,
+          status: next,
+          failureReason,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data.message || data.error || "更新狀態失敗");
+      }
+      const updated = data.application as AdminApp | undefined;
+      setApps((prev) =>
+        prev.map((a) =>
+          a.id === app.id
+            ? {
+                ...a,
+                status: updated?.status ?? next,
+                failureReason:
+                  updated?.failureReason ??
+                  (next === "rejected" ? failureReason : null),
+                updatedAt: updated?.updatedAt ?? new Date().toISOString(),
+              }
+            : a,
+        ),
+      );
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "更新狀態失敗");
+    } finally {
+      setUpdatingId(null);
+    }
+  }
 
   async function deleteOne(app: AdminApp) {
     const ok = window.confirm(
@@ -155,7 +217,7 @@ export default function AdminDashboardPage() {
         <div>
           <h1 className="text-2xl font-bold text-navy-900">案件總覽</h1>
           <p className="mt-1 text-sm text-text-secondary">
-            即時同步客戶提交申請 · 含文件完整度 · 可刪除案件
+            即時同步客戶提交申請 · 目前狀態可選：審批中／已批核／拒絕
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -207,8 +269,8 @@ export default function AdminDashboardPage() {
             "無抵押",
             "需要補件",
             "審批中",
-            "成功批核",
-            "申請失敗",
+            "已批核",
+            "拒絕",
           ].map((f) => (
             <button
               key={f}
@@ -228,7 +290,7 @@ export default function AdminDashboardPage() {
       </Card>
 
       <Card className="overflow-x-auto p-0">
-        <table className="w-full min-w-[1040px] text-left text-sm">
+        <table className="w-full min-w-[1080px] text-left text-sm">
           <thead className="border-b border-border bg-surface-2/80 text-xs text-text-muted">
             <tr>
               {[
@@ -298,39 +360,63 @@ export default function AdminDashboardPage() {
                       : ""}
                   </td>
                   <td className="px-4 py-3">
-                    <span
-                      className={cn(
-                        "inline-flex rounded-full px-2.5 py-1 text-xs font-medium",
-                        clientAppStatusTone(status),
+                    <div className="flex min-w-[140px] flex-col gap-1.5">
+                      <Select
+                        className={cn(
+                          "h-9 text-xs font-medium",
+                          clientAppStatusTone(status),
+                        )}
+                        value={status}
+                        disabled={
+                          updatingId === app.id ||
+                          deletingId === app.id ||
+                          clearing
+                        }
+                        onChange={(e) =>
+                          void updateStatus(
+                            app,
+                            e.target.value as ClientAppStatus,
+                          )
+                        }
+                        aria-label={`案件 ${app.id} 目前狀態`}
+                      >
+                        {CLIENT_APP_STATUSES.map((s) => (
+                          <option key={s} value={s}>
+                            {ADMIN_APP_STATUS_LABEL[s]}
+                          </option>
+                        ))}
+                      </Select>
+                      {updatingId === app.id && (
+                        <span className="text-[11px] text-text-muted">
+                          更新中…
+                        </span>
                       )}
-                    >
-                      {clientAppStatusLabel(status)}
-                    </span>
-                    {app.aiAnalysis?.bank?.overall && (
-                      <p className="mt-1 text-[11px] text-text-muted">
-                        AI 還款能力：
-                        {app.aiAnalysis.bank.overall === "adequate"
-                          ? "尚可"
-                          : app.aiAnalysis.bank.overall === "tight"
-                            ? "偏緊"
-                            : app.aiAnalysis.bank.overall === "weak"
-                              ? "偏弱"
-                              : "未知"}
-                      </p>
-                    )}
-                    {status === "rejected" &&
-                      (app.failureReason ||
-                        app.aiAnalysis?.decisionReason) && (
-                        <p className="mt-1 max-w-[220px] text-[11px] text-danger-600">
-                          {app.failureReason ||
-                            app.aiAnalysis?.decisionReason}
+                      {app.aiAnalysis?.bank?.overall && (
+                        <p className="text-[11px] text-text-muted">
+                          AI 還款能力：
+                          {app.aiAnalysis.bank.overall === "adequate"
+                            ? "尚可"
+                            : app.aiAnalysis.bank.overall === "tight"
+                              ? "偏緊"
+                              : app.aiAnalysis.bank.overall === "weak"
+                                ? "偏弱"
+                                : "未知"}
                         </p>
                       )}
-                    {status !== "rejected" && app.aiAnalysis?.summary && (
-                      <p className="mt-1 max-w-[220px] text-[11px] text-text-secondary">
-                        {app.aiAnalysis.summary}
-                      </p>
-                    )}
+                      {status === "rejected" &&
+                        (app.failureReason ||
+                          app.aiAnalysis?.decisionReason) && (
+                          <p className="max-w-[220px] text-[11px] text-danger-600">
+                            {app.failureReason ||
+                              app.aiAnalysis?.decisionReason}
+                          </p>
+                        )}
+                      {status !== "rejected" && app.aiAnalysis?.summary && (
+                        <p className="max-w-[220px] text-[11px] text-text-secondary">
+                          {app.aiAnalysis.summary}
+                        </p>
+                      )}
+                    </div>
                   </td>
                   <td className="px-4 py-3 text-xs text-text-secondary">
                     {formatDateTime(app.updatedAt)}
@@ -341,7 +427,11 @@ export default function AdminDashboardPage() {
                       size="sm"
                       variant="outline"
                       className="border-red-300 text-red-700 hover:bg-red-50"
-                      disabled={deletingId === app.id || clearing}
+                      disabled={
+                        deletingId === app.id ||
+                        clearing ||
+                        updatingId === app.id
+                      }
                       onClick={() => void deleteOne(app)}
                     >
                       <Trash2 className="mr-1 size-3.5" />
