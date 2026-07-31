@@ -9,6 +9,13 @@ import {
   ChevronDown,
   ChevronUp,
 } from "lucide-react";
+import {
+  AuditedExtractPanel,
+  BankCashflowBriefPanel,
+  BrExtractPanel,
+  assessmentLabel,
+} from "@/components/app/document-extract-panels";
+import { lastSixBankMonths } from "@/components/app/apply-documents-upload";
 import { Button } from "@/components/ui/button";
 import { Field, Input, Select, Textarea } from "@/components/ui/field";
 import {
@@ -17,8 +24,22 @@ import {
   SectionHeader,
   StateBanner,
 } from "@/components/ui/layout";
-import { TrafficLight } from "@/components/ui/status";
-import { cn, formatDateTime, formatHKD } from "@/lib/utils";
+import type { BankStatementExtract } from "@/lib/bank-statement-extract";
+import {
+  mergeBankStatementExtracts,
+  toBankStatementExtract,
+} from "@/lib/bank-statement-extract";
+import type { BrExtract } from "@/lib/br-extract";
+import { toBrExtract } from "@/lib/br-extract";
+import type { AuditedReportExtract } from "@/lib/audited-report-extract";
+import {
+  mergeAuditedExtracts,
+  toAuditedExtract,
+} from "@/lib/audited-report-extract";
+import { cn, formatDateTime } from "@/lib/utils";
+
+/** 與客戶申請端一致：只允許 BR／銀行月結／審計報告 */
+type ClientDocKind = "br" | "bank" | "audited";
 
 type AnalyzePayload = Record<string, unknown> & {
   ok?: boolean;
@@ -27,61 +48,31 @@ type AnalyzePayload = Record<string, unknown> & {
   fileName?: string;
   docKind?: string;
   model?: string;
-  extract?: Record<string, unknown>;
-  bankExtract?: Record<string, unknown>;
-  brExtract?: Record<string, unknown>;
-  auditedExtract?: Record<string, unknown>;
+  extractHint?: string | null;
+  bankExtract?: unknown;
+  brExtract?: unknown;
+  auditedExtract?: unknown;
   analysis?: {
-    documentType?: string;
     summary?: string;
     overall?: string;
-    confidence?: number;
-    needsHumanReview?: boolean;
-    applicantFacingMessage?: string;
     companyNameGuess?: string;
-    completeness?: { ok: string[]; issues: string[] };
-    ruleHits?: Array<{
-      rule: string;
-      status: "green" | "amber" | "red";
-      detail: string;
-      suggestion?: string;
-    }>;
-  };
-  ebitdaAnalysis?: {
-    formula?: string;
-    coverageRule?: string;
-    coversDebtPayments?: boolean | null;
   };
   disclaimer?: string;
 };
 
 type QueueItem = {
   localId: string;
-  /** 去重鍵：檔案 name|size|lastModified 或 paste:hash */
   fingerprint: string;
   file: File | null;
   pastedText: string;
   label: string;
+  docKind: ClientDocKind;
+  statementMonth: string | null;
   status: "queued" | "running" | "done" | "error";
   error?: string;
   result?: AnalyzePayload;
   archivedId?: string;
 };
-
-function fileFingerprint(file: File) {
-  return `file:${file.name.trim().toLowerCase()}|${file.size}|${file.lastModified}`;
-}
-
-function pasteFingerprint(text: string) {
-  const t = text.trim();
-  // 簡易穩定 hash（夠用嚟去重，唔使 crypto）
-  let h = 2166136261;
-  for (let i = 0; i < t.length; i++) {
-    h ^= t.charCodeAt(i);
-    h = Math.imul(h, 16777619);
-  }
-  return `paste:${t.length}:${(h >>> 0).toString(16)}`;
-}
 
 type ArchiveListItem = {
   id: string;
@@ -96,179 +87,95 @@ type ArchiveListItem = {
   archivedAt: string;
 };
 
-const DOC_KINDS = [
-  { value: "auto", label: "自動判斷" },
+const DOC_KINDS: Array<{ value: ClientDocKind; label: string }> = [
   { value: "br", label: "商業登記證 BR" },
   { value: "bank", label: "銀行月結單" },
-  { value: "audited", label: "審計報告" },
-  { value: "nar1", label: "NAR1" },
-  { value: "financial", label: "其他財務文件" },
-] as const;
+  { value: "audited", label: "審計報告（Audited）" },
+];
 
-function money(n: unknown) {
-  if (typeof n !== "number" || !Number.isFinite(n)) return "—";
-  return formatHKD(n);
+function fileFingerprint(file: File) {
+  return `file:${file.name.trim().toLowerCase()}|${file.size}|${file.lastModified}`;
 }
 
-function overallLabel(o?: string | null) {
-  if (o === "green") return "綠燈";
-  if (o === "amber") return "黃燈";
-  if (o === "red") return "紅燈";
-  return o || "—";
+function pasteFingerprint(text: string) {
+  const t = text.trim();
+  let h = 2166136261;
+  for (let i = 0; i < t.length; i++) {
+    h ^= t.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return `paste:${t.length}:${(h >>> 0).toString(16)}`;
 }
 
-function ResultBody({
-  result,
-  showTrafficLight,
-}: {
-  result: AnalyzePayload;
-  showTrafficLight: boolean;
-}) {
-  const extract = result.extract;
-  const analysis = result.analysis;
-  const br = result.brExtract as Record<string, unknown> | undefined;
-  const bank = result.bankExtract as Record<string, unknown> | undefined;
-  const audited = result.auditedExtract as Record<string, unknown> | undefined;
+function ClientResultBody({ result }: { result: AnalyzePayload }) {
+  const kind = (result.docKind || "") as string;
+  const hint =
+    typeof result.extractHint === "string" ? result.extractHint : null;
+
+  if (kind === "br" && result.brExtract) {
+    const br = toBrExtract(result.brExtract as Partial<BrExtract>);
+    return (
+      <div className="space-y-2">
+        {hint && (
+          <StateBanner tone="info" title="抽取提示" description={hint} />
+        )}
+        <BrExtractPanel br={br} />
+      </div>
+    );
+  }
+
+  if (kind === "audited" && result.auditedExtract) {
+    const a = toAuditedExtract(result.auditedExtract);
+    return (
+      <div className="space-y-2">
+        {hint && (
+          <StateBanner tone="info" title="抽取提示" description={hint} />
+        )}
+        <AuditedExtractPanel a={a} />
+      </div>
+    );
+  }
+
+  if (kind === "bank" && result.bankExtract) {
+    const bank = toBankStatementExtract(result.bankExtract);
+    const brief = mergeBankStatementExtracts([bank]);
+    return (
+      <div className="space-y-2">
+        {hint && (
+          <StateBanner tone="info" title="抽取提示" description={hint} />
+        )}
+        <BankCashflowBriefPanel brief={brief} />
+      </div>
+    );
+  }
 
   return (
-    <div className="space-y-3 text-sm">
-      {analysis?.summary && (
-        <p className="text-text-secondary">{analysis.summary}</p>
-      )}
-      {analysis?.applicantFacingMessage && (
-        <p className="text-navy-900">{analysis.applicantFacingMessage}</p>
-      )}
-
-      {br && (
-        <dl className="grid gap-1 rounded-xl bg-surface-2 px-3 py-2 text-xs sm:grid-cols-2">
-          {(
-            [
-              ["中文名", br.company_name_zh],
-              ["英文名", br.company_name_en],
-              ["BR", br.br_number],
-              ["地址", br.business_address],
-              ["性質", br.business_nature],
-              ["屆滿", br.expiry_date],
-            ] as [string, unknown][]
-          ).map(([k, v]) => (
-            <div key={k} className="flex justify-between gap-2">
-              <dt className="text-text-muted">{k}</dt>
-              <dd className="text-right text-navy-900">
-                {v == null || v === "" ? "—" : String(v)}
-              </dd>
-            </div>
-          ))}
-        </dl>
-      )}
-
-      {bank && (
-        <dl className="grid gap-1 rounded-xl bg-surface-2 px-3 py-2 text-xs sm:grid-cols-2">
-          {(
-            [
-              ["月份", bank.month],
-              ["銀行", bank.bank_name],
-              ["總存入", money(bank.total_credits)],
-              ["總支出", money(bank.total_debits)],
-              ["期初", money(bank.opening_balance)],
-              ["期末", money(bank.closing_balance)],
-            ] as [string, unknown][]
-          ).map(([k, v]) => (
-            <div key={k} className="flex justify-between gap-2">
-              <dt className="text-text-muted">{k}</dt>
-              <dd className="text-right tabular text-navy-900">{v as string}</dd>
-            </div>
-          ))}
-        </dl>
-      )}
-
-      {audited && (
-        <dl className="grid gap-1 rounded-xl bg-surface-2 px-3 py-2 text-xs sm:grid-cols-2">
-          {(
-            [
-              ["公司", audited.company_name],
-              ["年結", audited.year_end_date],
-              ["核數師", audited.auditor_name],
-              ["意見", audited.audit_opinion_type],
-            ] as [string, unknown][]
-          ).map(([k, v]) => (
-            <div key={k} className="flex justify-between gap-2">
-              <dt className="text-text-muted">{k}</dt>
-              <dd className="text-right text-navy-900">
-                {v == null || v === "" ? "—" : String(v)}
-              </dd>
-            </div>
-          ))}
-        </dl>
-      )}
-
-      {extract && !br && !bank && !audited && (
-        <dl className="space-y-1.5">
-          {(
-            [
-              ["公司名稱", extract.company_name ?? "—"],
-              ["財政年度", extract.financial_year ?? "—"],
-              ["營業額", money(extract.revenue)],
-              ["EBITDA", money(extract.EBITDA)],
-              ["純利", money(extract.net_profit)],
-              ["現有債務", money(extract.existing_debt)],
-            ] as [string, unknown][]
-          ).map(([label, value]) => (
-            <div
-              key={label}
-              className="flex justify-between gap-3 border-b border-border/50 pb-1"
-            >
-              <dt className="text-xs text-text-muted">{label}</dt>
-              <dd className="text-right text-xs font-medium tabular text-navy-900">
-                {String(value)}
-              </dd>
-            </div>
-          ))}
-        </dl>
-      )}
-
-      {showTrafficLight && analysis?.overall && (
-        <TrafficLight
-          result={analysis.overall as "green" | "amber" | "red"}
-          label="整體初篩"
-          detail={analysis.summary || ""}
-        />
-      )}
-
-      {showTrafficLight &&
-        analysis?.ruleHits?.map((hit) => (
-          <TrafficLight
-            key={hit.rule + hit.detail}
-            result={hit.status}
-            label={hit.rule}
-            detail={hit.detail}
-            suggestion={hit.suggestion}
-          />
-        ))}
-
-      <p className="text-[11px] text-text-muted">
-        模型 {result.model || "—"} · 類型 {result.docKind || "auto"}
-        {analysis?.confidence != null
-          ? ` · 信心 ${(analysis.confidence * 100).toFixed(0)}%`
-          : ""}
-      </p>
-    </div>
+    <StateBanner
+      tone="warning"
+      title="未有結構化抽取結果"
+      description={
+        result.message ||
+        "請確認文件類型（BR／銀行月結／審計）與上載檔案相符後重試。"
+      }
+    />
   );
 }
 
 export function AiAnalyzeWorkspace({
-  showTrafficLight = true,
   enableArchive = true,
 }: {
+  /** @deprecated 與客戶端對齊後不再顯示三色燈 */
   showTrafficLight?: boolean;
   enableArchive?: boolean;
 }) {
+  const months = useMemo(() => lastSixBankMonths(), []);
   const inputRef = useRef<HTMLInputElement>(null);
   const [tab, setTab] = useState<"analyze" | "archive">("analyze");
-  const [loanType, setLoanType] = useState("unsecured");
-  const [amountHkd, setAmountHkd] = useState(1500000);
-  const [purpose, setPurpose] = useState("營運資金");
   const [companyName, setCompanyName] = useState("");
-  const [docKind, setDocKind] = useState("auto");
+  const [docKind, setDocKind] = useState<ClientDocKind>("br");
+  const [bankMonth, setBankMonth] = useState(
+    months[months.length - 1] ?? "",
+  );
   const [pasteText, setPasteText] = useState("");
   const [queue, setQueue] = useState<QueueItem[]>([]);
   const [running, setRunning] = useState(false);
@@ -294,6 +201,33 @@ export function AiAnalyzeWorkspace({
     [queue],
   );
 
+  /** 與客戶端相同：合併已完成嘅銀行月結 → 六大項現金流預審 */
+  const mergedBankBrief = useMemo(() => {
+    const banks: BankStatementExtract[] = [];
+    for (const q of queue) {
+      if (q.status !== "done" || q.docKind !== "bank" || !q.result?.bankExtract)
+        continue;
+      banks.push(toBankStatementExtract(q.result.bankExtract));
+    }
+    if (!banks.length) return null;
+    return mergeBankStatementExtracts(banks);
+  }, [queue]);
+
+  const mergedAudited = useMemo(() => {
+    const list: AuditedReportExtract[] = [];
+    for (const q of queue) {
+      if (
+        q.status !== "done" ||
+        q.docKind !== "audited" ||
+        !q.result?.auditedExtract
+      )
+        continue;
+      list.push(toAuditedExtract(q.result.auditedExtract));
+    }
+    if (!list.length) return null;
+    return mergeAuditedExtracts(list);
+  }, [queue]);
+
   const loadArchives = useCallback(async () => {
     if (!enableArchive) return;
     setArchiveLoading(true);
@@ -312,7 +246,6 @@ export function AiAnalyzeWorkspace({
   }, [enableArchive]);
 
   useEffect(() => {
-    // 預載歸檔庫，上載時可擋同名重覆
     if (enableArchive) void loadArchives();
   }, [enableArchive, loadArchives]);
 
@@ -323,6 +256,10 @@ export function AiAnalyzeWorkspace({
   function addFiles(list: FileList | File[] | null) {
     const files = Array.from(list ?? []).filter((f) => f.size > 0);
     if (!files.length) return;
+    if (docKind === "bank" && !bankMonth) {
+      setError("銀行月結單必須選擇月份（與客戶申請端相同）");
+      return;
+    }
 
     const existing = new Set(queue.map((q) => q.fingerprint));
     const archivedNames = new Set(
@@ -352,7 +289,12 @@ export function AiAnalyzeWorkspace({
         fingerprint: fp,
         file,
         pastedText: "",
-        label: file.name,
+        label:
+          docKind === "bank"
+            ? `${file.name}（${bankMonth}）`
+            : file.name,
+        docKind,
+        statementMonth: docKind === "bank" ? bankMonth : null,
         status: "queued",
       });
     }
@@ -360,24 +302,18 @@ export function AiAnalyzeWorkspace({
     if (accepted.length) {
       setQueue((prev) => [...prev, ...accepted]);
       setFlash(
-        `已加入 ${accepted.length} 個檔案` +
-          (dupNames.length ? `；略過重覆 ${dupNames.length} 個` : ""),
+        `已加入 ${accepted.length} 份${
+          DOC_KINDS.find((d) => d.value === docKind)?.label || ""
+        }` + (dupNames.length ? `；略過重覆 ${dupNames.length}` : ""),
       );
-    } else {
-      setFlash(null);
-    }
+    } else setFlash(null);
 
     if (dupNames.length) {
       setError(
         `禁止上載重覆文件：${dupNames.slice(0, 5).join("、")}` +
-          (dupNames.length > 5 ? ` 等 ${dupNames.length} 個` : "") +
-          (accepted.length === 0
-            ? "（已在佇列或歸檔庫）"
-            : "（其餘已加入）"),
+          (dupNames.length > 5 ? ` 等 ${dupNames.length} 個` : ""),
       );
-    } else {
-      setError(null);
-    }
+    } else setError(null);
 
     if (inputRef.current) inputRef.current.value = "";
   }
@@ -388,10 +324,13 @@ export function AiAnalyzeWorkspace({
       setError("請先貼上文字");
       return;
     }
+    if (docKind === "bank" && !bankMonth) {
+      setError("銀行月結單必須選擇月份");
+      return;
+    }
     const fp = pasteFingerprint(text);
     if (queue.some((q) => q.fingerprint === fp)) {
       setError("禁止上載重覆內容：相同文字已在分析佇列");
-      setFlash(null);
       return;
     }
     setQueue((prev) => [
@@ -401,7 +340,11 @@ export function AiAnalyzeWorkspace({
         fingerprint: fp,
         file: null,
         pastedText: text,
-        label: `貼上文字（${text.length} 字）`,
+        label: `貼上文字（${text.length} 字）${
+          docKind === "bank" ? ` · ${bankMonth}` : ""
+        }`,
+        docKind,
+        statementMonth: docKind === "bank" ? bankMonth : null,
         status: "queued",
       },
     ]);
@@ -420,15 +363,15 @@ export function AiAnalyzeWorkspace({
     setQueue((prev) => prev.filter((q) => q.status !== "done"));
   }
 
+  /** 與客戶端 apply-documents-upload.analyzeOne 相同契約 */
   async function analyzeOne(item: QueueItem): Promise<QueueItem> {
     const form = new FormData();
     if (item.file) form.set("file", item.file);
     if (item.pastedText) form.set("text", item.pastedText);
-    form.set("loanType", loanType);
-    form.set("amountHkd", String(amountHkd));
-    form.set("purpose", purpose);
+    form.set("docKind", item.docKind);
+    if (item.statementMonth) form.set("statementMonth", item.statementMonth);
     if (companyName.trim()) form.set("companyName", companyName.trim());
-    if (docKind && docKind !== "auto") form.set("docKind", docKind);
+    // 客戶端會帶 loan 欄位但 API 唔用；為一致仍可省略
 
     const res = await fetch("/api/analyze-document", {
       method: "POST",
@@ -446,7 +389,7 @@ export function AiAnalyzeWorkspace({
     return {
       ...item,
       status: "done",
-      result: data,
+      result: { ...data, docKind: data.docKind || item.docKind },
       label: data.fileName || item.label,
     };
   }
@@ -455,13 +398,97 @@ export function AiAnalyzeWorkspace({
     if (running) return;
     const pending = queue.filter((q) => q.status === "queued");
     if (!pending.length) {
-      setError("佇列沒有待分析項目——請先上載或貼上文件");
+      setError("佇列沒有待分析項目");
       return;
     }
     setRunning(true);
     setError(null);
     setFlash(null);
-    for (const item of pending) {
+
+    // 銀行多份：優先走客戶端同一 batch API（失敗再逐份）
+    const bankPending = pending.filter((q) => q.docKind === "bank" && q.file);
+    const otherPending = pending.filter((q) => !(q.docKind === "bank" && q.file));
+
+    if (bankPending.length >= 2) {
+      for (const item of bankPending) {
+        setQueue((prev) =>
+          prev.map((q) =>
+            q.localId === item.localId ? { ...q, status: "running" } : q,
+          ),
+        );
+      }
+      try {
+        const form = new FormData();
+        form.set("batchKind", "bank");
+        if (companyName.trim()) form.set("companyName", companyName.trim());
+        bankPending.forEach((item, i) => {
+          form.set(`file${i}`, item.file!);
+          form.set(`month${i}`, item.statementMonth || "");
+        });
+        const res = await fetch("/api/analyze-documents-batch", {
+          method: "POST",
+          body: form,
+        });
+        const data = await res.json();
+        if (res.ok && data.ok && Array.isArray(data.results)) {
+          const byIdx = data.results as Array<{
+            ok?: boolean;
+            message?: string;
+            bankExtract?: unknown;
+            fileName?: string;
+            extractHint?: string | null;
+            model?: string;
+            statementMonth?: string;
+          }>;
+          setQueue((prev) =>
+            prev.map((q) => {
+              const idx = bankPending.findIndex((b) => b.localId === q.localId);
+              if (idx < 0) return q;
+              const r = byIdx[idx];
+              if (!r?.ok) {
+                return {
+                  ...q,
+                  status: "error" as const,
+                  error: r?.message || "批次分析失敗",
+                };
+              }
+              return {
+                ...q,
+                status: "done" as const,
+                label: r.fileName || q.label,
+                result: {
+                  ok: true,
+                  docKind: "bank",
+                  fileName: r.fileName,
+                  bankExtract: r.bankExtract,
+                  extractHint: r.extractHint,
+                  model: r.model || data.model,
+                },
+              };
+            }),
+          );
+        } else {
+          // fallback sequential
+          for (const item of bankPending) {
+            const next = await analyzeOne(item);
+            setQueue((prev) =>
+              prev.map((q) => (q.localId === item.localId ? next : q)),
+            );
+          }
+        }
+      } catch {
+        for (const item of bankPending) {
+          const next = await analyzeOne(item);
+          setQueue((prev) =>
+            prev.map((q) => (q.localId === item.localId ? next : q)),
+          );
+        }
+      }
+    } else if (bankPending.length === 1) {
+      otherPending.unshift(bankPending[0]!);
+    }
+
+    for (const item of otherPending) {
       setQueue((prev) =>
         prev.map((q) =>
           q.localId === item.localId ? { ...q, status: "running" } : q,
@@ -487,8 +514,9 @@ export function AiAnalyzeWorkspace({
         );
       }
     }
+
     setRunning(false);
-    setFlash("佇列分析完成。可繼續上載更多文件，或將結果歸檔。");
+    setFlash("佇列分析完成（規則與客戶申請端相同：BR／銀行現金流／Audited）。");
   }
 
   async function archiveItem(item: QueueItem) {
@@ -496,19 +524,46 @@ export function AiAnalyzeWorkspace({
     setArchivingId(item.localId);
     setError(null);
     try {
+      const summaryBits: string[] = [];
+      if (item.docKind === "bank" && item.result.bankExtract) {
+        const brief = mergeBankStatementExtracts([
+          toBankStatementExtract(item.result.bankExtract),
+        ]);
+        summaryBits.push(
+          `還款能力：${assessmentLabel(brief.repaymentCapacity.overall)}`,
+          brief.repaymentCapacity.narrative,
+        );
+      }
+      if (item.docKind === "br" && item.result.brExtract) {
+        const br = toBrExtract(item.result.brExtract as Partial<BrExtract>);
+        summaryBits.push(
+          [br.company_name_zh, br.br_number].filter(Boolean).join(" · "),
+        );
+      }
+      if (item.docKind === "audited" && item.result.auditedExtract) {
+        const a = toAuditedExtract(item.result.auditedExtract);
+        summaryBits.push(
+          [a.company_name, a.year_end_date, a.auditor_name]
+            .filter(Boolean)
+            .join(" · "),
+        );
+      }
+
       const res = await fetch("/api/admin/analysis-archive", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           title: item.label,
           fileName: item.result.fileName || item.label,
-          docKind: item.result.docKind || docKind,
-          companyName: companyName || item.result.analysis?.companyNameGuess || null,
-          loanType,
-          amountHkd,
-          purpose,
-          summary: item.result.analysis?.summary ?? null,
-          overall: item.result.analysis?.overall ?? null,
+          docKind: item.docKind,
+          companyName: companyName || null,
+          summary: summaryBits.filter(Boolean).join("｜") || null,
+          overall:
+            item.docKind === "bank" && item.result.bankExtract
+              ? mergeBankStatementExtracts([
+                  toBankStatementExtract(item.result.bankExtract),
+                ]).repaymentCapacity.overall
+              : null,
           payload: item.result,
         }),
       });
@@ -531,10 +586,10 @@ export function AiAnalyzeWorkspace({
   }
 
   async function archiveAllDone() {
-    const targets = queue.filter((q) => q.status === "done" && q.result && !q.archivedId);
-    for (const item of targets) {
-      await archiveItem(item);
-    }
+    const targets = queue.filter(
+      (q) => q.status === "done" && q.result && !q.archivedId,
+    );
+    for (const item of targets) await archiveItem(item);
   }
 
   async function openArchive(id: string) {
@@ -606,7 +661,7 @@ export function AiAnalyzeWorkspace({
                 : "bg-surface-2 text-text-secondary",
             )}
           >
-            歸檔庫（{archives.length || "…"}）
+            歸檔庫（{archives.length}）
           </button>
         )}
       </div>
@@ -622,14 +677,14 @@ export function AiAnalyzeWorkspace({
         <>
           <Card className="space-y-3">
             <SectionHeader
-              title="無限上載 · AI 文件分析"
-              subtitle="可連續加入檔案／文字，逐份分析；完成後可歸檔保存"
+              title="AI 文件分析（與客戶申請端相同規則）"
+              subtitle="文件類型：BR · 銀行月結（含月份）· Audited｜同一套抽取 prompt／合併現金流"
             />
             <div className="grid gap-3 sm:grid-cols-2">
-              <Field label="文件類型提示">
+              <Field label="文件類型（必選）">
                 <Select
                   value={docKind}
-                  onChange={(e) => setDocKind(e.target.value)}
+                  onChange={(e) => setDocKind(e.target.value as ClientDocKind)}
                 >
                   {DOC_KINDS.map((k) => (
                     <option key={k.value} value={k.value}>
@@ -638,34 +693,25 @@ export function AiAnalyzeWorkspace({
                   ))}
                 </Select>
               </Field>
-              <Field label="貸款類型">
-                <Select
-                  value={loanType}
-                  onChange={(e) => setLoanType(e.target.value)}
-                >
-                  <option value="unsecured">無抵押</option>
-                  <option value="secured">有抵押</option>
-                </Select>
-              </Field>
-              <Field label="申請金額 HKD">
-                <Input
-                  type="number"
-                  className="tabular"
-                  value={amountHkd}
-                  onChange={(e) => setAmountHkd(Number(e.target.value))}
-                />
-              </Field>
-              <Field label="公司名稱（選填）">
+              {docKind === "bank" && (
+                <Field label="月結單月份（與客戶端相同）">
+                  <Select
+                    value={bankMonth}
+                    onChange={(e) => setBankMonth(e.target.value)}
+                  >
+                    {months.map((m) => (
+                      <option key={m} value={m}>
+                        {m}
+                      </option>
+                    ))}
+                  </Select>
+                </Field>
+              )}
+              <Field label="公司名稱（選填提示）">
                 <Input
                   value={companyName}
                   onChange={(e) => setCompanyName(e.target.value)}
                   placeholder="提示 AI 抽取"
-                />
-              </Field>
-              <Field label="用途" hint="整批佇列共用此上下文">
-                <Input
-                  value={purpose}
-                  onChange={(e) => setPurpose(e.target.value)}
                 />
               </Field>
             </div>
@@ -673,7 +719,7 @@ export function AiAnalyzeWorkspace({
             <input
               ref={inputRef}
               type="file"
-              multiple
+              multiple={docKind !== "br"}
               accept=".pdf,.txt,.md,.csv,.png,.jpg,.jpeg,.webp,.heic,application/pdf,image/*"
               className="hidden"
               onChange={(e) => addFiles(e.target.files)}
@@ -685,7 +731,7 @@ export function AiAnalyzeWorkspace({
               onClick={() => inputRef.current?.click()}
             >
               <FileUp className="mr-1.5 size-4" />
-              選擇檔案（可多選，可重複加入）
+              選擇檔案（可多選；禁止重覆）
             </Button>
 
             <Field label="或貼上文字加入佇列">
@@ -728,7 +774,7 @@ export function AiAnalyzeWorkspace({
                   onClick={() => void archiveAllDone()}
                 >
                   <Archive className="mr-1.5 size-4" />
-                  全部歸檔未存結果
+                  全部歸檔
                 </Button>
               )}
               {doneCount > 0 && (
@@ -743,15 +789,36 @@ export function AiAnalyzeWorkspace({
               )}
             </div>
             <Disclaimer>
-              單檔建議 ≤ 12MB。佇列無數量上限，但禁止重覆檔案（同名已佇列／已歸檔會拒絕）。AI
-              只做抽取／預審，不直接批核。
+              規則與客戶申請「文件」步驟一致：強制 docKind=br|bank|audited；銀行帶
+              statementMonth；多份銀行可走 batch 再合併六大項現金流。唔再用
+              auto／三色燈初篩。
             </Disclaimer>
           </Card>
+
+          {mergedBankBrief && (
+            <Card>
+              <SectionHeader
+                title="六個月銀行現金流預審（合併）"
+                subtitle={`還款能力：${assessmentLabel(mergedBankBrief.repaymentCapacity.overall)} · 與客戶端相同`}
+              />
+              <BankCashflowBriefPanel brief={mergedBankBrief} />
+            </Card>
+          )}
+
+          {mergedAudited && (
+            <Card>
+              <SectionHeader
+                title="審計報告合併（與客戶端相同）"
+                subtitle="4.1 基本資料 · 4.2 三年比較"
+              />
+              <AuditedExtractPanel a={mergedAudited} />
+            </Card>
+          )}
 
           <Card className="space-y-2">
             <SectionHeader
               title={`分析佇列／結果（${queue.length}）`}
-              subtitle="點項目展開詳情；完成後可歸檔"
+              subtitle="展開顯示與客戶端相同的抽取面板"
             />
             {queue.length === 0 ? (
               <p className="text-sm text-text-muted">尚未加入文件。</p>
@@ -782,6 +849,11 @@ export function AiAnalyzeWorkspace({
                               {item.label}
                             </p>
                             <p className="text-[11px] text-text-muted">
+                              {item.docKind}
+                              {item.statementMonth
+                                ? ` · ${item.statementMonth}`
+                                : ""}{" "}
+                              ·{" "}
                               {item.status === "queued" && "等候中"}
                               {item.status === "running" && "分析中…"}
                               {item.status === "done" &&
@@ -827,10 +899,7 @@ export function AiAnalyzeWorkspace({
                       </div>
                       {open && item.result && (
                         <div className="border-t border-border px-3 py-3">
-                          <ResultBody
-                            result={item.result}
-                            showTrafficLight={showTrafficLight}
-                          />
+                          <ClientResultBody result={item.result} />
                         </div>
                       )}
                       {open && item.status === "error" && (
@@ -852,7 +921,7 @@ export function AiAnalyzeWorkspace({
           <Card className="space-y-3">
             <SectionHeader
               title="分析歸檔庫"
-              subtitle="已保存的 AI 分析結果，可重看／刪除"
+              subtitle="已保存結果（客戶端規則抽取）"
             />
             <div className="flex flex-wrap gap-2">
               <Input
@@ -888,8 +957,8 @@ export function AiAnalyzeWorkspace({
                     >
                       <p className="font-medium text-navy-900">{a.title}</p>
                       <p className="text-xs text-text-secondary">
-                        {a.docKind} · {a.companyName || "—"} ·{" "}
-                        {overallLabel(a.overall)}
+                        {a.docKind} · {a.companyName || "—"}
+                        {a.overall ? ` · ${assessmentLabel(a.overall)}` : ""}
                       </p>
                       <p className="text-[11px] text-text-muted">
                         {formatDateTime(a.archivedAt)}
@@ -918,17 +987,11 @@ export function AiAnalyzeWorkspace({
 
           {archiveDetailId && (
             <Card className="space-y-3">
-              <SectionHeader
-                title="歸檔詳情"
-                subtitle={archiveDetailId}
-              />
+              <SectionHeader title="歸檔詳情" subtitle={archiveDetailId} />
               {!archiveDetail ? (
                 <p className="text-sm text-text-muted">載入詳情…</p>
               ) : (
-                <ResultBody
-                  result={archiveDetail}
-                  showTrafficLight={showTrafficLight}
-                />
+                <ClientResultBody result={archiveDetail} />
               )}
             </Card>
           )}
