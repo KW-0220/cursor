@@ -390,7 +390,7 @@ function ApplicationAiCard({
 }
 
 export default function AuditPage() {
-  const [tab, setTab] = useState<"applications" | "archive">("applications");
+  const [tab, setTab] = useState<"applications" | "archive">("archive");
   const [apps, setApps] = useState<AppRow[]>([]);
   const [archives, setArchives] = useState<ArchiveListItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -494,7 +494,7 @@ export default function AuditPage() {
         <div>
           <h1 className="text-2xl font-bold text-navy-900">審計紀錄</h1>
           <p className="mt-1 text-sm text-text-secondary">
-            AI 分析結果存檔 · 申請決策快照 · 文件分析歸檔
+            AI 文件分析完成後會自動歸檔至此 · 亦可查看申請決策快照
           </p>
         </div>
         <Button variant="outline" size="sm" onClick={() => void load()}>
@@ -509,18 +509,6 @@ export default function AuditPage() {
       <div className="flex flex-wrap gap-2">
         <button
           type="button"
-          onClick={() => setTab("applications")}
-          className={cn(
-            "rounded-full px-3 py-1.5 text-xs font-medium",
-            tab === "applications"
-              ? "bg-teal-100 text-teal-700"
-              : "bg-surface-2 text-text-secondary",
-          )}
-        >
-          申請 AI 分析（{apps.filter((a) => a.aiAnalysis).length}）
-        </button>
-        <button
-          type="button"
           onClick={() => setTab("archive")}
           className={cn(
             "rounded-full px-3 py-1.5 text-xs font-medium",
@@ -531,15 +519,27 @@ export default function AuditPage() {
         >
           文件分析歸檔（{archives.length}）
         </button>
+        <button
+          type="button"
+          onClick={() => setTab("applications")}
+          className={cn(
+            "rounded-full px-3 py-1.5 text-xs font-medium",
+            tab === "applications"
+              ? "bg-teal-100 text-teal-700"
+              : "bg-surface-2 text-text-secondary",
+          )}
+        >
+          申請 AI 分析（{apps.filter((a) => a.aiAnalysis).length}）
+        </button>
       </div>
 
       <Card className="space-y-3">
         <SectionHeader
-          title={tab === "applications" ? "申請 AI 分析結果" : "AI 文件分析歸檔"}
+          title={tab === "archive" ? "AI 文件分析歸檔" : "申請 AI 分析結果"}
           subtitle={
-            tab === "applications"
-              ? "客戶提交申請時寫入的 AI 決策／BR／銀行／Audited 快照"
-              : "後台 AI 文件分析頁歸檔的抽取結果"
+            tab === "archive"
+              ? "後台「AI 文件分析」完成後自動寫入；點展開查看完整抽取結果"
+              : "客戶提交申請時寫入的 AI 決策／BR／銀行／Audited 快照"
           }
         />
         <Input
@@ -550,14 +550,71 @@ export default function AuditPage() {
 
         {loading ? (
           <p className="text-sm text-text-muted">載入中…</p>
-        ) : tab === "applications" ? (
-          appsWithAi.length === 0 ? (
+        ) : tab === "archive" ? (
+          filteredArchives.length === 0 ? (
             <EmptyState
-              title="暫無 AI 分析結果"
+              title="暫無文件分析歸檔"
+              description="請到「AI 文件分析」上載並執行分析；完成後會自動出現在此（無需再按歸檔）。"
+            />
+          ) : (
+            <ul className="space-y-3">
+              {filteredArchives.map((a) => {
+                const open = expandedArchive === a.id;
+                return (
+                  <li
+                    key={a.id}
+                    className="rounded-xl border border-border bg-surface-1"
+                  >
+                    <button
+                      type="button"
+                      className="flex w-full flex-wrap items-start justify-between gap-2 px-3 py-3 text-left"
+                      onClick={() => void openArchive(a.id)}
+                    >
+                      <div className="min-w-0">
+                        <p className="font-medium text-navy-900">{a.title}</p>
+                        <p className="mt-0.5 text-xs text-text-secondary">
+                          {a.docKind} · {a.companyName || "—"}
+                          {a.overall
+                            ? ` · ${assessmentLabel(a.overall)}`
+                            : ""}
+                        </p>
+                        {a.summary && (
+                          <p className="mt-1 line-clamp-2 text-xs text-text-muted">
+                            {a.summary}
+                          </p>
+                        )}
+                      </div>
+                      <div className="text-right text-[11px] text-text-muted">
+                        <p>{formatDateTime(a.archivedAt)}</p>
+                        <p>{a.archivedBy || "—"}</p>
+                        <p className="mt-1">{open ? "收起" : "展開結果"}</p>
+                      </div>
+                    </button>
+                    {open && (
+                      <div className="border-t border-border px-3 py-3">
+                        {archiveDetailLoading ? (
+                          <p className="text-sm text-text-muted">載入詳情…</p>
+                        ) : archiveDetail ? (
+                          <ArchiveResultBody payload={archiveDetail} />
+                        ) : (
+                          <p className="text-sm text-text-muted">
+                            未能載入歸檔詳情。
+                          </p>
+                        )}
+                      </div>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          )
+        ) : appsWithAi.length === 0 ? (
+            <EmptyState
+              title="暫無申請 AI 分析結果"
               description={
                 apps.length === 0
                   ? "尚未有申請案件。"
-                  : "現有申請未附帶 AI 分析快照；客戶完成文件分析並提交後會出現在此。"
+                  : "現有申請未附帶 AI 分析快照；客戶完成文件分析並提交後會出現在此。後台文件分析結果請看「文件分析歸檔」。"
               }
             />
           ) : (
@@ -575,64 +632,7 @@ export default function AuditPage() {
                 />
               ))}
             </ul>
-          )
-        ) : filteredArchives.length === 0 ? (
-          <EmptyState
-            title="暫無文件分析歸檔"
-            description="請到「AI 文件分析」完成分析後按歸檔，結果會出現在此。"
-          />
-        ) : (
-          <ul className="space-y-3">
-            {filteredArchives.map((a) => {
-              const open = expandedArchive === a.id;
-              return (
-                <li
-                  key={a.id}
-                  className="rounded-xl border border-border bg-surface-1"
-                >
-                  <button
-                    type="button"
-                    className="flex w-full flex-wrap items-start justify-between gap-2 px-3 py-3 text-left"
-                    onClick={() => void openArchive(a.id)}
-                  >
-                    <div className="min-w-0">
-                      <p className="font-medium text-navy-900">{a.title}</p>
-                      <p className="mt-0.5 text-xs text-text-secondary">
-                        {a.docKind} · {a.companyName || "—"}
-                        {a.overall
-                          ? ` · ${assessmentLabel(a.overall)}`
-                          : ""}
-                      </p>
-                      {a.summary && (
-                        <p className="mt-1 line-clamp-2 text-xs text-text-muted">
-                          {a.summary}
-                        </p>
-                      )}
-                    </div>
-                    <div className="text-right text-[11px] text-text-muted">
-                      <p>{formatDateTime(a.archivedAt)}</p>
-                      <p>{a.archivedBy || "—"}</p>
-                      <p className="mt-1">{open ? "收起" : "展開結果"}</p>
-                    </div>
-                  </button>
-                  {open && (
-                    <div className="border-t border-border px-3 py-3">
-                      {archiveDetailLoading ? (
-                        <p className="text-sm text-text-muted">載入詳情…</p>
-                      ) : archiveDetail ? (
-                        <ArchiveResultBody payload={archiveDetail} />
-                      ) : (
-                        <p className="text-sm text-text-muted">
-                          未能載入歸檔詳情。
-                        </p>
-                      )}
-                    </div>
-                  )}
-                </li>
-              );
-            })}
-          </ul>
-        )}
+          )}
       </Card>
 
       <SectionHeader

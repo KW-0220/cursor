@@ -590,6 +590,71 @@ export function AiAnalyzeWorkspace({
     setQueue((prev) => prev.filter((q) => q.status !== "done"));
   }
 
+  function archiveMeta(item: QueueItem) {
+    const summaryBits: string[] = [];
+    let overall: string | null = null;
+    if (item.docKind === "bank" && item.result?.bankExtract) {
+      const brief = mergeBankStatementExtracts([
+        toBankStatementExtract(item.result.bankExtract),
+      ]);
+      summaryBits.push(
+        `還款能力：${assessmentLabel(brief.repaymentCapacity.overall)}`,
+        brief.repaymentCapacity.narrative,
+      );
+      overall = brief.repaymentCapacity.overall;
+    }
+    if (item.docKind === "br" && item.result?.brExtract) {
+      const br = toBrExtract(item.result.brExtract as Partial<BrExtract>);
+      summaryBits.push(
+        [br.company_name_zh, br.br_number].filter(Boolean).join(" · "),
+      );
+    }
+    if (item.docKind === "audited" && item.result?.auditedExtract) {
+      const a = toAuditedExtract(item.result.auditedExtract);
+      summaryBits.push(
+        [a.company_name, a.year_end_date, a.auditor_name]
+          .filter(Boolean)
+          .join(" · "),
+      );
+    }
+    if (item.docKind === "identity" && item.result?.identityExtract) {
+      const id = toIdentityExtract(item.result.identityExtract);
+      summaryBits.push(
+        [item.personRole, id.full_name_zh || id.full_name_en, id.id_number]
+          .filter(Boolean)
+          .join(" · "),
+      );
+    }
+    return {
+      summary: summaryBits.filter(Boolean).join("｜") || null,
+      overall,
+    };
+  }
+
+  /** 寫入分析歸檔；失敗時回 null（唔阻分析結果顯示） */
+  async function postArchive(item: QueueItem): Promise<string | null> {
+    if (!item.result || !enableArchive) return null;
+    const meta = archiveMeta(item);
+    const res = await fetch("/api/admin/analysis-archive", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        title: item.label,
+        fileName: item.result.fileName || item.label,
+        docKind: item.docKind,
+        companyName: companyName || null,
+        summary: meta.summary,
+        overall: meta.overall,
+        payload: item.result,
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data.message || data.error || "歸檔失敗");
+    }
+    return (data.item?.id as string) || null;
+  }
+
   async function analyzeOne(item: QueueItem): Promise<QueueItem> {
     const form = new FormData();
     if (item.file) form.set("file", item.file);
@@ -615,7 +680,7 @@ export function AiAnalyzeWorkspace({
         result: data,
       };
     }
-    return {
+    const done: QueueItem = {
       ...item,
       status: "done",
       result: {
@@ -625,6 +690,22 @@ export function AiAnalyzeWorkspace({
       },
       label: data.fileName || item.label,
     };
+    // 分析完成即寫入審計歸檔，唔使再按「歸檔」
+    if (enableArchive) {
+      try {
+        const archivedId = await postArchive(done);
+        if (archivedId) return { ...done, archivedId };
+      } catch (e) {
+        return {
+          ...done,
+          error:
+            e instanceof Error
+              ? `分析完成但歸檔失敗：${e.message}`
+              : "分析完成但歸檔失敗",
+        };
+      }
+    }
+    return done;
   }
 
   async function runQueue() {
@@ -674,32 +755,43 @@ export function AiAnalyzeWorkspace({
             model?: string;
             statementMonth?: string;
           }>;
-          setQueue((prev) =>
-            prev.map((q) => {
-              const idx = bankPending.findIndex((b) => b.localId === q.localId);
-              if (idx < 0) return q;
-              const r = byIdx[idx];
-              if (!r?.ok) {
-                return {
-                  ...q,
-                  status: "error" as const,
-                  error: r?.message || "批次分析失敗",
-                };
+          const bankUpdates = new Map<string, QueueItem>();
+          for (const item of bankPending) {
+            const idx = bankPending.findIndex((b) => b.localId === item.localId);
+            const r = byIdx[idx];
+            if (!r?.ok) {
+              bankUpdates.set(item.localId, {
+                ...item,
+                status: "error",
+                error: r?.message || "批次分析失敗",
+              });
+              continue;
+            }
+            let next: QueueItem = {
+              ...item,
+              status: "done",
+              label: r.fileName || item.label,
+              result: {
+                ok: true,
+                docKind: "bank",
+                fileName: r.fileName,
+                bankExtract: r.bankExtract,
+                extractHint: r.extractHint,
+                model: r.model || data.model,
+              },
+            };
+            if (enableArchive) {
+              try {
+                const archivedId = await postArchive(next);
+                if (archivedId) next = { ...next, archivedId };
+              } catch {
+                /* ignore */
               }
-              return {
-                ...q,
-                status: "done" as const,
-                label: r.fileName || q.label,
-                result: {
-                  ok: true,
-                  docKind: "bank",
-                  fileName: r.fileName,
-                  bankExtract: r.bankExtract,
-                  extractHint: r.extractHint,
-                  model: r.model || data.model,
-                },
-              };
-            }),
+            }
+            bankUpdates.set(item.localId, next);
+          }
+          setQueue((prev) =>
+            prev.map((q) => bankUpdates.get(q.localId) ?? q),
           );
         } else {
           for (const item of bankPending) {
@@ -749,7 +841,12 @@ export function AiAnalyzeWorkspace({
     }
 
     setRunning(false);
-    setFlash("佇列分析完成（按文件類別獨立抽取）。");
+    setFlash(
+      enableArchive
+        ? "分析完成，結果已自動寫入審計紀錄／歸檔庫。"
+        : "佇列分析完成（按文件類別獨立抽取）。",
+    );
+    if (enableArchive) void loadArchives();
   }
 
   async function archiveItem(item: QueueItem) {
@@ -757,64 +854,11 @@ export function AiAnalyzeWorkspace({
     setArchivingId(item.localId);
     setError(null);
     try {
-      const summaryBits: string[] = [];
-      if (item.docKind === "bank" && item.result.bankExtract) {
-        const brief = mergeBankStatementExtracts([
-          toBankStatementExtract(item.result.bankExtract),
-        ]);
-        summaryBits.push(
-          `還款能力：${assessmentLabel(brief.repaymentCapacity.overall)}`,
-          brief.repaymentCapacity.narrative,
-        );
-      }
-      if (item.docKind === "br" && item.result.brExtract) {
-        const br = toBrExtract(item.result.brExtract as Partial<BrExtract>);
-        summaryBits.push(
-          [br.company_name_zh, br.br_number].filter(Boolean).join(" · "),
-        );
-      }
-      if (item.docKind === "audited" && item.result.auditedExtract) {
-        const a = toAuditedExtract(item.result.auditedExtract);
-        summaryBits.push(
-          [a.company_name, a.year_end_date, a.auditor_name]
-            .filter(Boolean)
-            .join(" · "),
-        );
-      }
-      if (item.docKind === "identity" && item.result.identityExtract) {
-        const id = toIdentityExtract(item.result.identityExtract);
-        summaryBits.push(
-          [item.personRole, id.full_name_zh || id.full_name_en, id.id_number]
-            .filter(Boolean)
-            .join(" · "),
-        );
-      }
-
-      const res = await fetch("/api/admin/analysis-archive", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          title: item.label,
-          fileName: item.result.fileName || item.label,
-          docKind: item.docKind,
-          companyName: companyName || null,
-          summary: summaryBits.filter(Boolean).join("｜") || null,
-          overall:
-            item.docKind === "bank" && item.result.bankExtract
-              ? mergeBankStatementExtracts([
-                  toBankStatementExtract(item.result.bankExtract),
-                ]).repaymentCapacity.overall
-              : null,
-          payload: item.result,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.message || data.error || "歸檔失敗");
+      const archivedId = await postArchive(item);
+      if (!archivedId) throw new Error("歸檔失敗");
       setQueue((prev) =>
         prev.map((q) =>
-          q.localId === item.localId
-            ? { ...q, archivedId: data.item?.id as string }
-            : q,
+          q.localId === item.localId ? { ...q, archivedId } : q,
         ),
       );
       setFlash(`已歸檔：${item.label}`);
@@ -983,7 +1027,11 @@ export function AiAnalyzeWorkspace({
               >
                 重新檢查 Gemini
               </Button>
-              {enableArchive && doneCount > 0 && (
+              {enableArchive &&
+                doneCount > 0 &&
+                queue.some(
+                  (q) => q.status === "done" && q.result && !q.archivedId,
+                ) && (
                 <Button
                   type="button"
                   variant="secondary"
@@ -991,7 +1039,7 @@ export function AiAnalyzeWorkspace({
                   onClick={() => void archiveAllDone()}
                 >
                   <Archive className="mr-1.5 size-4" />
-                  全部歸檔
+                  補寫未歸檔
                 </Button>
               )}
               {doneCount > 0 && (
@@ -1506,7 +1554,7 @@ export function AiAnalyzeWorkspace({
           <Card className="space-y-3">
             <SectionHeader
               title="分析歸檔庫"
-              subtitle="已保存結果"
+              subtitle="分析完成會自動寫入；同步顯示於「審計紀錄」"
             />
             <div className="flex flex-wrap gap-2">
               <Input
