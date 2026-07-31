@@ -75,11 +75,35 @@ export function resolveApiKey(): string | null {
 }
 
 /** 預設用 flash-lite（穩定／配額較寬）；勿預設 3.5-flash（thinking＋易 429） */
-export const OPENAI_MODEL =
-  process.env.GEMINI_MODEL?.trim() ||
-  process.env.OPENAI_ANALYZE_MODEL?.trim() ||
-  process.env.OPENAI_MODEL?.trim() ||
-  "gemini-3.5-flash-lite";
+function resolvePreferredModel(): string {
+  const raw =
+    process.env.GEMINI_MODEL?.trim() ||
+    process.env.OPENAI_ANALYZE_MODEL?.trim() ||
+    process.env.OPENAI_MODEL?.trim() ||
+    unwrapSealed()?.model?.trim() ||
+    "gemini-3.5-flash-lite";
+  return normalizeGeminiModelId(raw);
+}
+
+/**
+ * 將易爆配額／thinking 空回嘅模型改寫成 flash-lite。
+ * Vercel 若仍設 GEMINI_MODEL=gemini-3.5-flash，文件分析會強制改用 lite。
+ */
+function normalizeGeminiModelId(raw: string): string {
+  const id = raw.replace(/^models\//, "").trim();
+  if (!id || /manus/i.test(id)) return "gemini-3.5-flash-lite";
+  if (
+    id === "gemini-3.5-flash" ||
+    id === "gemini-3-flash" ||
+    id === "gemini-3-flash-preview" ||
+    id === "gemini-3.0-flash"
+  ) {
+    return "gemini-3.5-flash-lite";
+  }
+  return id;
+}
+
+export const OPENAI_MODEL = resolvePreferredModel();
 
 /** 主 model 失敗（503／429／404／EMPTY）時依序試；lite 優先 */
 const DEFAULT_GEMINI_FALLBACKS = [
@@ -167,10 +191,8 @@ type GeminiResponse = {
 };
 
 function geminiModelId() {
-  const raw = OPENAI_MODEL.replace(/^models\//, "");
-  // 舊 manus 名自動改用 Gemini
-  if (raw.includes("manus")) return "gemini-3.5-flash-lite";
-  return raw || "gemini-3.5-flash-lite";
+  // OPENAI_MODEL 已 normalize；再保險一次
+  return normalizeGeminiModelId(OPENAI_MODEL);
 }
 
 export type ChatTurn = {

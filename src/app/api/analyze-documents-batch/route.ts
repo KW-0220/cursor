@@ -18,6 +18,7 @@ import {
   parseAuditedExtract,
 } from "@/lib/audited-report-extract";
 import {
+  getGeminiModel,
   getLlmProvider,
   hasOpenAIKey,
   manusRespond,
@@ -34,12 +35,7 @@ const MAX_BANK_FILES = 6;
 const MAX_AUDITED_FILES = 3;
 
 function analyzeModel() {
-  return (
-    process.env.GEMINI_MODEL?.trim() ||
-    process.env.OPENAI_ANALYZE_MODEL?.trim() ||
-    process.env.OPENAI_MODEL?.trim() ||
-    "gemini-3.5-flash-lite"
-  );
+  return getGeminiModel();
 }
 
 /**

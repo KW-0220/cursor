@@ -63,14 +63,9 @@ export const preferredRegion = ["sin1", "iad1"];
 
 const MAX_BYTES = 12 * 1024 * 1024;
 
-/** 文件分析模型（Manus agent profile） */
+/** 文件分析模型（與 openai.ts 正規化一致：flash → flash-lite） */
 function analyzeModel() {
-  return (
-    process.env.GEMINI_MODEL?.trim() ||
-    process.env.OPENAI_ANALYZE_MODEL?.trim() ||
-    process.env.OPENAI_MODEL?.trim() ||
-    "gemini-3.5-flash-lite"
-  );
+  return getGeminiModel();
 }
 
 /**
@@ -1084,7 +1079,7 @@ export async function GET(req: NextRequest) {
       !configured
         ? "請在 Vercel Environment Variables 設定 GEMINI_API_KEY（Production + Preview），不可用 NEXT_PUBLIC_"
         : !ping.ok
-          ? "Key 已偵測但仍未能呼叫 Gemini（可能配額／模型）。系統會自動 fallback flash-lite。"
-          : "Gemini 已接駁，可進行文件分析。",
+          ? "Key 已偵測但仍未能呼叫 Gemini（可能配額／模型）。系統會自動用 flash-lite 並 fallback。"
+          : `Gemini 已接駁（${model}）。Vercel 若設咗 GEMINI_MODEL=gemini-3.5-flash 會自動改用 flash-lite。`,
   });
 }
