@@ -282,19 +282,39 @@ export default function AdminCustomersPage() {
   const [collectFrom, setCollectFrom] = useState("");
   const [wiping, setWiping] = useState(false);
   const [expanded, setExpanded] = useState<string | null>(null);
+  const [orphans, setOrphans] = useState<
+    Array<{
+      id: string;
+      purpose: string;
+      documentCount: number;
+      documents: Array<{ id: string; kind: string; fileName: string; slot: string }>;
+    }>
+  >([]);
+  const [linkTarget, setLinkTarget] = useState<Record<string, string>>({});
+  const [linking, setLinking] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch("/api/admin/customers");
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "載入失敗");
+      const [custRes, orphanRes] = await Promise.all([
+        fetch("/api/admin/customers"),
+        fetch("/api/admin/link-application"),
+      ]);
+      const data = await custRes.json();
+      if (!custRes.ok) throw new Error(data.error || "載入失敗");
       setCustomers(data.customers ?? []);
       setStorageNote(data.storageNote ?? data.storage ?? "");
       setStorage(data.storage ?? "");
       setDurable(Boolean(data.durable));
       setCollectFrom(data.collectFrom ?? "POST /api/customers");
+
+      if (orphanRes.ok) {
+        const o = await orphanRes.json();
+        setOrphans(o.orphans ?? []);
+      } else {
+        setOrphans([]);
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : "載入失敗");
     } finally {
@@ -307,6 +327,33 @@ export default function AdminCustomersPage() {
     const hash = window.location.hash.replace(/^#/, "");
     if (hash) setExpanded(hash);
   }, [load]);
+
+  async function linkOrphan(applicationId: string) {
+    const customerId = linkTarget[applicationId];
+    if (!customerId) {
+      setError("請先選擇要歸入的客戶");
+      return;
+    }
+    setLinking(applicationId);
+    setError(null);
+    try {
+      const res = await fetch("/api/admin/link-application", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ applicationId, customerId }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.message || data.error || "歸戶失敗");
+      }
+      setExpanded(customerId);
+      await load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "歸戶失敗");
+    } finally {
+      setLinking(null);
+    }
+  }
 
   async function wipeAll() {
     const ok = window.confirm(
@@ -414,6 +461,68 @@ export default function AdminCustomersPage() {
         title="登記列表"
         subtitle="展開可查看 AI 分析、批核結果與已收集文件"
       />
+
+      {orphans.length > 0 && (
+        <Card className="space-y-3 border-amber-300/80 bg-amber-50/40">
+          <SectionHeader
+            title={`未歸戶申請文件（${orphans.length}）`}
+            subtitle="補件時未綁定客戶——揀客戶後按「歸入」即可喺下方客戶卡見到文件"
+          />
+          <div className="space-y-3">
+            {orphans.map((o) => (
+              <div
+                key={o.id}
+                className="rounded-xl border border-border bg-surface-1 px-3 py-3"
+              >
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <div>
+                    <p className="font-mono text-xs text-text-muted">{o.id}</p>
+                    <p className="mt-0.5 text-sm text-navy-900">
+                      {o.purpose} · 文件 {o.documentCount} 份
+                    </p>
+                    <ul className="mt-1 text-xs text-text-secondary">
+                      {o.documents.slice(0, 5).map((d) => (
+                        <li key={d.id}>
+                          {d.kind} · {d.fileName}
+                        </li>
+                      ))}
+                      {o.documentCount > 5 && (
+                        <li>…仲有 {o.documentCount - 5} 份</li>
+                      )}
+                    </ul>
+                  </div>
+                  <div className="flex min-w-[220px] flex-col gap-2">
+                    <select
+                      className="h-10 rounded-xl border border-border bg-surface-1 px-3 text-sm"
+                      value={linkTarget[o.id] ?? ""}
+                      onChange={(e) =>
+                        setLinkTarget((prev) => ({
+                          ...prev,
+                          [o.id]: e.target.value,
+                        }))
+                      }
+                    >
+                      <option value="">選擇客戶…</option>
+                      {customers.map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.companyNameZh || c.applicantNameZh}（{c.email}）
+                        </option>
+                      ))}
+                    </select>
+                    <Button
+                      size="sm"
+                      disabled={!linkTarget[o.id] || linking === o.id}
+                      onClick={() => void linkOrphan(o.id)}
+                    >
+                      {linking === o.id ? "歸入中…" : "歸入此客戶"}
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
 
       <div className="space-y-3">
         {filtered.map((c) => {
