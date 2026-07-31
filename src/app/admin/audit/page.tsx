@@ -420,8 +420,14 @@ export default function AuditPage() {
       if (archiveRes.ok) {
         setArchives(archiveData.items ?? []);
       } else {
-        // archive 可能未登入／權限；唔阻申請 AI 結果
         setArchives([]);
+        const msg =
+          archiveData.message ||
+          archiveData.error ||
+          `歸檔庫載入失敗（HTTP ${archiveRes.status}）`;
+        setError(
+          `${msg}。請重新登入後台後再按「重新整理」；文件分析完成後會自動寫入此處。`,
+        );
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : "載入失敗");

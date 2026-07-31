@@ -1483,7 +1483,11 @@ export function AiAnalyzeWorkspace({
                               {item.status === "queued" && "等候中"}
                               {item.status === "running" && "分析中…"}
                               {item.status === "done" &&
-                                `完成${item.archivedId ? " · 已歸檔" : ""}`}
+                                (item.archivedId
+                                  ? "完成 · 已寫入審計紀錄"
+                                  : item.error
+                                    ? `完成 · ${item.error}`
+                                    : "完成")}
                               {item.status === "error" &&
                                 `失敗：${item.error || ""}`}
                             </p>
