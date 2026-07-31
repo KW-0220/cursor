@@ -13,6 +13,8 @@ export type SupplementRecord = {
   id: string;
   applicationId: string;
   documentType: string;
+  /** 常用原因模板 */
+  reasonTemplate: string;
   reason: string;
   detail: string;
   dueDate: string;
@@ -25,6 +27,8 @@ export type SupplementRecord = {
   customerId: string | null;
   companyNameZh: string | null;
   applicantNameZh: string | null;
+  /** 實際寄出的電郵主旨（客製化） */
+  emailSubject: string | null;
   status: "open" | "fulfilled" | "cancelled";
   emailStatus: "skipped" | "sent" | "failed" | "pending";
   emailId: string | null;

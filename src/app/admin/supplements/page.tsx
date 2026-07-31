@@ -9,6 +9,10 @@ import {
   SectionHeader,
   StateBanner,
 } from "@/components/ui/layout";
+import {
+  buildSupplementEmailSubject,
+  buildSupplementEmailText,
+} from "@/lib/supplement-email";
 import { formatDateTime } from "@/lib/utils";
 
 const templates = [
@@ -35,6 +39,7 @@ type SupplementItem = {
   id: string;
   applicationId: string;
   documentType: string;
+  reasonTemplate?: string;
   reason: string;
   detail: string;
   dueDate: string;
@@ -44,6 +49,7 @@ type SupplementItem = {
   toEmail: string | null;
   companyNameZh: string | null;
   applicantNameZh: string | null;
+  emailSubject?: string | null;
   status: string;
   emailStatus: string;
   emailId: string | null;
@@ -65,6 +71,7 @@ function defaultDueDate() {
 }
 
 export default function AdminSupplementsPage() {
+  const [reasonTemplate, setReasonTemplate] = useState(templates[0]!);
   const [reason, setReason] = useState(templates[0]!);
   const [applicationId, setApplicationId] = useState("");
   const [documentType, setDocumentType] = useState<string>(DOC_TYPES[0]!);
@@ -85,6 +92,32 @@ export default function AdminSupplementsPage() {
     keySource?: string;
     from?: string;
   } | null>(null);
+
+  const emailPreview = useMemo(() => {
+    const fields = {
+      applicationId: applicationId.trim() || "（待填申請編號）",
+      documentType,
+      reasonTemplate,
+      reason: reason.trim() || reasonTemplate,
+      detail,
+      dueDate,
+      required: required === "是",
+      needOcr: needOcr === "是",
+    };
+    return {
+      subject: buildSupplementEmailSubject(fields),
+      text: buildSupplementEmailText(fields),
+    };
+  }, [
+    applicationId,
+    documentType,
+    reasonTemplate,
+    reason,
+    detail,
+    dueDate,
+    required,
+    needOcr,
+  ]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -122,8 +155,8 @@ export default function AdminSupplementsPage() {
       setError("請填寫申請編號");
       return;
     }
-    if (!reason.trim() || !detail.trim() || !dueDate) {
-      setError("請填寫補件原因、詳細說明及截止日期");
+    if (!reasonTemplate.trim() || !reason.trim() || !dueDate) {
+      setError("請填寫常用原因模板、補交原因及截止日期");
       return;
     }
 
@@ -135,6 +168,7 @@ export default function AdminSupplementsPage() {
         body: JSON.stringify({
           applicationId: applicationId.trim(),
           documentType,
+          reasonTemplate: reasonTemplate.trim(),
           reason: reason.trim(),
           detail: detail.trim(),
           dueDate,
@@ -148,7 +182,10 @@ export default function AdminSupplementsPage() {
       if (!res.ok || data.ok === false) {
         throw new Error(data.message || data.error || "發送失敗");
       }
-      setFlash(data.message || "補件要求已發送");
+      setFlash(
+        data.message ||
+          `已寄出客製化電郵：${data.emailPreview?.subject || ""}`,
+      );
       setDetail("");
       setToEmail("");
       await load();
@@ -165,7 +202,8 @@ export default function AdminSupplementsPage() {
         <div>
           <h1 className="text-2xl font-bold text-navy-900">補件管理</h1>
           <p className="mt-1 text-sm text-text-secondary">
-            建立補件要求 · 通知：App Push + 電郵（Resend）· 已移除 SMS
+            每封電郵按選項客製化：申請編號 · 文件類型 · 原因模板 · 補交原因 ·
+            截止日期
           </p>
         </div>
         <Button variant="outline" size="sm" onClick={() => void load()}>
@@ -206,7 +244,7 @@ export default function AdminSupplementsPage() {
         <Card>
           <SectionHeader
             title="建立補件要求"
-            subtitle="發送後會佇列 App Push，並經 Resend 寄電郵"
+            subtitle="選項會即時反映於右／下方電郵預覽"
           />
           <div className="space-y-3">
             <Field label="申請編號" required>
@@ -228,10 +266,17 @@ export default function AdminSupplementsPage() {
                 ))}
               </Select>
             </Field>
-            <Field label="常用原因模板">
+            <Field label="常用原因模板" required>
               <Select
-                value={reason}
-                onChange={(e) => setReason(e.target.value)}
+                value={reasonTemplate}
+                onChange={(e) => {
+                  const next = e.target.value;
+                  setReasonTemplate(next);
+                  // 若補交原因仍係舊模板／空白，自動跟從模板
+                  if (!reason.trim() || templates.includes(reason)) {
+                    setReason(next);
+                  }
+                }}
               >
                 {templates.map((t) => (
                   <option key={t} value={t}>
@@ -240,17 +285,17 @@ export default function AdminSupplementsPage() {
                 ))}
               </Select>
             </Field>
-            <Field label="補件原因" required>
+            <Field label="補交原因" required hint="可人手修改；會寫入電郵正文">
               <Input
                 value={reason}
                 onChange={(e) => setReason(e.target.value)}
               />
             </Field>
-            <Field label="詳細說明" required>
+            <Field label="詳細說明（選填）">
               <Textarea
                 value={detail}
                 onChange={(e) => setDetail(e.target.value)}
-                placeholder="請說明需要補交的文件內容…"
+                placeholder="補充客戶需注意事項…"
               />
             </Field>
             <Field label="截止日期" required>
@@ -311,79 +356,109 @@ export default function AdminSupplementsPage() {
               disabled={sending}
               onClick={() => void onSubmit()}
             >
-              {sending ? "發送中…" : "發送補件要求"}
+              {sending ? "發送中…" : "發送客製化補件電郵"}
             </Button>
           </div>
         </Card>
 
-        <Card>
-          <SectionHeader
-            title="進行中補件"
-            subtitle={loading ? "載入中…" : `${openCount} 宗`}
-          />
-          {loading ? (
-            <p className="text-sm text-text-muted">載入中…</p>
-          ) : items.length === 0 ? (
-            <EmptyState
-              title="暫無進行中補件"
-              description="發送補件要求後會顯示於此。"
+        <div className="space-y-4">
+          <Card>
+            <SectionHeader
+              title="客製化電郵預覽"
+              subtitle="按左欄選項即時生成（寄出內容相同）"
             />
-          ) : (
-            <ul className="space-y-3">
-              {items.map((item) => (
-                <li
-                  key={item.id}
-                  className="rounded-xl border border-border bg-surface-1 px-3 py-3"
-                >
-                  <div className="flex flex-wrap items-start justify-between gap-2">
-                    <div>
-                      <p className="font-medium text-navy-900">
-                        {item.applicationId} · {item.documentType}
-                      </p>
-                      <p className="mt-0.5 text-xs text-text-secondary">
-                        {item.companyNameZh || item.applicantNameZh || "—"}
-                        {item.toEmail ? ` · ${item.toEmail}` : ""}
-                      </p>
+            <div className="space-y-3 text-sm">
+              <div>
+                <p className="text-xs font-semibold text-text-muted">主旨</p>
+                <p className="mt-1 rounded-lg bg-surface-2 px-3 py-2 font-medium text-navy-900">
+                  {emailPreview.subject}
+                </p>
+              </div>
+              <div>
+                <p className="text-xs font-semibold text-text-muted">正文</p>
+                <pre className="mt-1 whitespace-pre-wrap rounded-lg border border-border bg-surface-1 px-3 py-3 text-xs leading-relaxed text-text-secondary">
+                  {emailPreview.text}
+                </pre>
+              </div>
+              <ul className="list-disc space-y-1 pl-5 text-xs text-text-muted">
+                <li>申請編號：{applicationId.trim() || "—"}</li>
+                <li>文件類型：{documentType}</li>
+                <li>常用原因模板：{reasonTemplate}</li>
+                <li>補交原因：{reason.trim() || "—"}</li>
+                <li>截止日期：{dueDate || "—"}</li>
+              </ul>
+            </div>
+          </Card>
+
+          <Card>
+            <SectionHeader
+              title="進行中補件"
+              subtitle={loading ? "載入中…" : `${openCount} 宗`}
+            />
+            {loading ? (
+              <p className="text-sm text-text-muted">載入中…</p>
+            ) : items.length === 0 ? (
+              <EmptyState
+                title="暫無進行中補件"
+                description="發送補件要求後會顯示於此。"
+              />
+            ) : (
+              <ul className="space-y-3">
+                {items.map((item) => (
+                  <li
+                    key={item.id}
+                    className="rounded-xl border border-border bg-surface-1 px-3 py-3"
+                  >
+                    <div className="flex flex-wrap items-start justify-between gap-2">
+                      <div>
+                        <p className="font-medium text-navy-900">
+                          {item.applicationId} · {item.documentType}
+                        </p>
+                        <p className="mt-0.5 text-xs text-text-secondary">
+                          {item.companyNameZh || item.applicantNameZh || "—"}
+                          {item.toEmail ? ` · ${item.toEmail}` : ""}
+                        </p>
+                      </div>
+                      <span className="text-[11px] text-text-muted">
+                        截止 {item.dueDate}
+                      </span>
                     </div>
-                    <span className="text-[11px] text-text-muted">
-                      截止 {item.dueDate}
-                    </span>
-                  </div>
-                  <p className="mt-2 text-sm text-text-secondary">
-                    {item.reason}
-                  </p>
-                  <p className="mt-1 text-xs text-text-muted">{item.detail}</p>
-                  <p className="mt-2 text-[11px] text-text-muted">
-                    通知：
-                    {item.notifyChannels
-                      .map((c) =>
-                        c === "email" ? "電郵" : "App Push",
-                      )
-                      .join(" + ")}
-                    {" · "}
-                    電郵{" "}
-                    {item.emailStatus === "sent"
-                      ? "已寄出"
-                      : item.emailStatus === "failed"
-                        ? `失敗${item.emailError ? `（${item.emailError}）` : ""}`
-                        : item.emailStatus === "skipped"
-                          ? "略過"
-                          : item.emailStatus}
-                    {" · "}
-                    Push{" "}
-                    {item.pushStatus === "queued"
-                      ? "已佇列"
-                      : item.pushStatus === "skipped"
-                        ? "略過"
-                        : item.pushStatus}
-                    {" · "}
-                    {formatDateTime(item.createdAt)}
-                  </p>
-                </li>
-              ))}
-            </ul>
-          )}
-        </Card>
+                    <p className="mt-2 text-xs text-text-muted">
+                      模板：{item.reasonTemplate || "—"}
+                    </p>
+                    <p className="mt-1 text-sm text-text-secondary">
+                      補交原因：{item.reason}
+                    </p>
+                    {item.emailSubject && (
+                      <p className="mt-1 text-[11px] text-text-muted">
+                        電郵主旨：{item.emailSubject}
+                      </p>
+                    )}
+                    <p className="mt-2 text-[11px] text-text-muted">
+                      通知：
+                      {item.notifyChannels
+                        .map((c) =>
+                          c === "email" ? "電郵" : "App Push",
+                        )
+                        .join(" + ")}
+                      {" · "}
+                      電郵{" "}
+                      {item.emailStatus === "sent"
+                        ? "已寄出"
+                        : item.emailStatus === "failed"
+                          ? `失敗${item.emailError ? `（${item.emailError}）` : ""}`
+                          : item.emailStatus === "skipped"
+                            ? "略過"
+                            : item.emailStatus}
+                      {" · "}
+                      {formatDateTime(item.createdAt)}
+                    </p>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Card>
+        </div>
       </div>
     </div>
   );

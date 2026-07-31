@@ -8,6 +8,11 @@ import {
   hasResendKey,
   sendEmail,
 } from "@/lib/resend";
+import {
+  buildSupplementEmailHtml,
+  buildSupplementEmailSubject,
+  buildSupplementEmailText,
+} from "@/lib/supplement-email";
 import { requireAdminContext } from "@/lib/supabase/context";
 import {
   createSupplement,
@@ -23,8 +28,11 @@ const notifySchema = z.enum(["app_push", "email"]);
 const createSchema = z.object({
   applicationId: z.string().min(1),
   documentType: z.string().min(1),
+  /** 常用原因模板（下拉原文） */
+  reasonTemplate: z.string().min(1),
+  /** 補交原因（可人手修改） */
   reason: z.string().min(1),
-  detail: z.string().min(1),
+  detail: z.string().optional().default(""),
   dueDate: z.string().min(1),
   required: z.boolean().default(true),
   needOcr: z.boolean().default(true),
@@ -36,41 +44,6 @@ const createSchema = z.object({
   toEmail: z.string().email().optional().nullable(),
 });
 
-function escapeHtml(s: string) {
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-}
-
-function buildSupplementEmailHtml(input: {
-  applicationId: string;
-  documentType: string;
-  reason: string;
-  detail: string;
-  dueDate: string;
-  required: boolean;
-  applicantNameZh?: string | null;
-}) {
-  const name = input.applicantNameZh?.trim() || "客戶";
-  return `<!DOCTYPE html>
-<html lang="zh-Hant">
-<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; color:#0f172a; line-height:1.6;">
-  <p>${escapeHtml(name)} 您好，</p>
-  <p>我們需要您為貸款申請 <strong>${escapeHtml(input.applicationId)}</strong> 補交文件。</p>
-  <ul>
-    <li><strong>文件類型：</strong>${escapeHtml(input.documentType)}</li>
-    <li><strong>原因：</strong>${escapeHtml(input.reason)}</li>
-    <li><strong>說明：</strong>${escapeHtml(input.detail)}</li>
-    <li><strong>截止日期：</strong>${escapeHtml(input.dueDate)}</li>
-    <li><strong>必要文件：</strong>${input.required ? "是" : "否"}</li>
-  </ul>
-  <p>請登入 SME LoanFlow 客戶端，於申請詳情頁上載補件。</p>
-  <p style="color:#64748b;font-size:12px;">此郵件由系統自動發送（Resend）。如有疑問請回覆顧問跟進。</p>
-</body>
-</html>`;
-}
 
 /**
  * GET /api/admin/supplements
@@ -196,6 +169,22 @@ export async function POST(req: NextRequest) {
       ? "queued"
       : "skipped";
 
+    const emailFields = {
+      applicationId: app.id,
+      documentType: parsed.data.documentType.trim(),
+      reasonTemplate: parsed.data.reasonTemplate.trim(),
+      reason: parsed.data.reason.trim(),
+      detail: parsed.data.detail?.trim() || "",
+      dueDate: parsed.data.dueDate.trim(),
+      required: parsed.data.required,
+      needOcr: parsed.data.needOcr,
+      applicantNameZh,
+      companyNameZh,
+    };
+    const emailSubject = buildSupplementEmailSubject(emailFields);
+    const emailHtml = buildSupplementEmailHtml(emailFields);
+    const emailText = buildSupplementEmailText(emailFields);
+
     const createdBy =
       (
         gate.data.jwtClaims as { email?: string } | null
@@ -203,10 +192,11 @@ export async function POST(req: NextRequest) {
 
     const record = await createSupplement({
       applicationId: app.id,
-      documentType: parsed.data.documentType.trim(),
-      reason: parsed.data.reason.trim(),
-      detail: parsed.data.detail.trim(),
-      dueDate: parsed.data.dueDate.trim(),
+      documentType: emailFields.documentType,
+      reasonTemplate: emailFields.reasonTemplate,
+      reason: emailFields.reason,
+      detail: emailFields.detail,
+      dueDate: emailFields.dueDate,
       required: parsed.data.required,
       needOcr: parsed.data.needOcr,
       notifyChannels: channels,
@@ -214,6 +204,7 @@ export async function POST(req: NextRequest) {
       customerId,
       companyNameZh,
       applicantNameZh,
+      emailSubject,
       emailStatus,
       emailId,
       emailError,
@@ -228,23 +219,9 @@ export async function POST(req: NextRequest) {
       } else {
         const sent = await sendEmail({
           to: toEmail,
-          subject: `【SME LoanFlow】補件通知｜${app.id}｜${parsed.data.documentType}`,
-          html: buildSupplementEmailHtml({
-            applicationId: app.id,
-            documentType: parsed.data.documentType,
-            reason: parsed.data.reason,
-            detail: parsed.data.detail,
-            dueDate: parsed.data.dueDate,
-            required: parsed.data.required,
-            applicantNameZh,
-          }),
-          text: [
-            `申請 ${app.id} 需要補件`,
-            `文件：${parsed.data.documentType}`,
-            `原因：${parsed.data.reason}`,
-            `說明：${parsed.data.detail}`,
-            `截止：${parsed.data.dueDate}`,
-          ].join("\n"),
+          subject: emailSubject,
+          html: emailHtml,
+          text: emailText,
         });
         if (sent.ok) {
           emailStatus = "sent";
@@ -258,6 +235,7 @@ export async function POST(req: NextRequest) {
         emailStatus,
         emailId,
         emailError,
+        emailSubject,
       });
     }
 
@@ -270,7 +248,12 @@ export async function POST(req: NextRequest) {
         emailStatus,
         emailId,
         emailError,
+        emailSubject,
         pushStatus,
+      },
+      emailPreview: {
+        subject: emailSubject,
+        text: emailText,
       },
       resend: {
         configured: hasResendKey(),
@@ -281,7 +264,7 @@ export async function POST(req: NextRequest) {
         emailStatus === "failed"
           ? `補件已建立，但電郵發送失敗：${emailError}`
           : wantEmail
-            ? "補件要求已發送（App Push 已佇列＋電郵已經 Resend 寄出）"
+            ? "已按選項生成客製化電郵並經 Resend 寄出（App Push 已佇列）"
             : "補件要求已建立（僅 App Push）",
     });
   } catch (err) {
