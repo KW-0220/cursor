@@ -1,7 +1,15 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { Download, FileText, RefreshCw, Search, Trash2 } from "lucide-react";
+import {
+  AuditedExtractPanel,
+  BankCashflowBriefPanel,
+  BrExtractPanel,
+  IdentityExtractPanel,
+  assessmentLabel,
+} from "@/components/app/document-extract-panels";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/field";
 import {
@@ -16,7 +24,14 @@ import {
   clientAppStatusTone,
   normalizeClientAppStatus,
 } from "@/lib/application-status";
-import { cn, formatHKD } from "@/lib/utils";
+import { toAuditedExtract } from "@/lib/audited-report-extract";
+import {
+  mergeBankStatementExtracts,
+  toBankStatementExtract,
+} from "@/lib/bank-statement-extract";
+import { toBrExtract } from "@/lib/br-extract";
+import { toIdentityExtract } from "@/lib/identity-extract";
+import { cn, formatDateTime, formatHKD } from "@/lib/utils";
 
 type CustomerDoc = {
   id: string;
@@ -29,6 +44,11 @@ type CustomerDoc = {
   applicationId: string;
   createdAt: string;
   downloadUrl: string;
+  source?: "registry" | "application" | "archive";
+  archiveId?: string;
+  summary?: string | null;
+  overall?: string | null;
+  payload?: Record<string, unknown>;
 };
 
 type CustomerApp = {
@@ -41,6 +61,19 @@ type CustomerApp = {
   aiAnalysis?: ApplicationAiAnalysis | null;
   updatedAt: string;
   createdAt: string;
+};
+
+type CustomerAnalysis = {
+  id: string;
+  title: string;
+  fileName: string | null;
+  docKind: string;
+  companyName: string | null;
+  summary: string | null;
+  overall: string | null;
+  archivedAt: string;
+  archivedBy: string | null;
+  payload: Record<string, unknown>;
 };
 
 type Customer = {
@@ -71,6 +104,7 @@ type Customer = {
   documentCount?: number;
   applicationIds?: string[];
   applications?: CustomerApp[];
+  analyses?: CustomerAnalysis[];
 };
 
 function maskId(v: string) {
@@ -271,6 +305,88 @@ function AiAnalysisBlock({ app }: { app: CustomerApp }) {
   );
 }
 
+function ArchiveExtractBody({
+  payload,
+}: {
+  payload: Record<string, unknown>;
+}) {
+  const kind = String(payload.docKind || "");
+  if (kind === "br" && payload.brExtract) {
+    return <BrExtractPanel br={toBrExtract(payload.brExtract as never)} />;
+  }
+  if (kind === "audited" && payload.auditedExtract) {
+    return <AuditedExtractPanel a={toAuditedExtract(payload.auditedExtract)} />;
+  }
+  if (kind === "bank" && payload.bankExtract) {
+    const brief = mergeBankStatementExtracts([
+      toBankStatementExtract(payload.bankExtract),
+    ]);
+    return <BankCashflowBriefPanel brief={brief} />;
+  }
+  if (kind === "identity" && payload.identityExtract) {
+    return (
+      <IdentityExtractPanel
+        identity={toIdentityExtract(payload.identityExtract)}
+        personRole={
+          typeof payload.personRole === "string" ? payload.personRole : null
+        }
+      />
+    );
+  }
+  return (
+    <p className="text-xs text-text-muted">
+      {typeof payload.analysis === "object" &&
+      payload.analysis &&
+      typeof (payload.analysis as { summary?: unknown }).summary === "string"
+        ? String((payload.analysis as { summary: string }).summary)
+        : "未有結構化抽取結果"}
+    </p>
+  );
+}
+
+function ArchiveAnalysisBlock({
+  item,
+  open,
+  onToggle,
+}: {
+  item: CustomerAnalysis;
+  open: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <div className="rounded-xl border border-border bg-surface-1">
+      <button
+        type="button"
+        className="flex w-full flex-wrap items-start justify-between gap-2 px-3 py-3 text-left"
+        onClick={onToggle}
+      >
+        <div className="min-w-0">
+          <p className="font-medium text-navy-900">{item.title}</p>
+          <p className="mt-0.5 text-xs text-text-secondary">
+            {item.docKind}
+            {item.overall ? ` · ${assessmentLabel(item.overall)}` : ""}
+            {item.fileName ? ` · ${item.fileName}` : ""}
+          </p>
+          {item.summary && (
+            <p className="mt-1 line-clamp-2 text-xs text-text-muted">
+              {item.summary}
+            </p>
+          )}
+        </div>
+        <div className="text-right text-[11px] text-text-muted">
+          <p>{formatDateTime(item.archivedAt)}</p>
+          <p>{open ? "收起抽取" : "展開抽取"}</p>
+        </div>
+      </button>
+      {open && (
+        <div className="border-t border-border px-3 py-3">
+          <ArchiveExtractBody payload={item.payload || {}} />
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function AdminCustomersPage() {
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [loading, setLoading] = useState(true);
@@ -283,6 +399,7 @@ export default function AdminCustomersPage() {
   const [wiping, setWiping] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<string | null>(null);
+  const [expandedArchive, setExpandedArchive] = useState<string | null>(null);
   const [orphans, setOrphans] = useState<
     Array<{
       id: string;
@@ -304,11 +421,18 @@ export default function AdminCustomersPage() {
       ]);
       const data = await custRes.json();
       if (!custRes.ok) throw new Error(data.error || "載入失敗");
-      setCustomers(data.customers ?? []);
+      const list = (data.customers ?? []) as Customer[];
+      setCustomers(list);
       setStorageNote(data.storageNote ?? data.storage ?? "");
       setStorage(data.storage ?? "");
       setDurable(Boolean(data.durable));
       setCollectFrom(data.collectFrom ?? "POST /api/customers");
+      setExpanded((prev) => {
+        if (prev) return prev;
+        const hash = window.location.hash.replace(/^#/, "");
+        if (hash) return hash;
+        return list.length === 1 ? list[0]!.id : null;
+      });
 
       if (orphanRes.ok) {
         const o = await orphanRes.json();
@@ -325,8 +449,6 @@ export default function AdminCustomersPage() {
 
   useEffect(() => {
     void load();
-    const hash = window.location.hash.replace(/^#/, "");
-    if (hash) setExpanded(hash);
   }, [load]);
 
   async function linkOrphan(applicationId: string) {
@@ -485,7 +607,7 @@ export default function AdminCustomersPage() {
 
       <SectionHeader
         title="登記列表"
-        subtitle="展開可查看 AI 分析、批核結果與已收集文件"
+        subtitle="展開可查看申請批核、AI 文件分析歸檔與已收集文件（按公司名／BR／電郵自動對應）"
       />
 
       {orphans.length > 0 && (
@@ -555,6 +677,7 @@ export default function AdminCustomersPage() {
           const open = expanded === c.id;
           const docs = c.documents ?? [];
           const apps = c.applications ?? [];
+          const analyses = c.analyses ?? [];
           const latest = apps[0];
           const latestStatus = latest
             ? normalizeClientAppStatus(latest.status)
@@ -590,6 +713,11 @@ export default function AdminCustomersPage() {
                         >
                           {clientAppStatusLabel(latestStatus)}
                         </span>
+                      )}
+                      {analyses.length > 0 && (
+                        <p className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2.5 py-1 text-xs font-medium text-amber-900">
+                          AI {analyses.length}
+                        </p>
                       )}
                       <p className="inline-flex items-center gap-1 rounded-full bg-teal-100 px-2.5 py-1 text-xs font-medium text-teal-800">
                         <FileText className="size-3.5" />
@@ -627,16 +755,40 @@ export default function AdminCustomersPage() {
                     <div>
                       <p className="mb-2 text-xs font-medium text-text-muted">
                         AI 分析與批核
-                        {apps.length > 0 ? ` · ${apps.length} 宗申請` : ""}
+                        {apps.length > 0 ? ` · 申請 ${apps.length}` : ""}
+                        {analyses.length > 0
+                          ? ` · 文件分析 ${analyses.length}`
+                          : ""}
                       </p>
-                      {apps.length === 0 ? (
-                        <p className="text-sm text-text-muted">
-                          尚未有申請紀錄。客戶完成申請並提交後會顯示分析與批核結果。
-                        </p>
+                      {apps.length === 0 && analyses.length === 0 ? (
+                        <div className="space-y-2 rounded-xl bg-surface-2 px-3 py-3 text-sm text-text-secondary">
+                          <p>尚未有申請決策或文件分析結果。</p>
+                          <p className="text-xs text-text-muted">
+                            客戶提交申請後會顯示批核結果；或到「AI 文件分析」上載並填公司名稱（須與本客戶公司名一致），結果會自動掛到此處。
+                          </p>
+                          <Link
+                            href="/admin/ai-analyze"
+                            className="inline-block text-xs font-medium text-teal-700 hover:underline"
+                          >
+                            前往 AI 文件分析 →
+                          </Link>
+                        </div>
                       ) : (
                         <div className="space-y-3">
                           {apps.map((app) => (
                             <AiAnalysisBlock key={app.id} app={app} />
+                          ))}
+                          {analyses.map((a) => (
+                            <ArchiveAnalysisBlock
+                              key={a.id}
+                              item={a}
+                              open={expandedArchive === a.id}
+                              onToggle={() =>
+                                setExpandedArchive((prev) =>
+                                  prev === a.id ? null : a.id,
+                                )
+                              }
+                            />
                           ))}
                         </div>
                       )}
@@ -645,19 +797,24 @@ export default function AdminCustomersPage() {
                     <div>
                       <p className="mb-2 text-xs font-medium text-text-muted">
                         已收集文件（存放於此）
+                        {docs.length > 0 ? ` · ${docs.length} 份` : ""}
                         {(c.applicationIds?.length ?? 0) > 0
                           ? ` · 申請 ${c.applicationIds!.join("、")}`
                           : ""}
                       </p>
                       {docs.length === 0 ? (
-                        <p className="text-sm text-text-muted">
-                          尚未有上載文件。客戶完成申請並提交後會顯示於此。
-                        </p>
+                        <div className="space-y-2 rounded-xl bg-surface-2 px-3 py-3 text-sm text-text-secondary">
+                          <p>尚未有上載／分析文件歸戶到此客戶。</p>
+                          <p className="text-xs text-text-muted">
+                            申請提交上載的 PDF，或後台 AI 分析（公司名／BR
+                            對得上）會顯示於此。
+                          </p>
+                        </div>
                       ) : (
                         <ul className="space-y-2">
                           {docs.map((d) => (
                             <li
-                              key={d.id}
+                              key={`${d.source || "doc"}:${d.id}`}
                               className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-surface-2 px-3 py-2 text-sm"
                             >
                               <div>
@@ -668,16 +825,39 @@ export default function AdminCustomersPage() {
                                   </span>
                                 </p>
                                 <p className="text-xs text-text-secondary">
-                                  {d.fileName} · {formatSize(d.size)} ·{" "}
-                                  {d.applicationId}
+                                  {d.fileName}
+                                  {d.size > 0 ? ` · ${formatSize(d.size)}` : ""}
+                                  {d.applicationId
+                                    ? ` · ${d.applicationId}`
+                                    : ""}
+                                  {d.source === "archive" ? " · AI 歸檔" : ""}
                                 </p>
+                                {d.summary && (
+                                  <p className="mt-0.5 line-clamp-2 text-xs text-text-muted">
+                                    {d.summary}
+                                  </p>
+                                )}
                               </div>
-                              <a href={d.downloadUrl}>
-                                <Button size="sm" variant="outline">
-                                  <Download className="mr-1 size-3.5" />
-                                  下載
-                                </Button>
-                              </a>
+                              <div className="flex flex-wrap gap-2">
+                                {d.source === "archive" ? (
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => {
+                                      setExpandedArchive(d.archiveId || d.id);
+                                    }}
+                                  >
+                                    查看分析
+                                  </Button>
+                                ) : d.downloadUrl ? (
+                                  <a href={d.downloadUrl}>
+                                    <Button size="sm" variant="outline">
+                                      <Download className="mr-1 size-3.5" />
+                                      下載
+                                    </Button>
+                                  </a>
+                                ) : null}
+                              </div>
                             </li>
                           ))}
                         </ul>

@@ -3,6 +3,7 @@ import {
   clearApplicantUsers,
   removeApplicantUserByEmail,
 } from "@/lib/auth";
+import { listArchivedAnalyses } from "@/lib/analysis-archive-registry";
 import {
   CustomerRegistrationSchema,
   clearAllCustomers,
@@ -12,6 +13,10 @@ import {
   listCustomers,
   upsertCustomer,
 } from "@/lib/customer-registry";
+import {
+  applicationMatchesCustomer,
+  archiveMatchesCustomer,
+} from "@/lib/customer-match";
 import { mysqlClearApplicantUsers } from "@/lib/db/auth-mysql";
 import { isMysqlConfigured } from "@/lib/db/mysql";
 import {
@@ -36,51 +41,94 @@ import {
 
 export const runtime = "nodejs";
 
-async function withDocuments<T extends { id: string; email: string }>(
-  customers: T[],
-) {
-  const [allDocs, apps] = await Promise.all([
+async function enrichCustomers<
+  T extends {
+    id: string;
+    email: string;
+    companyNameZh?: string | null;
+    companyNameEn?: string | null;
+    applicantNameZh?: string | null;
+    applicantNameEn?: string | null;
+    brNumber?: string | null;
+  },
+>(customers: T[]) {
+  const [allDocs, apps, archives] = await Promise.all([
     listDocuments(),
     listApplications(),
+    listArchivedAnalyses().catch(() => []),
   ]);
-  const appIdsByCustomer = new Map<string, Set<string>>();
-  for (const app of apps) {
-    const keys: string[] = [];
-    if (app.customerId) keys.push(app.customerId);
-    if (app.email) {
-      const match = customers.find(
-        (c) => c.email.trim().toLowerCase() === app.email!.toLowerCase(),
-      );
-      if (match) keys.push(match.id);
-    }
-    for (const key of keys) {
-      const set = appIdsByCustomer.get(key) ?? new Set<string>();
-      set.add(app.id);
-      appIdsByCustomer.set(key, set);
-    }
-  }
 
   return customers.map((c) => {
-    const appIds = appIdsByCustomer.get(c.id) ?? new Set<string>();
-    const linkedApps = apps.filter(
-      (a) =>
-        appIds.has(a.id) ||
-        (a.customerId && a.customerId === c.id) ||
-        (a.email &&
-          a.email.trim().toLowerCase() === c.email.trim().toLowerCase()),
-    );
-    for (const a of linkedApps) appIds.add(a.id);
+    const linkedApps = apps
+      .filter((a) => applicationMatchesCustomer(a, c))
+      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+    const appIds = new Set(linkedApps.map((a) => a.id));
 
-    // 文件：直接掛 customerId，或申請編號已歸戶
-    const docs = allDocs.filter(
-      (d) => d.customerId === c.id || appIds.has(d.applicationId),
+    // 申請內嵌 documents 亦視為已收集文件（即使 documents.json 空）
+    const embeddedDocs = linkedApps.flatMap((a) =>
+      (a.documents ?? []).map((d) => ({
+        id: d.id,
+        kind: d.kind,
+        kindLabel: documentKindLabel(d.kind),
+        slot: d.slot,
+        fileName: d.fileName,
+        mimeType: d.mimeType,
+        size: d.size,
+        applicationId: a.id,
+        createdAt: a.createdAt,
+        downloadUrl: `/api/admin/documents?id=${encodeURIComponent(d.id)}`,
+        source: "application" as const,
+      })),
     );
+
+    const registryDocs = allDocs
+      .filter((d) => d.customerId === c.id || appIds.has(d.applicationId))
+      .map((d) => ({
+        id: d.id,
+        kind: d.kind,
+        kindLabel: documentKindLabel(d.kind),
+        slot: d.slot,
+        fileName: d.fileName,
+        mimeType: d.mimeType,
+        size: d.size,
+        applicationId: d.applicationId,
+        createdAt: d.createdAt,
+        downloadUrl: `/api/admin/documents?id=${encodeURIComponent(d.id)}`,
+        source: "registry" as const,
+      }));
+
+    const linkedArchives = archives.filter((a) =>
+      archiveMatchesCustomer(a, c),
+    );
+
+    const archiveAsDocs = linkedArchives.map((a) => ({
+      id: a.id,
+      kind: a.docKind || "other",
+      kindLabel: `AI 分析 · ${a.docKind || "文件"}`,
+      slot: a.docKind || "archive",
+      fileName: a.fileName || a.title,
+      mimeType: "application/json",
+      size: 0,
+      applicationId: a.customerId || "",
+      createdAt: a.archivedAt,
+      downloadUrl: "",
+      source: "archive" as const,
+      archiveId: a.id,
+      summary: a.summary,
+      overall: a.overall,
+      payload: a.payload,
+    }));
+
     const seen = new Set<string>();
-    const unique = docs.filter((d) => {
-      if (seen.has(d.id)) return false;
-      seen.add(d.id);
-      return true;
-    });
+    const uniqueDocs = [...registryDocs, ...embeddedDocs, ...archiveAsDocs].filter(
+      (d) => {
+        const key = `${d.source}:${d.id}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      },
+    );
+
     return {
       ...c,
       applicationIds: [...appIds],
@@ -95,23 +143,24 @@ async function withDocuments<T extends { id: string; email: string }>(
         updatedAt: a.updatedAt,
         createdAt: a.createdAt,
         documentCount:
-          unique.filter((d) => d.applicationId === a.id).length ||
+          uniqueDocs.filter((d) => d.applicationId === a.id).length ||
           a.documents?.length ||
           0,
       })),
-      documents: unique.map((d) => ({
-        id: d.id,
-        kind: d.kind,
-        kindLabel: documentKindLabel(d.kind),
-        slot: d.slot,
-        fileName: d.fileName,
-        mimeType: d.mimeType,
-        size: d.size,
-        applicationId: d.applicationId,
-        createdAt: d.createdAt,
-        downloadUrl: `/api/admin/documents?id=${encodeURIComponent(d.id)}`,
+      analyses: linkedArchives.map((a) => ({
+        id: a.id,
+        title: a.title,
+        fileName: a.fileName,
+        docKind: a.docKind,
+        companyName: a.companyName,
+        summary: a.summary,
+        overall: a.overall,
+        archivedAt: a.archivedAt,
+        archivedBy: a.archivedBy,
+        payload: a.payload,
       })),
-      documentCount: unique.length,
+      documents: uniqueDocs,
+      documentCount: uniqueDocs.length,
     };
   });
 }
@@ -128,7 +177,7 @@ export async function GET(req: NextRequest) {
 
   const storage = getCustomerStorageMode();
   try {
-    const customers = await withDocuments(
+    const customers = await enrichCustomers(
       await supabaseListCustomers(gate.data.supabaseAdmin),
     );
     return NextResponse.json({
@@ -145,7 +194,7 @@ export async function GET(req: NextRequest) {
     });
   } catch (err) {
     // table / network 問題時回退舊 registry（仍要已通過 admin gate）
-    const customers = await withDocuments(await listCustomers());
+    const customers = await enrichCustomers(await listCustomers());
     return NextResponse.json({
       ok: true,
       count: customers.length,

@@ -10,7 +10,10 @@ import {
 import {
   getSessionFromCookieHeader,
 } from "@/lib/auth";
+import { resolveCustomerIdForArchive } from "@/lib/customer-match";
+import { listCustomers } from "@/lib/customer-registry";
 import { requireAdminContext } from "@/lib/supabase/context";
+import { supabaseListCustomers } from "@/lib/supabase/customers";
 
 export const runtime = "nodejs";
 
@@ -19,6 +22,7 @@ const archiveSchema = z.object({
   fileName: z.string().nullable().optional(),
   docKind: z.string().optional(),
   companyName: z.string().nullable().optional(),
+  customerId: z.string().nullable().optional(),
   loanType: z.string().nullable().optional(),
   amountHkd: z.number().nullable().optional(),
   purpose: z.string().nullable().optional(),
@@ -64,6 +68,7 @@ export async function GET(req: NextRequest) {
       fileName: i.fileName,
       docKind: i.docKind,
       companyName: i.companyName,
+      customerId: i.customerId ?? null,
       loanType: i.loanType,
       amountHkd: i.amountHkd,
       purpose: i.purpose,
@@ -102,6 +107,32 @@ export async function POST(req: NextRequest) {
     const analysis = (d.payload.analysis ?? null) as
       | { summary?: string; overall?: string; companyNameGuess?: string }
       | null;
+    const companyName =
+      d.companyName ??
+      (typeof d.payload.company_name === "string"
+        ? d.payload.company_name
+        : null) ??
+      analysis?.companyNameGuess ??
+      null;
+
+    let customers: Awaited<ReturnType<typeof listCustomers>> = [];
+    try {
+      customers = await supabaseListCustomers(gate.data.supabaseAdmin);
+    } catch {
+      try {
+        customers = await listCustomers();
+      } catch {
+        customers = [];
+      }
+    }
+    const customerId =
+      resolveCustomerIdForArchive(customers, {
+        customerId: d.customerId,
+        companyName,
+        payload: d.payload,
+        summary: d.summary ?? analysis?.summary ?? null,
+      }) || d.customerId || null;
+
     const item = await archiveAnalysis({
       id: d.id,
       title:
@@ -111,13 +142,8 @@ export async function POST(req: NextRequest) {
         "未命名分析",
       fileName: d.fileName ?? null,
       docKind: d.docKind || String(d.payload.docKind || "auto"),
-      companyName:
-        d.companyName ??
-        (typeof d.payload.company_name === "string"
-          ? d.payload.company_name
-          : null) ??
-        analysis?.companyNameGuess ??
-        null,
+      companyName,
+      customerId,
       loanType: d.loanType ?? null,
       amountHkd: d.amountHkd ?? null,
       purpose: d.purpose ?? null,

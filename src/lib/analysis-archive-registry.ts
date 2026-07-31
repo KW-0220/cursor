@@ -13,6 +13,8 @@ export type ArchivedAnalysisRecord = {
   fileName: string | null;
   docKind: string;
   companyName: string | null;
+  /** 對應客戶登記 id（可選） */
+  customerId: string | null;
   loanType: string | null;
   amountHkd: number | null;
   purpose: string | null;
@@ -117,6 +119,7 @@ export async function archiveAnalysis(
     fileName: input.fileName,
     docKind: input.docKind || "auto",
     companyName: input.companyName,
+    customerId: input.customerId ?? null,
     loanType: input.loanType,
     amountHkd: input.amountHkd,
     purpose: input.purpose,
