@@ -56,6 +56,9 @@ async function withDocuments<T extends { id: string; email: string }>(
         (a.email &&
           a.email.trim().toLowerCase() === c.email.trim().toLowerCase()),
     );
+    for (const a of linkedApps) appIds.add(a.id);
+
+    // 文件：直接掛 customerId，或申請編號已歸戶
     const docs = allDocs.filter(
       (d) => d.customerId === c.id || appIds.has(d.applicationId),
     );
@@ -78,6 +81,10 @@ async function withDocuments<T extends { id: string; email: string }>(
         aiAnalysis: a.aiAnalysis ?? null,
         updatedAt: a.updatedAt,
         createdAt: a.createdAt,
+        documentCount:
+          unique.filter((d) => d.applicationId === a.id).length ||
+          a.documents?.length ||
+          0,
       })),
       documents: unique.map((d) => ({
         id: d.id,

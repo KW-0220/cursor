@@ -194,6 +194,26 @@ export async function getDocument(id: string) {
   return all.find((d) => d.id === id) ?? null;
 }
 
+/** 將某申請下尚未歸戶的文件補上 customerId */
+export async function linkDocumentsCustomer(
+  applicationId: string,
+  customerId: string,
+) {
+  const cid = customerId.trim();
+  if (!cid) return 0;
+  const all = await ensureLoaded();
+  let changed = 0;
+  for (let i = 0; i < all.length; i++) {
+    const d = all[i]!;
+    if (d.applicationId !== applicationId) continue;
+    if (d.customerId === cid) continue;
+    all[i] = { ...d, customerId: cid };
+    changed += 1;
+  }
+  if (changed) await persist(all);
+  return changed;
+}
+
 function buildStoragePath(
   applicationId: string,
   slot: string,

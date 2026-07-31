@@ -2,11 +2,17 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import {
   attachDocumentsToApplication,
+  ensureApplicationForDocuments,
   getApplication,
-  upsertApplication,
 } from "@/lib/applications-registry";
 import {
+  findUserByEmail,
+  getSessionFromCookieHeader,
+} from "@/lib/auth";
+import { getCustomerByEmail } from "@/lib/customer-registry";
+import {
   documentKindLabel,
+  linkDocumentsCustomer,
   listDocuments,
   prepareSignedDocumentUploads,
   registerDocument,
@@ -65,42 +71,73 @@ const completeSchema = z.object({
     .max(30),
 });
 
-async function ensureApp(
-  id: string,
-  customerId: string | null,
-) {
-  let app = await getApplication(id);
-  if (!app) {
-    app = await upsertApplication({
-      id,
-      loanType: null,
-      amount: 0,
-      purpose: "（文件上載時補建）",
-      status: "under_review",
-      customerId,
-    });
+type OwnerLink = {
+  customerId: string | null;
+  email: string | null;
+  applicantNameZh: string | null;
+  phone: string | null;
+};
+
+/** 由 cookie 登入＋客戶登記，解析文件應掛去邊個客戶 */
+async function resolveOwnerLink(
+  req: NextRequest,
+  explicitCustomerId?: string | null,
+): Promise<OwnerLink> {
+  let customerId = explicitCustomerId?.trim() || null;
+  let email: string | null = null;
+  let applicantNameZh: string | null = null;
+  let phone: string | null = null;
+
+  try {
+    const session = await getSessionFromCookieHeader(
+      req.headers.get("cookie"),
+    );
+    if (session?.email) {
+      email = session.email.trim().toLowerCase();
+      const user = await findUserByEmail(email);
+      applicantNameZh = user?.nameZh ?? null;
+      phone = user?.phone ?? null;
+      if (!customerId) {
+        const customer = await getCustomerByEmail(email);
+        if (customer) customerId = customer.id;
+      }
+    }
+  } catch {
+    /* anon ok */
+  }
+
+  return { customerId, email, applicantNameZh, phone };
+}
+
+async function bindApplicationOwner(id: string, link: OwnerLink) {
+  const app = await ensureApplicationForDocuments(id, link);
+  if (app.customerId) {
+    await linkDocumentsCustomer(id, app.customerId);
   }
   return app;
 }
 
 /**
  * GET /api/applications/:id/documents
- * — 申請不存在時回空列表（方便補件頁，唔甩 404）
+ * — 申請不存在時回空列表；若已登入會嘗試歸戶
  */
 export async function GET(
-  _req: NextRequest,
+  req: NextRequest,
   ctx: { params: Promise<{ id: string }> },
 ) {
   const { id } = await ctx.params;
+  const link = await resolveOwnerLink(req);
+  if (link.customerId || link.email) {
+    await bindApplicationOwner(id, link);
+  }
   const app = await getApplication(id);
-  const documents = app
-    ? await listDocuments({ applicationId: id })
-    : [];
+  const documents = await listDocuments({ applicationId: id });
   return NextResponse.json({
     ok: true,
     applicationId: id,
     count: documents.length,
     missingApplication: !app,
+    customerId: app?.customerId ?? null,
     documents: documents.map((d) => ({
       ...d,
       kindLabel: documentKindLabel(d.kind),
@@ -110,9 +147,9 @@ export async function GET(
 
 /**
  * POST
- * - multipart: files + kinds[] + slots[]（細檔，≤ ~4MB 合計）
- * - JSON action=prepare → signed upload URLs（大檔直傳 Storage）
- * - JSON action=complete → 登記已直傳檔案 metadata
+ * - multipart: files + kinds[] + slots[]
+ * - JSON action=prepare|complete（大檔直傳）
+ * 一律嘗試用登入帳戶綁定客戶，令後台客戶庫可見。
  */
 export async function POST(
   req: NextRequest,
@@ -133,8 +170,8 @@ export async function POST(
             { status: 400 },
           );
         }
-        const customerId = parsed.data.customerId?.trim() || null;
-        await ensureApp(id, customerId);
+        const link = await resolveOwnerLink(req, parsed.data.customerId);
+        await bindApplicationOwner(id, link);
         const uploads = await prepareSignedDocumentUploads(
           id,
           parsed.data.files.map((f) => ({
@@ -145,7 +182,11 @@ export async function POST(
             size: f.size,
           })),
         );
-        return NextResponse.json({ ok: true, uploads });
+        return NextResponse.json({
+          ok: true,
+          uploads,
+          customerId: link.customerId,
+        });
       }
 
       if (body?.action === "complete") {
@@ -156,9 +197,9 @@ export async function POST(
             { status: 400 },
           );
         }
-        const customerId = parsed.data.customerId?.trim() || null;
-        const app = await ensureApp(id, customerId);
-        const resolvedCustomerId = customerId || app.customerId || null;
+        const link = await resolveOwnerLink(req, parsed.data.customerId);
+        const app = await bindApplicationOwner(id, link);
+        const resolvedCustomerId = app.customerId || link.customerId || null;
         const saved = [];
         for (const item of parsed.data.documents) {
           if (!item.storagePath.startsWith(`${id}/`)) {
@@ -194,9 +235,13 @@ export async function POST(
             mimeType: d.mimeType,
           })),
         );
+        if (resolvedCustomerId) {
+          await linkDocumentsCustomer(id, resolvedCustomerId);
+        }
         return NextResponse.json({
           ok: true,
           count: saved.length,
+          customerId: resolvedCustomerId,
           documents: saved.map((d) => ({
             ...d,
             kindLabel: documentKindLabel(d.kind),
@@ -211,19 +256,12 @@ export async function POST(
     }
 
     const form = await req.formData();
-    let app = await getApplication(id);
-    if (!app) {
-      app = await upsertApplication({
-        id,
-        loanType: null,
-        amount: 0,
-        purpose: "（文件上載時補建）",
-        status: "under_review",
-        customerId: String(form.get("customerId") ?? "").trim() || null,
-      });
-    }
-    const customerId =
-      String(form.get("customerId") ?? "").trim() || app.customerId || null;
+    const link = await resolveOwnerLink(
+      req,
+      String(form.get("customerId") ?? "").trim() || null,
+    );
+    const app = await bindApplicationOwner(id, link);
+    const customerId = app.customerId || link.customerId || null;
     const files = form.getAll("files").filter((f): f is File => f instanceof File);
     const kinds = form.getAll("kinds").map((k) => String(k));
     const slots = form.getAll("slots").map((s) => String(s));
@@ -278,10 +316,14 @@ export async function POST(
         mimeType: d.mimeType,
       })),
     );
+    if (customerId) {
+      await linkDocumentsCustomer(id, customerId);
+    }
 
     return NextResponse.json({
       ok: true,
       count: saved.length,
+      customerId,
       documents: saved.map((d) => ({
         ...d,
         kindLabel: documentKindLabel(d.kind),

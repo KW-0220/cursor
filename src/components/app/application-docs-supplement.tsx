@@ -181,7 +181,7 @@ export function ApplicationDocsSupplement({
       setFlash(
         wasRejected
           ? `已補交 ${uploaded.length} 份文件，申請已重新進入「審批中」。`
-          : `已上載 ${uploaded.length} 份文件，後台客戶庫／案件會同步更新。`,
+          : `已上載 ${uploaded.length} 份文件，已同步至後台客戶庫（請用同一登入帳戶）。`,
       );
       await loadDocs();
     } catch (e) {

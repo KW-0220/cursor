@@ -163,6 +163,86 @@ export async function getApplication(id: string) {
   return records.find((r) => r.id === id) ?? null;
 }
 
+const STUB_PURPOSE = "（文件上載時補建）";
+
+function isStubPurpose(purpose: string | null | undefined) {
+  return !purpose || purpose === STUB_PURPOSE;
+}
+
+function pickStr(
+  next: string | null | undefined,
+  prev: string | null | undefined,
+) {
+  const n = typeof next === "string" ? next.trim() : next;
+  if (n) return n;
+  const p = typeof prev === "string" ? prev.trim() : prev;
+  return p || null;
+}
+
+/**
+ * 文件上載用：確保申請存在，並綁定客戶；唔會用空 stub 覆蓋已有完整資料。
+ */
+export async function ensureApplicationForDocuments(
+  id: string,
+  link?: {
+    customerId?: string | null;
+    email?: string | null;
+    applicantNameZh?: string | null;
+    phone?: string | null;
+  },
+) {
+  const records = await ensureLoaded();
+  const now = new Date().toISOString();
+  const idx = records.findIndex((r) => r.id === id);
+  const customerId = link?.customerId?.trim() || null;
+  const email = link?.email?.trim().toLowerCase() || null;
+  const applicantNameZh = link?.applicantNameZh?.trim() || null;
+  const phone = link?.phone?.trim() || null;
+
+  if (idx >= 0) {
+    const prev = records[idx];
+    const updated: ApplicationRecord = {
+      ...prev,
+      customerId: customerId || prev.customerId || null,
+      email: email || prev.email || null,
+      applicantNameZh: applicantNameZh || prev.applicantNameZh || null,
+      phone: phone || prev.phone || null,
+      updatedAt: now,
+    };
+    const changed =
+      updated.customerId !== prev.customerId ||
+      updated.email !== prev.email ||
+      updated.applicantNameZh !== prev.applicantNameZh ||
+      updated.phone !== prev.phone;
+    if (changed) {
+      records[idx] = updated;
+      await persist(records);
+    }
+    return changed ? updated : prev;
+  }
+
+  const created: ApplicationRecord = {
+    id,
+    loanType: null,
+    amount: 0,
+    purpose: STUB_PURPOSE,
+    customerId,
+    applicantNameZh,
+    companyNameZh: null,
+    email,
+    phone,
+    documents: [],
+    aiAnalysis: null,
+    status: "under_review",
+    failureReason: null,
+    createdAt: now,
+    updatedAt: now,
+  };
+  records.unshift(created);
+  await persist(records);
+  return created;
+}
+
 export async function upsertApplication(
   input: Partial<ApplicationRecord> & {
     id: string;
@@ -181,19 +261,45 @@ export async function upsertApplication(
 
   const idx = records.findIndex((r) => r.id === input.id);
   if (idx >= 0) {
+    const prev = records[idx];
+    // 防止補件 stub（amount=0／stub purpose／null 客戶）覆蓋已有完整申請
+    const incomingStub =
+      isStubPurpose(input.purpose) &&
+      (input.amount == null || input.amount === 0) &&
+      !input.email &&
+      !input.customerId;
+
     const updated: ApplicationRecord = {
-      ...records[idx],
+      ...prev,
       ...input,
-      status,
-      failureReason:
-        status === "rejected"
+      loanType:
+        input.loanType != null
+          ? input.loanType
+          : prev.loanType,
+      amount:
+        incomingStub && prev.amount > 0
+          ? prev.amount
+          : input.amount,
+      purpose:
+        incomingStub && !isStubPurpose(prev.purpose)
+          ? prev.purpose
+          : input.purpose,
+      customerId: pickStr(input.customerId, prev.customerId),
+      email: pickStr(input.email, prev.email),
+      applicantNameZh: pickStr(input.applicantNameZh, prev.applicantNameZh),
+      companyNameZh: pickStr(input.companyNameZh, prev.companyNameZh),
+      phone: pickStr(input.phone, prev.phone),
+      status: incomingStub ? prev.status : status,
+      failureReason: incomingStub
+        ? prev.failureReason
+        : status === "rejected"
           ? failureReason
           : null,
-      documents: input.documents ?? records[idx].documents ?? [],
+      documents: input.documents ?? prev.documents ?? [],
       aiAnalysis:
         input.aiAnalysis !== undefined
           ? input.aiAnalysis
-          : records[idx].aiAnalysis ?? null,
+          : prev.aiAnalysis ?? null,
       updatedAt: now,
     };
     records[idx] = updated;
