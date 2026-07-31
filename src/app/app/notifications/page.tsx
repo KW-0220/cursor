@@ -14,7 +14,7 @@ export default function NotificationsPage() {
       <main className="space-y-3 px-4 py-5">
         <SectionHeader
           title="通知偏好"
-          subtitle="App Push · 電郵 · SMS（重要）"
+          subtitle="App Push · 電郵（重要通知不再使用 SMS）"
         />
         {notifications.map((n) => (
           <Card key={n.type + n.time}>
