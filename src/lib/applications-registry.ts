@@ -373,3 +373,27 @@ export async function updateApplicationStatus(
   await persist(records);
   return records[idx];
 }
+
+/** 刪除單一申請（唔動客戶登記） */
+export async function deleteApplication(id: string) {
+  const records = await ensureLoaded();
+  const next = records.filter((r) => r.id !== id);
+  if (next.length === records.length) return false;
+  await persist(next);
+  return true;
+}
+
+/** 批次刪除；ids 省略則清空全部。 */
+export async function deleteApplications(ids?: string[]) {
+  const records = await ensureLoaded();
+  if (!ids) {
+    const removedIds = records.map((r) => r.id);
+    await persist([]);
+    return { removed: removedIds.length, ids: removedIds };
+  }
+  const want = new Set(ids);
+  const kept = records.filter((r) => !want.has(r.id));
+  const removedIds = records.filter((r) => want.has(r.id)).map((r) => r.id);
+  await persist(kept);
+  return { removed: removedIds.length, ids: removedIds };
+}

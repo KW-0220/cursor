@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, EmptyState, SectionHeader } from "@/components/ui/layout";
 import {
@@ -40,6 +41,8 @@ export default function AdminDashboardPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState("全部");
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [clearing, setClearing] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -95,18 +98,79 @@ export default function AdminDashboardPage() {
     ];
   }, [apps]);
 
+  async function deleteOne(app: AdminApp) {
+    const ok = window.confirm(
+      `確定刪除案件 ${app.id}？\n關聯上載文件會一併刪除（客戶登記資料保留）。`,
+    );
+    if (!ok) return;
+    setDeletingId(app.id);
+    setError(null);
+    try {
+      const res = await fetch("/api/admin/applications", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: app.id }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data.message || data.error || "刪除失敗");
+      }
+      setApps((prev) => prev.filter((a) => a.id !== app.id));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "刪除失敗");
+    } finally {
+      setDeletingId(null);
+    }
+  }
+
+  async function clearAll() {
+    if (apps.length === 0) return;
+    const ok = window.confirm(
+      `確定清空全部 ${apps.length} 宗案件？\n所有關聯文件會刪除（客戶登記資料保留）。此操作不可復原。`,
+    );
+    if (!ok) return;
+    setClearing(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/admin/applications", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ all: true }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data.message || data.error || "清空失敗");
+      }
+      setApps([]);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "清空失敗");
+    } finally {
+      setClearing(false);
+    }
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-navy-900">案件總覽</h1>
           <p className="mt-1 text-sm text-text-secondary">
-            即時同步客戶提交申請 · 含文件完整度
+            即時同步客戶提交申請 · 含文件完整度 · 可刪除案件
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Button variant="outline" size="sm" onClick={() => void load()}>
             重新整理
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => void clearAll()}
+            disabled={clearing || loading || apps.length === 0}
+            className="border-red-300 text-red-700 hover:bg-red-50"
+          >
+            <Trash2 className="mr-1 size-3.5" />
+            {clearing ? "清空中…" : "清空全部案件"}
           </Button>
           <p className="rounded-full bg-teal-100 px-3 py-1 text-xs font-semibold text-teal-800">
             案件 {apps.length} · live
@@ -164,7 +228,7 @@ export default function AdminDashboardPage() {
       </Card>
 
       <Card className="overflow-x-auto p-0">
-        <table className="w-full min-w-[960px] text-left text-sm">
+        <table className="w-full min-w-[1040px] text-left text-sm">
           <thead className="border-b border-border bg-surface-2/80 text-xs text-text-muted">
             <tr>
               {[
@@ -176,6 +240,7 @@ export default function AdminDashboardPage() {
                 "文件",
                 "目前狀態",
                 "最後更新",
+                "操作",
               ].map((h) => (
                 <th key={h} className="px-4 py-3 font-medium">
                   {h}
@@ -269,6 +334,19 @@ export default function AdminDashboardPage() {
                   </td>
                   <td className="px-4 py-3 text-xs text-text-secondary">
                     {formatDateTime(app.updatedAt)}
+                  </td>
+                  <td className="px-4 py-3">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="border-red-300 text-red-700 hover:bg-red-50"
+                      disabled={deletingId === app.id || clearing}
+                      onClick={() => void deleteOne(app)}
+                    >
+                      <Trash2 className="mr-1 size-3.5" />
+                      {deletingId === app.id ? "刪除中…" : "刪除"}
+                    </Button>
                   </td>
                 </tr>
               );

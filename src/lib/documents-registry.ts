@@ -389,3 +389,58 @@ export function documentKindLabel(kind: DocumentKind | string) {
   };
   return map[kind] || kind;
 }
+
+async function removeStorageObject(doc: StoredDocument) {
+  if (doc.storage === "supabase" && supabaseStorageReady()) {
+    try {
+      const db = createAdminClient();
+      const { error } = await db.storage.from(BUCKET).remove([doc.storagePath]);
+      if (error) {
+        console.error("[documents] storage remove failed", error.message);
+      }
+    } catch (err) {
+      console.error("[documents] storage remove error", err);
+    }
+  }
+  try {
+    const localPath = path.join(
+      LOCAL_DIR,
+      doc.storagePath.replace(/\//g, "__"),
+    );
+    await fs.unlink(localPath);
+  } catch {
+    /* ignore missing local */
+  }
+}
+
+/** 刪除某申請下所有文件 metadata（及 Storage 物件） */
+export async function deleteDocumentsByApplication(applicationId: string) {
+  const all = await ensureLoaded();
+  const keep: StoredDocument[] = [];
+  const removed: StoredDocument[] = [];
+  for (const d of all) {
+    if (d.applicationId === applicationId) removed.push(d);
+    else keep.push(d);
+  }
+  if (!removed.length) return 0;
+  await persist(keep);
+  await Promise.all(removed.map((d) => removeStorageObject(d)));
+  return removed.length;
+}
+
+/** 批次按申請編號刪文件 */
+export async function deleteDocumentsByApplications(applicationIds: string[]) {
+  if (!applicationIds.length) return 0;
+  const want = new Set(applicationIds);
+  const all = await ensureLoaded();
+  const keep: StoredDocument[] = [];
+  const removed: StoredDocument[] = [];
+  for (const d of all) {
+    if (want.has(d.applicationId)) removed.push(d);
+    else keep.push(d);
+  }
+  if (!removed.length) return 0;
+  await persist(keep);
+  await Promise.all(removed.map((d) => removeStorageObject(d)));
+  return removed.length;
+}
