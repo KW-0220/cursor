@@ -7,6 +7,7 @@ import {
   Bot,
   Database,
   FileSearch,
+  FolderOpen,
   LayoutDashboard,
   Settings2,
   Shield,
@@ -19,6 +20,7 @@ import { cn } from "@/lib/utils";
 const nav = [
   { href: "/admin", label: "案件總覽", icon: LayoutDashboard },
   { href: "/admin/customers", label: "客戶登記資料庫", icon: Database },
+  { href: "/admin/documents", label: "文件管理", icon: FolderOpen },
   { href: "/admin/cashflow-rules", label: "現金流審批規則", icon: Settings2 },
   { href: "/admin/ai-analyze", label: "AI 文件分析", icon: Bot },
   { href: "/admin/supplements", label: "補件管理", icon: ClipboardList },
