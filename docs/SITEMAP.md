@@ -16,6 +16,8 @@
 ├── /apply                       # 申請 Wizard（有抵押／無抵押分流）
 └── /admin
     ├── /                        # 案件總覽 KPI + 列表
+    ├── /customers               # 客戶登記資料庫（表格）
+    ├── /documents               # 文件管理（按申請編號分類／預覽／下載）
     ├── /cases/[id]              # 一頁式財務簡報 + AI 初篩
     │   └── /documents           # 文件檢視器
     ├── /supplements
