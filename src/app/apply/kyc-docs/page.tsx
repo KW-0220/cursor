@@ -102,7 +102,7 @@ export default function KycDocsPage() {
           敏感資料會預設遮罩顯示。AI 為文件分析引擎，非正式批核系統。
         </Disclaimer>
       </main>
-      <div className="fixed inset-x-0 bottom-0 mx-auto max-w-[430px] border-t border-border bg-surface-1 p-4">
+      <div className="client-sticky-bar">
         <Link href={ready ? "/apply/company-docs" : "#"}>
           <Button fullWidth size="lg" disabled={!ready}>
             儲存並繼續：公司登記文件

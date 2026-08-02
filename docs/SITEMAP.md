@@ -23,7 +23,7 @@
     └── /audit
 ```
 
-## 底部導覽（客戶端）
+## 底部導覽（客戶端 · 流動）
 
 | Tab | Route |
 | --- | --- |
@@ -32,6 +32,11 @@
 | AI 助理 | `/app/ai` |
 | 我的帳戶 | `/app/account` |
 
+## 頂部導覽（客戶端 · 網頁版 md+）
+
+同一四個路由；殼為 `.client-shell`（桌面放寬）。後台 `/admin` 維持 `AdminShell`，互不重整。
+
+客戶端網頁版與流動 App **共用**：Backend、Supabase、Object Storage、AI、Authentication、申請／文件／草稿／進度／授權／審批結果。
 ## 對應 Brief 頁面代碼
 
 | Code | Route / 實作位置 |

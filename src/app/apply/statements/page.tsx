@@ -118,7 +118,7 @@ export default function StatementsPage() {
           平均每月營業額＝各月結單入賬加總 ÷ 月數。結果標籤為「系統計算」，供顧問預審，非正式批核。
         </Disclaimer>
       </main>
-      <div className="fixed inset-x-0 bottom-0 mx-auto max-w-[430px] border-t border-border bg-surface-1 p-4">
+      <div className="client-sticky-bar">
         <Link href="/apply/prescreen">
           <Button fullWidth size="lg">
             查看預審條件／Lead 轉介準備

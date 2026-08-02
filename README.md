@@ -1,10 +1,10 @@
 # SME LoanFlow
 
-香港中小企貸款智能申請 App（MVP 原型）  
-客戶端 mobile-first Web + 內部 Desktop 審批控制台 + Design System + UX 文件。
+香港中小企貸款智能申請（MVP 原型）  
+客戶端：**流動版 + 瀏覽器網頁版**（同一套路由／Backend／Supabase／文件／AI／帳戶）+ 內部 Desktop 審批控制台 + Design System + UX 文件。
 
-> AI 是財務助理 + 文件分析引擎：資料收集 → 資格預審 → Lead 轉介準備。**不直接決定批核貸款。**
-
+> AI 是財務助理 + 文件分析引擎：資料收集 → 資格預審 → Lead 轉介準備。**不直接決定批核貸款。**  
+> 後台 `/admin` 維持原有設計與操作；本次只擴充客戶端網頁可用性，不重整後台。
 ## 永久公開試用（Vercel）
 
 **正式網址：** https://sme-loanflow.vercel.app

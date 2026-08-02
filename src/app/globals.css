@@ -75,6 +75,13 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
+/* 客戶端殼：流動維持 430px；桌面網頁放寬（後台 .admin-shell 不受影響） */
+.client-shell-bg {
+  min-height: 100dvh;
+  background: linear-gradient(180deg, #e8eef4 0%, #f5f7fa 40%, #f5f7fa 100%);
+}
+
+.client-shell,
 .mobile-shell {
   max-width: 430px;
   margin-inline: auto;
@@ -82,6 +89,48 @@ body {
   background: var(--surface-1);
   box-shadow: var(--shadow-md);
   position: relative;
+  width: 100%;
+}
+
+.client-sticky-bar {
+  position: fixed;
+  inset-inline: 0;
+  bottom: 0;
+  z-index: 40;
+  margin-inline: auto;
+  width: 100%;
+  max-width: 430px;
+  border-top: 1px solid var(--border);
+  background: var(--surface-1);
+  padding: 1rem;
+  padding-bottom: max(1rem, env(safe-area-inset-bottom));
+}
+
+@media (min-width: 768px) {
+  .client-shell-bg {
+    background: var(--surface-0);
+  }
+
+  .client-shell,
+  .mobile-shell {
+    max-width: 920px;
+    box-shadow: none;
+    border-inline: 1px solid var(--border);
+  }
+
+  .client-shell--wide,
+  .mobile-shell.client-shell--wide {
+    max-width: 1100px;
+  }
+
+  .client-sticky-bar {
+    max-width: 920px;
+  }
+
+  .client-shell--wide ~ .client-sticky-bar,
+  .client-shell--wide .client-sticky-bar {
+    max-width: 1100px;
+  }
 }
 
 .admin-shell {

@@ -199,7 +199,7 @@ export default function DeclarationsPage() {
         </Disclaimer>
       </main>
 
-      <div className="fixed inset-x-0 bottom-0 mx-auto max-w-[430px] border-t border-border bg-surface-1 p-4">
+      <div className="client-sticky-bar">
         <Link href={ready ? "/apply/confirm" : "#"}>
           <Button fullWidth size="lg" disabled={!ready}>
             繼續確認申請

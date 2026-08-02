@@ -243,7 +243,7 @@ export default function DebtsPage() {
         </Disclaimer>
       </main>
 
-      <div className="fixed inset-x-0 bottom-0 mx-auto max-w-[430px] border-t border-border bg-surface-1 p-4">
+      <div className="client-sticky-bar">
         <Link href="/apply/declarations">
           <Button fullWidth size="lg">
             儲存並繼續

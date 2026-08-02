@@ -114,7 +114,7 @@ export default function PrescreenPage() {
 
         <Disclaimer>{result.disclaimer}</Disclaimer>
       </main>
-      <div className="fixed inset-x-0 bottom-0 mx-auto max-w-[430px] border-t border-border bg-surface-1 p-4 space-y-2">
+      <div className="client-sticky-bar">
         <Link href="/apply/debts">
           <Button fullWidth size="lg">
             繼續：債務申報及政策聲明

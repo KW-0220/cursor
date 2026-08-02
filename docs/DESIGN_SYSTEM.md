@@ -20,7 +20,7 @@
 
 - 中文／全域：Noto Sans TC
 - 數據：`.tabular`（tabular-nums）
-- 客戶端容器：`.mobile-shell` max-width 430px
+- 客戶端容器：`.client-shell`／`.mobile-shell` — 流動 max-width 430px；桌面網頁放寬至 ~920px（`--wide` 1100px）
 
 ## Components（`src/components/ui`）
 
@@ -44,5 +44,7 @@
 
 ## Admin vs App
 
-- App：mobile-first、底部四 Tab、大 CTA、分步表單
-- Admin：desktop sidebar、數據表、圖表、左右文件檢視器
+- App（流動）：mobile-first、底部四 Tab、大 CTA、分步表單（430px frame）
+- App（網頁版）：同一套路由／API／資料；桌面 TopNav + 放寬內容寬度；`.client-sticky-bar` 跟殼寬
+- Admin：desktop sidebar、數據表、圖表、左右文件檢視器（獨立 `AdminShell`，不與客戶端殼共用）
+- 共用：Backend、Supabase、Object Storage、AI 分析、Authentication、申請／文件／草稿／進度／授權／審批結果

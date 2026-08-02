@@ -151,7 +151,7 @@ export default function CompanyDocsPage() {
           AI 提取結果需你確認。持股及董事資料最終仍由顧問核對原文。
         </Disclaimer>
       </main>
-      <div className="fixed inset-x-0 bottom-0 mx-auto max-w-[430px] border-t border-border bg-surface-1 p-4">
+      <div className="client-sticky-bar">
         <Link href={ready ? "/apply/statements" : "#"}>
           <Button fullWidth size="lg" disabled={!ready}>
             儲存並繼續：月結單營業額

@@ -888,7 +888,7 @@ export default function ApplyWizardPage() {
       </main>
 
       {step < 7 && (
-        <div className="fixed inset-x-0 bottom-0 z-40 mx-auto max-w-[430px] border-t border-border bg-surface-1 p-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
+        <div className="client-sticky-bar">
           <Button
             type="button"
             variant="outline"

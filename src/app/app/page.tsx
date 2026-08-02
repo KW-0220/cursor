@@ -52,7 +52,7 @@ export default function HomePage() {
       </Card>
 
       <SectionHeader title="快捷入口" />
-      <div className="grid gap-2">
+      <div className="grid gap-2 md:grid-cols-2">
         {[
           { href: "/app/ai", label: "AI 財務助理", icon: Bot },
           {
