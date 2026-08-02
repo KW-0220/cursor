@@ -1355,7 +1355,7 @@ export function AiAnalyzeWorkspace({
             <RequirementsList
               items={[
                 "最近三年經審計財務報表（PDF）",
-                "EBITDA＝除稅前溢利＋融資成本＋折舊＋攤銷（有披露則直接提取）",
+                "EBITDA＝Earning before tax＋Interest＋Tax＋Depreciation＋Amortisation（有披露則直接提取）",
                 "Gearing＝總負債÷有形淨資產（權益－無形－商譽）",
                 "DSCR＝EBITDA÷一年總債務支出（月供×12）；缺供款且 EBITDA>0 → 黃燈跟進",
               ]}

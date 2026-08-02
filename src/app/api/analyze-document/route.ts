@@ -1008,10 +1008,10 @@ export async function GET(req: NextRequest) {
       company_name: "ABC Limited",
       financial_year: "2025",
       revenue: 6200000,
-      EBITDA: 850000,
+      EBITDA: 930000,
       net_profit: 420000,
       existing_debt: 500000,
-      earning_before_tax: 420000,
+      earning_before_tax: 500000,
       interest: 120000,
       tax: 80000,
       depreciation: 180000,
@@ -1019,9 +1019,9 @@ export async function GET(req: NextRequest) {
       total_debt_payments: 600000,
       ebitdaAnalysis: {
         formula:
-          "EBITDA = Net Profit + Interest Expense + Tax Expense + Depreciation + Amortisation",
+          "EBITDA = Earning before tax + Interest + Tax + Depreciation + Amortisation",
         coverageRule: "EBITDA > Total Debt payments",
-        ebitdaComputed: 850000,
+        ebitdaComputed: 930000,
         coversDebtPayments: true,
       },
     });

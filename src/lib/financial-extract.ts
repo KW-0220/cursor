@@ -3,6 +3,7 @@ import {
   ebitdaCoversTotalDebtPayments,
   ebitdaFromComponents,
   FORMULA_DEFINITIONS,
+  resolveEarningBeforeTax,
 } from "@/lib/formulas";
 
 /**
@@ -10,7 +11,7 @@ import {
  * 核心欄 + EBITDA 組成項（系統用硬編碼公式重算 EBITDA）
  *
  * 權威來源：Audited Financial Statements
- * EBITDA = Net Profit + Interest Expense + Tax Expense + Depreciation + Amortisation
+ * EBITDA = Earning before tax + Interest + Tax + Depreciation + Amortisation
  * 硬規則：EBITDA > Total Debt payments
  *
  * 缺資料必須 null，不可猜測。
@@ -145,8 +146,8 @@ const JSON_SHAPE = `{
 const EBITDA_RULES = `EBITDA 規則（必須遵守；Audited Report 係最權威來源）：
 - 系統硬編碼公式：${FORMULA_DEFINITIONS.ebitda}
 - 來源指引：${FORMULA_DEFINITIONS.ebitdaSources}
-- 請分別抽取：net_profit（損益表最底）、interest（利息／財務費用）、tax（利得稅）、depreciation、amortisation（無則 0）
-- earning_before_tax（除稅前溢利）可一併抽出供比較，但 EBITDA 重算以 net_profit 為準，唔用 EBT
+- 請分別抽取：earning_before_tax（除稅前溢利）、interest（利息／財務費用）、tax（利得稅）、depreciation、amortisation（無則 0）、net_profit（損益表最底）
+- EBITDA 重算以 earning_before_tax 為準；若只有 net_profit + tax，系統可回推 EBT
 - 若文件直接寫 EBITDA，可填 EBITDA 欄；組成項仍盡量抽出供系統覆核
 - 硬規則：${FORMULA_DEFINITIONS.ebitdaDebtCover}
 - total_debt_payments = 一年總債務供款（例如各項月供×12 之合計；文件無則 null）
@@ -285,9 +286,14 @@ export function applyHardcodedEbitdaFormulas(
     amortisation: normalized.amortisation,
   };
 
-  // 權威算法：Net Profit + Interest + Tax + D + A（唔用 EBT）
-  const computed = ebitdaFromComponents(
+  // 權威算法：EBT + Interest + Tax + D + A
+  const ebt = resolveEarningBeforeTax(
+    components.earning_before_tax,
     normalized.net_profit,
+    components.tax,
+  );
+  const computed = ebitdaFromComponents(
+    ebt,
     components.interest,
     components.tax,
     components.depreciation,

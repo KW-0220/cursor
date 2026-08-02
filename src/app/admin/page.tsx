@@ -35,6 +35,11 @@ type AdminApp = {
     decisionReason?: string | null;
     analyzedAt?: string;
     bank?: { overall?: string; narrative?: string };
+    ebitda?: {
+      ebitdaHkd?: number | null;
+      coversDebtPayments?: boolean | null;
+      totalDebtPaymentsHkd?: number | null;
+    } | null;
   } | null;
   updatedAt: string;
   createdAt: string;
@@ -386,6 +391,16 @@ export default function AdminDashboardPage() {
                           {app.aiAnalysis?.summary && (
                             <p className="line-clamp-2 max-w-[240px] text-[11px] text-text-secondary">
                               {app.aiAnalysis.summary}
+                            </p>
+                          )}
+                          {app.aiAnalysis?.ebitda?.ebitdaHkd != null && (
+                            <p className="text-[11px] text-text-secondary">
+                              EBITDA {formatHKD(app.aiAnalysis.ebitda.ebitdaHkd)}
+                              {app.aiAnalysis.ebitda.coversDebtPayments == null
+                                ? ""
+                                : app.aiAnalysis.ebitda.coversDebtPayments
+                                  ? " · 覆蓋通過"
+                                  : " · 覆蓋不通過"}
                             </p>
                           )}
                           <a

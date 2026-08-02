@@ -202,7 +202,7 @@ function AuditedCreditMetricsBlock({
           </div>
         </dl>
         <p className="mt-2 text-xs text-text-muted">
-          公式：除稅前溢利 ＋ 融資成本 ＋ 折舊 ＋ 攤銷（有披露則優先披露值）
+          公式：Earning before tax ＋ Interest ＋ Tax ＋ Depreciation ＋ Amortisation（有披露則優先披露值）
         </p>
         {rows.some((r) => r.ebitda != null) && (
           <p className="mt-1 text-xs text-text-muted">

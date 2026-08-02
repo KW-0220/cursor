@@ -10,7 +10,7 @@
  * - 新貸 LTV = 新申請額 ÷ 估值
  * - 有形淨資產 TNW = 權益 − 無形資產 − 商譽
  * - Gearing = 總負債 ÷ TNW
- * - EBITDA = Net Profit + Interest Expense + Tax Expense + Depreciation + Amortisation
+ * - EBITDA = Earning before tax + Interest + Tax + Depreciation + Amortisation
  *   （權威來源：Audited Financial Statements；D&A 多數喺 Cash Flow／Notes）
  * - 年化債務供款 Total Debt payments = Σ(月供 × 12)
  * - 覆蓋規則：EBITDA > Total Debt payments（硬規則；同時可算 DSCR = EBITDA ÷ Total Debt payments）
@@ -29,9 +29,9 @@ export const FORMULA_DEFINITIONS = {
   tangibleNetWorth: "有形淨資產 TNW = 權益 − 無形資產 − 商譽",
   gearing: "槓桿 Gearing = 總負債 ÷ TNW",
   ebitda:
-    "EBITDA = Net Profit + Interest Expense + Tax Expense + Depreciation + Amortisation（Audited Report）",
+    "EBITDA = Earning before tax + Interest + Tax + Depreciation + Amortisation（Audited Report）",
   ebitdaSources:
-    "來源：損益表 Net Profit／Interest／Tax；折舊與攤銷優先 Cash Flow Statement 或 Notes to the Financial Statements",
+    "來源：損益表 Earning before tax／Interest／Tax；折舊與攤銷優先 Cash Flow Statement 或 Notes to the Financial Statements",
   annualDebtService: "Total Debt payments（年化）= Σ(每月供款 × 12)",
   ebitdaDebtCover: "硬規則：EBITDA > Total Debt payments",
   dscr: "DSCR = EBITDA ÷ Total Debt payments",
@@ -143,23 +143,38 @@ export function gearingRatio(
 }
 
 /**
+ * 若缺 EBT，用 Net Profit + Tax 回推（期間稅項已知時）。
+ */
+export function resolveEarningBeforeTax(
+  earningBeforeTaxHkd: number | null | undefined,
+  netProfitHkd: number | null | undefined = null,
+  taxExpenseHkd: number | null | undefined = null,
+): number | null {
+  if (earningBeforeTaxHkd != null) return earningBeforeTaxHkd;
+  if (netProfitHkd != null && taxExpenseHkd != null) {
+    return netProfitHkd + taxExpenseHkd;
+  }
+  return null;
+}
+
+/**
  * EBITDA（權威算法，以 Audited Financial Statements 為準）=
- *   Net Profit + Interest Expense + Tax Expense + Depreciation + Amortisation
+ *   Earning before tax + Interest + Tax + Depreciation + Amortisation
  *
- * - Net Profit／Interest／Tax：損益表
+ * - Earning before tax／Interest／Tax：損益表
  * - Depreciation & Amortisation：多數唔喺損益表單獨一行，優先 Cash Flow／Notes
  * - AI 只抽組成項；本函數係唯一計法
  * - amortisation 缺省當 0；若只有合併 D&A，可全部放入 depreciation
  */
 export function ebitdaFromComponents(
-  netProfitHkd: number | null | undefined,
+  earningBeforeTaxHkd: number | null | undefined,
   interestExpenseHkd: number | null | undefined,
   taxExpenseHkd: number | null | undefined,
   depreciationHkd: number | null | undefined,
   amortisationHkd: number | null | undefined = 0,
 ): number | null {
   if (
-    netProfitHkd == null ||
+    earningBeforeTaxHkd == null ||
     interestExpenseHkd == null ||
     taxExpenseHkd == null ||
     depreciationHkd == null
@@ -167,7 +182,7 @@ export function ebitdaFromComponents(
     return null;
   }
   return (
-    netProfitHkd +
+    earningBeforeTaxHkd +
     interestExpenseHkd +
     taxExpenseHkd +
     depreciationHkd +
@@ -176,8 +191,8 @@ export function ebitdaFromComponents(
 }
 
 /**
- * EBITDA（政策／產品說明用）=
- *   除稅前溢利 + 融資成本 + 折舊 + 攤銷
+ * EBITDA（政策／產品說明用；與權威公式一致，可帶 Tax）=
+ *   除稅前溢利 + 融資成本 + Tax + 折舊 + 攤銷
  * （若報表已直接披露 EBITDA，優先用披露值）
  */
 export function ebitdaFromPbt(
@@ -185,19 +200,22 @@ export function ebitdaFromPbt(
   financeCostsHkd: number | null | undefined,
   depreciationHkd: number | null | undefined,
   amortisationHkd: number | null | undefined = 0,
+  taxExpenseHkd: number | null | undefined = null,
 ): number | null {
   if (
     profitBeforeTaxHkd == null ||
     financeCostsHkd == null ||
-    depreciationHkd == null
+    depreciationHkd == null ||
+    taxExpenseHkd == null
   ) {
     return null;
   }
-  return (
-    profitBeforeTaxHkd +
-    financeCostsHkd +
-    depreciationHkd +
-    (amortisationHkd ?? 0)
+  return ebitdaFromComponents(
+    profitBeforeTaxHkd,
+    financeCostsHkd,
+    taxExpenseHkd,
+    depreciationHkd,
+    amortisationHkd,
   );
 }
 

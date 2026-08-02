@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { listArchivedAnalyses } from "@/lib/analysis-archive-registry";
+import { ebitdaFromArchivePayload } from "@/lib/application-ai-ebitda";
 import { buildApplicationAiReportHtml } from "@/lib/application-ai-report-html";
 import { getApplication } from "@/lib/applications-registry";
 import { archiveMatchesCustomer } from "@/lib/customer-match";
@@ -63,6 +64,20 @@ export async function GET(
   const embedded = (app.documents ?? []).filter((d) => !seen.has(d.id));
 
   const autoPrint = req.nextUrl.searchParams.get("print") === "1";
+  let ebitdaOverride = app.aiAnalysis?.ebitda ?? null;
+  if (
+    !ebitdaOverride ||
+    (ebitdaOverride.ebitdaHkd == null &&
+      ebitdaOverride.components.earningBeforeTax == null)
+  ) {
+    for (const a of linkedArchives) {
+      const e = ebitdaFromArchivePayload(a.payload);
+      if (e) {
+        ebitdaOverride = e;
+        break;
+      }
+    }
+  }
   const html = buildApplicationAiReportHtml(
     {
       application: {
@@ -106,6 +121,7 @@ export async function GET(
         overall: a.overall,
         archivedAt: a.archivedAt,
       })),
+      ebitdaOverride,
     },
     { autoPrint },
   );

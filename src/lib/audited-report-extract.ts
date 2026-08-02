@@ -4,6 +4,7 @@ import {
   ebitdaFromPbt,
   FORMULA_DEFINITIONS,
   gearingRatio,
+  resolveEarningBeforeTax,
   tangibleNetWorth,
   dscr,
   yoyChange,
@@ -593,8 +594,13 @@ export function toAuditedExtract(raw: unknown): AuditedReportExtract {
 
 function yearEbitda(y: AuditedYearExtract): number | null {
   if (y.ebitda_disclosed != null) return y.ebitda_disclosed;
-  const computed = ebitdaFromComponents(
+  const ebt = resolveEarningBeforeTax(
+    y.profit_before_tax,
     y.net_profit,
+    y.tax,
+  );
+  const computed = ebitdaFromComponents(
+    ebt,
     y.finance_costs,
     y.tax,
     y.depreciation,
@@ -602,20 +608,27 @@ function yearEbitda(y: AuditedYearExtract): number | null {
   );
   if (computed != null) return computed;
   return ebitdaFromPbt(
-    y.profit_before_tax,
+    ebt,
     y.finance_costs,
     y.depreciation,
     y.amortisation,
+    y.tax,
   );
 }
 
 function yearEbitdaPolicy(y: AuditedYearExtract): number | null {
   if (y.ebitda_disclosed != null) return y.ebitda_disclosed;
-  return ebitdaFromPbt(
+  const ebt = resolveEarningBeforeTax(
     y.profit_before_tax,
+    y.net_profit,
+    y.tax,
+  );
+  return ebitdaFromPbt(
+    ebt,
     y.finance_costs,
     y.depreciation,
     y.amortisation,
+    y.tax,
   );
 }
 
@@ -804,7 +817,7 @@ export function buildAuditedCreditMetrics(
     consecutiveDecline,
     insufficientYears: rows.length < 3,
     formulaNotes: [
-      "EBITDA（政策）= 除稅前溢利 + 融資成本 + 折舊 + 攤銷（有披露則優先披露值）",
+      "EBITDA = Earning before tax + Interest + Tax + Depreciation + Amortisation（有披露則優先披露值）",
       FORMULA_DEFINITIONS.ebitda,
       FORMULA_DEFINITIONS.tangibleNetWorth,
       FORMULA_DEFINITIONS.gearing,

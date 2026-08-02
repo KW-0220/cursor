@@ -2,9 +2,15 @@ import type { ClientAppStatus } from "@/lib/application-status";
 import type { BankCashflowBrief } from "@/lib/bank-statement-extract";
 import type { BrExtract } from "@/lib/br-extract";
 import {
+  auditedExtractToFinancial,
   buildAuditedComparisonRows,
   type AuditedReportExtract,
 } from "@/lib/audited-report-extract";
+import { applyHardcodedEbitdaFormulas } from "@/lib/financial-extract";
+import {
+  dscr,
+  FORMULA_DEFINITIONS,
+} from "@/lib/formulas";
 import { evaluateSuitability } from "@/lib/suitability";
 
 export type AiRepaymentOverall = "adequate" | "tight" | "weak" | "unknown";
@@ -62,6 +68,23 @@ export type ApplicationAiAnalysis = {
     status: string;
     message: string;
     checks: Array<{ label: string; actual: string; pass: boolean | null }>;
+  } | null;
+  ebitda: {
+    formula: string;
+    coverageRule: string;
+    ebitdaHkd: number | null;
+    ebitdaSource: "computed" | "disclosed" | "none";
+    totalDebtPaymentsHkd: number | null;
+    coversDebtPayments: boolean | null;
+    dscr: number | null;
+    components: {
+      earningBeforeTax: number | null;
+      interest: number | null;
+      tax: number | null;
+      depreciation: number | null;
+      amortisation: number | null;
+      netProfit: number | null;
+    };
   } | null;
 };
 
@@ -300,6 +323,34 @@ export function buildApplicationAiDecision(
     };
   }
 
+  let ebitda: ApplicationAiAnalysis["ebitda"] = null;
+  if (audSrc) {
+    const { extract, ebitdaAnalysis } = applyHardcodedEbitdaFormulas(
+      auditedExtractToFinancial(audSrc),
+    );
+    ebitda = {
+      formula: ebitdaAnalysis.formula || FORMULA_DEFINITIONS.ebitda,
+      coverageRule:
+        ebitdaAnalysis.coverageRule || FORMULA_DEFINITIONS.ebitdaDebtCover,
+      ebitdaHkd: ebitdaAnalysis.ebitdaComputed,
+      ebitdaSource: ebitdaAnalysis.ebitdaSource,
+      totalDebtPaymentsHkd: ebitdaAnalysis.totalDebtPayments,
+      coversDebtPayments: ebitdaAnalysis.coversDebtPayments,
+      dscr: dscr(
+        ebitdaAnalysis.ebitdaComputed,
+        ebitdaAnalysis.totalDebtPayments,
+      ),
+      components: {
+        earningBeforeTax: ebitdaAnalysis.components.earning_before_tax,
+        interest: ebitdaAnalysis.components.interest,
+        tax: ebitdaAnalysis.components.tax,
+        depreciation: ebitdaAnalysis.components.depreciation,
+        amortisation: ebitdaAnalysis.components.amortisation,
+        netProfit: extract.net_profit,
+      },
+    };
+  }
+
   const { decision, decisionReason, summary } = decide(
     snap,
     bank,
@@ -324,5 +375,6 @@ export function buildApplicationAiDecision(
       auditedFailCount: snap.auditedFailCount,
     },
     suitability,
+    ebitda,
   };
 }

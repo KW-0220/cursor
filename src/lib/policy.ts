@@ -176,8 +176,14 @@ export function computeEbitda(a: AuditExtract): EbitdaBreakdown {
       note: "報告直接披露 EBITDA（仍應用 Audited 組成項公式核對）。",
     };
   }
+  const ebt =
+    a.profitBeforeTaxHkd != null
+      ? a.profitBeforeTaxHkd
+      : a.netProfitHkd != null && a.taxHkd != null
+        ? a.netProfitHkd + a.taxHkd
+        : null;
   const ebitda = ebitdaFromComponents(
-    a.netProfitHkd,
+    ebt,
     a.financeCostsHkd,
     a.taxHkd,
     a.depreciationHkd,
@@ -188,14 +194,14 @@ export function computeEbitda(a: AuditExtract): EbitdaBreakdown {
       mode: "incomplete",
       ebitdaHkd: null,
       ...base,
-      note: "未能從 Audited Report 確認完整 EBITDA 組成（需 Net Profit、Interest、Tax、Depreciation；Amortisation 可為 0；D&A 請查 Cash Flow／Notes），需要人工覆核。",
+      note: "未能從 Audited Report 確認完整 EBITDA 組成（需 Earning before tax、Interest、Tax、Depreciation；Amortisation 可為 0；D&A 請查 Cash Flow／Notes），需要人工覆核。",
     };
   }
   return {
     mode: "computed",
     ebitdaHkd: ebitda,
     ...base,
-    note: "EBITDA＝Net Profit＋Interest＋Tax＋Depreciation＋Amortisation（Audited Financial Statements 硬編碼公式）。",
+    note: "EBITDA＝Earning before tax＋Interest＋Tax＋Depreciation＋Amortisation（Audited Financial Statements 硬編碼公式）。",
   };
 }
 

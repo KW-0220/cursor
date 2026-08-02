@@ -38,6 +38,8 @@ export type ApplicationAiReportInput = {
     overall: string | null;
     archivedAt: string;
   }>;
+  /** 舊案件可由歸檔 payload 補齊 */
+  ebitdaOverride?: ApplicationAiAnalysis["ebitda"];
 };
 
 function esc(s: unknown) {
@@ -64,6 +66,17 @@ function overallLabel(o?: string | null) {
   return o || "—";
 }
 
+function coverLabel(v?: boolean | null) {
+  if (v == null) return "資料不足，未能判斷";
+  return v ? "通過（EBITDA > Total Debt payments）" : "不通過（EBITDA ≤ Total Debt payments）";
+}
+
+function ebitdaSourceLabel(s?: string | null) {
+  if (s === "computed") return "系統重算";
+  if (s === "disclosed") return "報表披露";
+  return "未能計算";
+}
+
 /** 案件 AI 分析報告（可列印／另存 PDF） */
 export function buildApplicationAiReportHtml(
   input: ApplicationAiReportInput,
@@ -71,11 +84,39 @@ export function buildApplicationAiReportHtml(
 ) {
   const a = input.application;
   const ai = a.aiAnalysis;
+  const ebitda = ai?.ebitda ?? input.ebitdaOverride ?? null;
   const status = normalizeClientAppStatus(a.status);
   const generatedAt = new Date().toISOString();
 
+  const ebitdaSection = `
+<section class="block">
+  <h3>EBITDA</h3>
+  ${
+    ebitda
+      ? `<table>
+    ${row("公式", ebitda.formula)}
+    ${row("硬規則", ebitda.coverageRule)}
+    ${row("Earning before tax", money(ebitda.components.earningBeforeTax))}
+    ${row("Interest", money(ebitda.components.interest))}
+    ${row("Tax", money(ebitda.components.tax))}
+    ${row("Depreciation", money(ebitda.components.depreciation))}
+    ${row("Amortisation", money(ebitda.components.amortisation))}
+    ${row("Net Profit（參考）", money(ebitda.components.netProfit))}
+    ${row("EBITDA", money(ebitda.ebitdaHkd))}
+    ${row("EBITDA 來源", ebitdaSourceLabel(ebitda.ebitdaSource))}
+    ${row("Total Debt payments", money(ebitda.totalDebtPaymentsHkd))}
+    ${row("覆蓋結果", coverLabel(ebitda.coversDebtPayments))}
+    ${row(
+      "DSCR",
+      ebitda.dscr == null ? "—" : ebitda.dscr.toFixed(2),
+    )}
+  </table>`
+      : `<p class="muted">尚未有 EBITDA 組成資料（需經審計報表抽取 EBT／Interest／Tax／D／A）。</p>`
+  }
+</section>`;
+
   const aiSection = !ai
-    ? `<p class="muted">此申請尚未附帶 AI 分析快照。</p>`
+    ? `<p class="muted">此申請尚未附帶 AI 分析快照。</p>${ebitdaSection}`
     : `
 <section class="block">
   <h3>AI 決策摘要</h3>
@@ -133,6 +174,7 @@ export function buildApplicationAiReportHtml(
       : ""
   }
 </section>
+${ebitdaSection}
 <section class="block">
   <h3>適合度</h3>
   <table>
