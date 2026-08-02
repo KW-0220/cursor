@@ -1,8 +1,15 @@
 "use client";
 
-import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
-import { Download, FileText, RefreshCw, Search, Trash2 } from "lucide-react";
+import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
+import {
+  Download,
+  FileText,
+  RefreshCw,
+  Search,
+  Trash2,
+  ChevronDown,
+  ChevronUp,
+} from "lucide-react";
 import {
   AuditedExtractPanel,
   BankCashflowBriefPanel,
@@ -102,9 +109,13 @@ type Customer = {
   updatedAt: string;
   documents?: CustomerDoc[];
   documentCount?: number;
+  analysisCount?: number;
   applicationIds?: string[];
   applications?: CustomerApp[];
   analyses?: CustomerAnalysis[];
+  latestStatus?: string | null;
+  latestAmount?: number | null;
+  reportUrl?: string;
 };
 
 function maskId(v: string) {
@@ -116,193 +127,6 @@ function formatSize(n: number) {
   if (n < 1024) return `${n} B`;
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
   return `${(n / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-function overallLabel(o?: string | null) {
-  if (o === "adequate") return "尚可";
-  if (o === "tight") return "偏緊";
-  if (o === "weak") return "偏弱";
-  return "未知";
-}
-
-function formatMoney(n: number | null | undefined) {
-  if (n == null || !Number.isFinite(n)) return "—";
-  return formatHKD(n);
-}
-
-function AiAnalysisBlock({ app }: { app: CustomerApp }) {
-  const status = normalizeClientAppStatus(app.status);
-  const ai = app.aiAnalysis;
-  const rejectReason =
-    status === "rejected"
-      ? app.failureReason || ai?.decisionReason || "未有提供原因"
-      : null;
-
-  return (
-    <div className="space-y-3 rounded-xl border border-border bg-surface-1 p-3">
-      <div className="flex flex-wrap items-start justify-between gap-2">
-        <div>
-          <p className="font-mono text-xs text-text-muted">{app.id}</p>
-          <p className="mt-0.5 text-sm font-medium text-navy-900">
-            {formatHKD(app.amount)} · {app.purpose}
-          </p>
-        </div>
-        <div className="text-right">
-          <span
-            className={cn(
-              "inline-flex rounded-full px-2.5 py-1 text-xs font-medium",
-              clientAppStatusTone(status),
-            )}
-          >
-            {clientAppStatusLabel(status)}
-          </span>
-          {rejectReason && (
-            <p className="mt-1 max-w-[260px] text-left text-[11px] text-danger-600 sm:text-right">
-              拒絕原因：{rejectReason}
-            </p>
-          )}
-        </div>
-      </div>
-
-      {!ai ? (
-        <p className="text-sm text-text-muted">
-          此申請尚未附帶 AI 分析（舊案件或未執行文件分析）。
-        </p>
-      ) : (
-        <div className="space-y-3 text-sm">
-          <StateBanner
-            tone={
-              status === "approved"
-                ? "success"
-                : status === "rejected"
-                  ? "error"
-                  : "warning"
-            }
-            title={
-              status === "approved"
-                ? "AI 建議：批核"
-                : status === "rejected"
-                  ? "AI 建議：拒絕"
-                  : "AI 建議：繼續審批／覆核"
-            }
-            description={ai.summary}
-          />
-
-          <div className="grid gap-3 md:grid-cols-3">
-            <div className="rounded-lg bg-surface-2 px-3 py-2">
-              <p className="text-xs font-semibold text-navy-900">銀行月結</p>
-              <p className="mt-1 text-xs text-text-secondary">
-                {ai.bank.analyzed
-                  ? `已分析 ${ai.bank.monthsAnalyzed} 個月 · 還款能力 ${overallLabel(ai.bank.overall)}`
-                  : "未分析"}
-              </p>
-              {ai.bank.narrative && (
-                <p className="mt-1 text-xs text-text-muted">{ai.bank.narrative}</p>
-              )}
-              <dl className="mt-2 space-y-1 text-xs">
-                <div className="flex justify-between gap-2">
-                  <dt className="text-text-muted">月均營運進帳</dt>
-                  <dd className="tabular">{formatMoney(ai.bank.monthlyAvgOperating)}</dd>
-                </div>
-                <div className="flex justify-between gap-2">
-                  <dt className="text-text-muted">六個月淨現金流</dt>
-                  <dd className="tabular">{formatMoney(ai.bank.sixMonthNet)}</dd>
-                </div>
-                <div className="flex justify-between gap-2">
-                  <dt className="text-text-muted">六個月平均日結</dt>
-                  <dd className="tabular">{formatMoney(ai.bank.sixMonthAvgDaily)}</dd>
-                </div>
-              </dl>
-            </div>
-
-            <div className="rounded-lg bg-surface-2 px-3 py-2">
-              <p className="text-xs font-semibold text-navy-900">商業登記證</p>
-              {ai.businessRegistration.analyzed ? (
-                <dl className="mt-2 space-y-1 text-xs">
-                  {(
-                    [
-                      ["中文名", ai.businessRegistration.companyNameZh],
-                      ["英文名", ai.businessRegistration.companyNameEn],
-                      ["BR 號碼", ai.businessRegistration.brNumber],
-                      ["業務性質", ai.businessRegistration.businessNature],
-                      ["地址", ai.businessRegistration.businessAddress],
-                      ["生效", ai.businessRegistration.effectiveDate],
-                      ["屆滿", ai.businessRegistration.expiryDate],
-                    ] as [string, string | null][]
-                  ).map(([label, value]) => (
-                    <div key={label} className="flex justify-between gap-2">
-                      <dt className="shrink-0 text-text-muted">{label}</dt>
-                      <dd className="text-right text-navy-900">
-                        {value?.trim() || "—"}
-                      </dd>
-                    </div>
-                  ))}
-                </dl>
-              ) : (
-                <p className="mt-1 text-xs text-text-muted">
-                  {ai.businessRegistration.error || "未分析"}
-                </p>
-              )}
-            </div>
-
-            <div className="rounded-lg bg-surface-2 px-3 py-2">
-              <p className="text-xs font-semibold text-navy-900">經審計報表</p>
-              {ai.auditedAccounts.analyzed ? (
-                <>
-                  <dl className="mt-2 space-y-1 text-xs">
-                    {(
-                      [
-                        ["公司", ai.auditedAccounts.companyName],
-                        ["年結", ai.auditedAccounts.yearEndDate],
-                        ["核數師", ai.auditedAccounts.auditorName],
-                        ["意見", ai.auditedAccounts.auditOpinionType],
-                      ] as [string, string | null][]
-                    ).map(([label, value]) => (
-                      <div key={label} className="flex justify-between gap-2">
-                        <dt className="shrink-0 text-text-muted">{label}</dt>
-                        <dd className="text-right text-navy-900">
-                          {value?.trim() || "—"}
-                        </dd>
-                      </div>
-                    ))}
-                  </dl>
-                  {ai.auditedAccounts.years.length > 0 && (
-                    <ul className="mt-2 space-y-1 border-t border-border/60 pt-2 text-xs">
-                      {ai.auditedAccounts.years.map((y, i) => (
-                        <li key={`${y.financialYear}-${i}`}>
-                          <span className="font-medium text-navy-900">
-                            {y.financialYear || `年度${i + 1}`}
-                          </span>
-                          <span className="text-text-muted">
-                            {" "}
-                            · 營業額 {formatMoney(y.revenue)} · 淨利{" "}
-                            {formatMoney(y.netProfit)}
-                          </span>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </>
-              ) : (
-                <p className="mt-1 text-xs text-text-muted">
-                  {ai.auditedAccounts.error || "未分析"}
-                </p>
-              )}
-            </div>
-          </div>
-
-          {ai.suitability && (
-            <div className="rounded-lg border border-border/70 px-3 py-2 text-xs">
-              <p className="font-semibold text-navy-900">
-                初步適合度：{ai.suitability.status}
-              </p>
-              <p className="mt-1 text-text-secondary">{ai.suitability.message}</p>
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  );
 }
 
 function ArchiveExtractBody({
@@ -344,48 +168,33 @@ function ArchiveExtractBody({
   );
 }
 
-function ArchiveAnalysisBlock({
-  item,
-  open,
-  onToggle,
-}: {
-  item: CustomerAnalysis;
-  open: boolean;
-  onToggle: () => void;
-}) {
-  return (
-    <div className="rounded-xl border border-border bg-surface-1">
-      <button
-        type="button"
-        className="flex w-full flex-wrap items-start justify-between gap-2 px-3 py-3 text-left"
-        onClick={onToggle}
-      >
-        <div className="min-w-0">
-          <p className="font-medium text-navy-900">{item.title}</p>
-          <p className="mt-0.5 text-xs text-text-secondary">
-            {item.docKind}
-            {item.overall ? ` · ${assessmentLabel(item.overall)}` : ""}
-            {item.fileName ? ` · ${item.fileName}` : ""}
-          </p>
-          {item.summary && (
-            <p className="mt-1 line-clamp-2 text-xs text-text-muted">
-              {item.summary}
-            </p>
-          )}
-        </div>
-        <div className="text-right text-[11px] text-text-muted">
-          <p>{formatDateTime(item.archivedAt)}</p>
-          <p>{open ? "收起抽取" : "展開抽取"}</p>
-        </div>
-      </button>
-      {open && (
-        <div className="border-t border-border px-3 py-3">
-          <ArchiveExtractBody payload={item.payload || {}} />
-        </div>
-      )}
-    </div>
-  );
-}
+const TABLE_COLS: Array<{ key: string; label: string; sticky?: boolean }> = [
+  { key: "id", label: "客戶編號", sticky: true },
+  { key: "companyNameZh", label: "公司中文名" },
+  { key: "companyNameEn", label: "公司英文名" },
+  { key: "brNumber", label: "BR" },
+  { key: "crNumber", label: "CR" },
+  { key: "applicantNameZh", label: "申請人中文" },
+  { key: "applicantNameEn", label: "申請人英文" },
+  { key: "idNumber", label: "身分證／護照" },
+  { key: "relation", label: "關係" },
+  { key: "title", label: "職銜" },
+  { key: "email", label: "電郵" },
+  { key: "phone", label: "電話" },
+  { key: "contactPerson", label: "聯絡人" },
+  { key: "foundedAt", label: "成立日期" },
+  { key: "companyType", label: "公司類型" },
+  { key: "industry", label: "行業" },
+  { key: "employees", label: "僱員" },
+  { key: "address", label: "地址" },
+  { key: "website", label: "網站" },
+  { key: "status", label: "最新狀態" },
+  { key: "amount", label: "申請金額" },
+  { key: "docs", label: "文件" },
+  { key: "analyses", label: "分析" },
+  { key: "updatedAt", label: "更新" },
+  { key: "actions", label: "操作" },
+];
 
 export default function AdminCustomersPage() {
   const [customers, setCustomers] = useState<Customer[]>([]);
@@ -395,51 +204,22 @@ export default function AdminCustomersPage() {
   const [storageNote, setStorageNote] = useState("");
   const [storage, setStorage] = useState("");
   const [durable, setDurable] = useState(false);
-  const [collectFrom, setCollectFrom] = useState("");
   const [wiping, setWiping] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [expandedArchive, setExpandedArchive] = useState<string | null>(null);
-  const [orphans, setOrphans] = useState<
-    Array<{
-      id: string;
-      purpose: string;
-      documentCount: number;
-      documents: Array<{ id: string; kind: string; fileName: string; slot: string }>;
-    }>
-  >([]);
-  const [linkTarget, setLinkTarget] = useState<Record<string, string>>({});
-  const [linking, setLinking] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const [custRes, orphanRes] = await Promise.all([
-        fetch("/api/admin/customers"),
-        fetch("/api/admin/link-application"),
-      ]);
+      const custRes = await fetch("/api/admin/customers", { cache: "no-store" });
       const data = await custRes.json();
       if (!custRes.ok) throw new Error(data.error || "載入失敗");
-      const list = (data.customers ?? []) as Customer[];
-      setCustomers(list);
+      setCustomers((data.customers ?? []) as Customer[]);
       setStorageNote(data.storageNote ?? data.storage ?? "");
       setStorage(data.storage ?? "");
       setDurable(Boolean(data.durable));
-      setCollectFrom(data.collectFrom ?? "POST /api/customers");
-      setExpanded((prev) => {
-        if (prev) return prev;
-        const hash = window.location.hash.replace(/^#/, "");
-        if (hash) return hash;
-        return list.length === 1 ? list[0]!.id : null;
-      });
-
-      if (orphanRes.ok) {
-        const o = await orphanRes.json();
-        setOrphans(o.orphans ?? []);
-      } else {
-        setOrphans([]);
-      }
     } catch (e) {
       setError(e instanceof Error ? e.message : "載入失敗");
     } finally {
@@ -450,33 +230,6 @@ export default function AdminCustomersPage() {
   useEffect(() => {
     void load();
   }, [load]);
-
-  async function linkOrphan(applicationId: string) {
-    const customerId = linkTarget[applicationId];
-    if (!customerId) {
-      setError("請先選擇要歸入的客戶");
-      return;
-    }
-    setLinking(applicationId);
-    setError(null);
-    try {
-      const res = await fetch("/api/admin/link-application", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ applicationId, customerId }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.message || data.error || "歸戶失敗");
-      }
-      setExpanded(customerId);
-      await load();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "歸戶失敗");
-    } finally {
-      setLinking(null);
-    }
-  }
 
   async function wipeAll() {
     const ok = window.confirm(
@@ -502,7 +255,7 @@ export default function AdminCustomersPage() {
   async function deleteOne(c: Customer) {
     const label = c.companyNameZh || c.applicantNameZh || c.id;
     const ok = window.confirm(
-      `確定刪除客戶「${label}」？\n\n會一併刪除：\n· 關聯申請與文件\n· 登入帳戶（${c.email || "—"}）\n\n此操作不可復原。`,
+      `確定刪除客戶「${label}」？\n\n會一併刪除關聯申請、文件與登入帳戶。`,
     );
     if (!ok) return;
     setDeletingId(c.id);
@@ -524,24 +277,36 @@ export default function AdminCustomersPage() {
     }
   }
 
-  const filtered = customers.filter((c) => {
+  function openReportPdf(c: Customer) {
+    const url =
+      c.reportUrl ||
+      `/api/admin/customers/${encodeURIComponent(c.id)}/report?print=1`;
+    window.open(url, "_blank", "noopener,noreferrer");
+  }
+
+  const filtered = useMemo(() => {
     const s = q.trim().toLowerCase();
-    if (!s) return true;
-    return [
-      c.id,
-      c.applicantNameZh,
-      c.applicantNameEn,
-      c.companyNameZh,
-      c.companyNameEn,
-      c.brNumber,
-      c.email,
-      c.phone,
-      ...(c.applicationIds ?? []),
-    ]
-      .join(" ")
-      .toLowerCase()
-      .includes(s);
-  });
+    if (!s) return customers;
+    return customers.filter((c) =>
+      [
+        c.id,
+        c.applicantNameZh,
+        c.applicantNameEn,
+        c.companyNameZh,
+        c.companyNameEn,
+        c.brNumber,
+        c.crNumber,
+        c.email,
+        c.phone,
+        c.industry,
+        c.address,
+        ...(c.applicationIds ?? []),
+      ]
+        .join(" ")
+        .toLowerCase()
+        .includes(s),
+    );
+  }, [customers, q]);
 
   return (
     <main className="space-y-6 px-4 py-6 lg:px-8">
@@ -549,7 +314,7 @@ export default function AdminCustomersPage() {
         <div>
           <h1 className="text-2xl font-semibold text-navy-900">客戶登記資料庫</h1>
           <p className="mt-1 text-sm text-text-secondary">
-            登記資料 · 文件 · AI 分析內容 · 批核／拒絕
+            表格檢視全部登記欄位 · 分析報告 PDF · 上載文件自動歸檔
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -563,7 +328,7 @@ export default function AdminCustomersPage() {
             disabled={wiping || loading}
             className="border-red-300 text-red-700 hover:bg-red-50"
           >
-            {wiping ? "清空中…" : "清空資料庫（逼重新註冊）"}
+            {wiping ? "清空中…" : "清空資料庫"}
           </Button>
           <a href="/api/admin/customers/export">
             <Button>
@@ -582,10 +347,10 @@ export default function AdminCustomersPage() {
         tone={durable ? "success" : "warning"}
         title={
           durable
-            ? `已接持久儲存（${storage}）`
-            : "尚未接 MySQL／Redis——前端寫入可能喺 Vercel 唔耐久"
+            ? `已接持久儲存（${storage}）· 文件／AI 分析按公司名／BR／電郵自動歸戶`
+            : "尚未接持久儲存"
         }
-        description={`客戶登記：${collectFrom || "POST /api/customers"}。文件於申請提交時上載至 Storage；AI 分析與批核決定一併寫入申請紀錄。${storageNote || ""}`}
+        description={storageNote || ""}
       />
 
       <Card className="flex flex-wrap items-center gap-3">
@@ -593,7 +358,7 @@ export default function AdminCustomersPage() {
           <Search className="size-4 text-text-muted" />
           <Input
             className="border-0 bg-transparent px-0 shadow-none focus:ring-0"
-            placeholder="搜尋編號／姓名／公司／BR／電郵／申請編號"
+            placeholder="搜尋編號／姓名／公司／BR／電郵／行業…"
             value={q}
             onChange={(e) => setQ(e.target.value)}
           />
@@ -606,279 +371,319 @@ export default function AdminCustomersPage() {
       </Card>
 
       <SectionHeader
-        title="登記列表"
-        subtitle="展開可查看申請批核、AI 文件分析歸檔與已收集文件（按公司名／BR／電郵自動對應）"
+        title="客戶登記表"
+        subtitle="橫向捲動可看齊全部欄位；列內可展開文件與分析詳情"
       />
 
-      {orphans.length > 0 && (
-        <Card className="space-y-3 border-amber-300/80 bg-amber-50/40">
-          <SectionHeader
-            title={`未歸戶申請文件（${orphans.length}）`}
-            subtitle="補件時未綁定客戶——揀客戶後按「歸入」即可喺下方客戶卡見到文件"
-          />
-          <div className="space-y-3">
-            {orphans.map((o) => (
-              <div
-                key={o.id}
-                className="rounded-xl border border-border bg-surface-1 px-3 py-3"
-              >
-                <div className="flex flex-wrap items-start justify-between gap-2">
-                  <div>
-                    <p className="font-mono text-xs text-text-muted">{o.id}</p>
-                    <p className="mt-0.5 text-sm text-navy-900">
-                      {o.purpose} · 文件 {o.documentCount} 份
-                    </p>
-                    <ul className="mt-1 text-xs text-text-secondary">
-                      {o.documents.slice(0, 5).map((d) => (
-                        <li key={d.id}>
-                          {d.kind} · {d.fileName}
-                        </li>
-                      ))}
-                      {o.documentCount > 5 && (
-                        <li>…仲有 {o.documentCount - 5} 份</li>
-                      )}
-                    </ul>
-                  </div>
-                  <div className="flex min-w-[220px] flex-col gap-2">
-                    <select
-                      className="h-10 rounded-xl border border-border bg-surface-1 px-3 text-sm"
-                      value={linkTarget[o.id] ?? ""}
-                      onChange={(e) =>
-                        setLinkTarget((prev) => ({
-                          ...prev,
-                          [o.id]: e.target.value,
-                        }))
-                      }
-                    >
-                      <option value="">選擇客戶…</option>
-                      {customers.map((c) => (
-                        <option key={c.id} value={c.id}>
-                          {c.companyNameZh || c.applicantNameZh}（{c.email}）
-                        </option>
-                      ))}
-                    </select>
-                    <Button
-                      size="sm"
-                      disabled={!linkTarget[o.id] || linking === o.id}
-                      onClick={() => void linkOrphan(o.id)}
-                    >
-                      {linking === o.id ? "歸入中…" : "歸入此客戶"}
-                    </Button>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </Card>
-      )}
-
-      <div className="space-y-3">
-        {filtered.map((c) => {
-          const open = expanded === c.id;
-          const docs = c.documents ?? [];
-          const apps = c.applications ?? [];
-          const analyses = c.analyses ?? [];
-          const latest = apps[0];
-          const latestStatus = latest
-            ? normalizeClientAppStatus(latest.status)
-            : null;
-          return (
-            <div key={c.id} id={c.id}>
-              <Card className="space-y-3">
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <button
-                    type="button"
-                    className="min-w-0 flex-1 text-left"
-                    onClick={() => setExpanded(open ? null : c.id)}
+      <div className="overflow-hidden rounded-xl border border-border bg-surface-1">
+        <div className="overflow-x-auto">
+          <table className="min-w-[2200px] w-full border-collapse text-left text-xs">
+            <thead className="bg-surface-2 text-[11px] uppercase tracking-wide text-text-muted">
+              <tr>
+                {TABLE_COLS.map((col) => (
+                  <th
+                    key={col.key}
+                    className={cn(
+                      "whitespace-nowrap border-b border-border px-3 py-2.5 font-semibold",
+                      col.sticky &&
+                        "sticky left-0 z-10 bg-surface-2 shadow-[1px_0_0_var(--border)]",
+                    )}
                   >
-                    <p className="font-mono text-xs text-text-muted">{c.id}</p>
-                    <p className="mt-1 font-semibold text-navy-900">
-                      {c.companyNameZh}
-                    </p>
-                    <p className="text-sm text-text-secondary">
-                      {c.applicantNameZh} · {c.relation} · {maskId(c.idNumber)}
-                    </p>
-                    <p className="mt-1 text-xs text-text-muted">
-                      {c.email} · {c.phone} · BR {c.brNumber}
-                    </p>
-                  </button>
-                  <div className="flex shrink-0 flex-col items-end gap-2">
-                    <div className="flex flex-wrap items-center justify-end gap-1.5">
-                      {latestStatus && (
-                        <span
-                          className={cn(
-                            "inline-flex rounded-full px-2.5 py-1 text-xs font-medium",
-                            clientAppStatusTone(latestStatus),
-                          )}
-                        >
-                          {clientAppStatusLabel(latestStatus)}
-                        </span>
-                      )}
-                      {analyses.length > 0 && (
-                        <p className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2.5 py-1 text-xs font-medium text-amber-900">
-                          AI {analyses.length}
-                        </p>
-                      )}
-                      <p className="inline-flex items-center gap-1 rounded-full bg-teal-100 px-2.5 py-1 text-xs font-medium text-teal-800">
-                        <FileText className="size-3.5" />
-                        文件 {c.documentCount ?? docs.length}
-                      </p>
-                    </div>
-                    <div className="flex flex-wrap items-center justify-end gap-2">
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        className="border-red-300 text-red-700 hover:bg-red-50"
-                        disabled={deletingId === c.id || wiping}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          void deleteOne(c);
-                        }}
-                      >
-                        <Trash2 className="mr-1 size-3.5" />
-                        {deletingId === c.id ? "刪除中…" : "刪除"}
-                      </Button>
-                      <button
-                        type="button"
-                        className="text-xs text-text-muted hover:text-navy-900"
-                        onClick={() => setExpanded(open ? null : c.id)}
-                      >
-                        {open ? "收起" : "展開分析／文件"}
-                      </button>
-                    </div>
-                  </div>
-                </div>
-
-                {open && (
-                  <div className="space-y-4 border-t border-border pt-3">
-                    <div>
-                      <p className="mb-2 text-xs font-medium text-text-muted">
-                        AI 分析與批核
-                        {apps.length > 0 ? ` · 申請 ${apps.length}` : ""}
-                        {analyses.length > 0
-                          ? ` · 文件分析 ${analyses.length}`
-                          : ""}
-                      </p>
-                      {apps.length === 0 && analyses.length === 0 ? (
-                        <div className="space-y-2 rounded-xl bg-surface-2 px-3 py-3 text-sm text-text-secondary">
-                          <p>尚未有申請決策或文件分析結果。</p>
-                          <p className="text-xs text-text-muted">
-                            客戶提交申請後會顯示批核結果；或到「AI 文件分析」上載並填公司名稱（須與本客戶公司名一致），結果會自動掛到此處。
-                          </p>
-                          <Link
-                            href="/admin/ai-analyze"
-                            className="inline-block text-xs font-medium text-teal-700 hover:underline"
+                    {col.label}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map((c) => {
+                const open = expanded === c.id;
+                const status = c.latestStatus
+                  ? normalizeClientAppStatus(c.latestStatus)
+                  : null;
+                const apps = c.applications ?? [];
+                const analyses = c.analyses ?? [];
+                const docs = c.documents ?? [];
+                return (
+                  <Fragment key={c.id}>
+                    <tr
+                      className="border-b border-border/80 hover:bg-surface-2/60"
+                    >
+                      <td className="sticky left-0 z-10 bg-surface-1 px-3 py-2 font-mono text-[11px] text-text-muted shadow-[1px_0_0_var(--border)]">
+                        {c.id}
+                      </td>
+                      <td className="px-3 py-2 font-medium text-navy-900">
+                        {c.companyNameZh || "—"}
+                      </td>
+                      <td className="px-3 py-2">{c.companyNameEn || "—"}</td>
+                      <td className="px-3 py-2 tabular">{c.brNumber || "—"}</td>
+                      <td className="px-3 py-2 tabular">{c.crNumber || "—"}</td>
+                      <td className="px-3 py-2">{c.applicantNameZh || "—"}</td>
+                      <td className="px-3 py-2">{c.applicantNameEn || "—"}</td>
+                      <td className="px-3 py-2">{maskId(c.idNumber || "")}</td>
+                      <td className="px-3 py-2">{c.relation || "—"}</td>
+                      <td className="px-3 py-2">{c.title || "—"}</td>
+                      <td className="px-3 py-2">{c.email || "—"}</td>
+                      <td className="px-3 py-2">{c.phone || "—"}</td>
+                      <td className="px-3 py-2">{c.contactPerson || "—"}</td>
+                      <td className="px-3 py-2">{c.foundedAt || "—"}</td>
+                      <td className="px-3 py-2">{c.companyType || "—"}</td>
+                      <td className="px-3 py-2">{c.industry || "—"}</td>
+                      <td className="px-3 py-2 tabular">{c.employees ?? "—"}</td>
+                      <td className="max-w-[220px] truncate px-3 py-2" title={c.address}>
+                        {c.address || "—"}
+                      </td>
+                      <td className="max-w-[140px] truncate px-3 py-2">
+                        {c.website || "—"}
+                      </td>
+                      <td className="px-3 py-2">
+                        {status ? (
+                          <span
+                            className={cn(
+                              "inline-flex rounded-full px-2 py-0.5 text-[11px] font-medium",
+                              clientAppStatusTone(status),
+                            )}
                           >
-                            前往 AI 文件分析 →
-                          </Link>
+                            {clientAppStatusLabel(status)}
+                          </span>
+                        ) : (
+                          "—"
+                        )}
+                      </td>
+                      <td className="px-3 py-2 tabular">
+                        {c.latestAmount != null
+                          ? formatHKD(c.latestAmount)
+                          : "—"}
+                      </td>
+                      <td className="px-3 py-2 tabular">
+                        {c.documentCount ?? docs.length}
+                      </td>
+                      <td className="px-3 py-2 tabular">
+                        {c.analysisCount ?? analyses.length}
+                      </td>
+                      <td className="whitespace-nowrap px-3 py-2 text-text-muted">
+                        {formatDateTime(c.updatedAt)}
+                      </td>
+                      <td className="px-3 py-2">
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => openReportPdf(c)}
+                            title="開啟分析報告並另存 PDF"
+                          >
+                            <FileText className="mr-1 size-3.5" />
+                            報告 PDF
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() =>
+                              setExpanded((prev) =>
+                                prev === c.id ? null : c.id,
+                              )
+                            }
+                          >
+                            {open ? (
+                              <ChevronUp className="mr-1 size-3.5" />
+                            ) : (
+                              <ChevronDown className="mr-1 size-3.5" />
+                            )}
+                            詳情
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="border-red-300 text-red-700 hover:bg-red-50"
+                            disabled={deletingId === c.id || wiping}
+                            onClick={() => void deleteOne(c)}
+                          >
+                            <Trash2 className="mr-1 size-3.5" />
+                            {deletingId === c.id ? "…" : "刪除"}
+                          </Button>
                         </div>
-                      ) : (
-                        <div className="space-y-3">
-                          {apps.map((app) => (
-                            <AiAnalysisBlock key={app.id} app={app} />
-                          ))}
-                          {analyses.map((a) => (
-                            <ArchiveAnalysisBlock
-                              key={a.id}
-                              item={a}
-                              open={expandedArchive === a.id}
-                              onToggle={() =>
-                                setExpandedArchive((prev) =>
-                                  prev === a.id ? null : a.id,
-                                )
-                              }
-                            />
-                          ))}
-                        </div>
-                      )}
-                    </div>
+                      </td>
+                    </tr>
+                    {open && (
+                      <tr className="bg-surface-2/40">
+                        <td
+                          colSpan={TABLE_COLS.length}
+                          className="px-4 py-4"
+                        >
+                          <div className="grid gap-4 lg:grid-cols-2">
+                            <div className="space-y-2">
+                              <p className="text-xs font-semibold text-navy-900">
+                                登記備註／來源
+                              </p>
+                              <p className="text-sm text-text-secondary">
+                                來源：{c.source || "—"} · 備註：{c.notes || "—"}
+                              </p>
+                              <p className="text-xs font-semibold text-navy-900">
+                                申請與批核（{apps.length}）
+                              </p>
+                              {apps.length === 0 ? (
+                                <p className="text-sm text-text-muted">
+                                  尚未有申請。
+                                </p>
+                              ) : (
+                                <ul className="space-y-2">
+                                  {apps.map((a) => {
+                                    const st = normalizeClientAppStatus(
+                                      a.status,
+                                    );
+                                    return (
+                                      <li
+                                        key={a.id}
+                                        className="rounded-lg border border-border bg-surface-1 px-3 py-2"
+                                      >
+                                        <div className="flex flex-wrap justify-between gap-2">
+                                          <span className="font-mono text-[11px] text-text-muted">
+                                            {a.id}
+                                          </span>
+                                          <span
+                                            className={cn(
+                                              "rounded-full px-2 py-0.5 text-[11px]",
+                                              clientAppStatusTone(st),
+                                            )}
+                                          >
+                                            {clientAppStatusLabel(st)}
+                                          </span>
+                                        </div>
+                                        <p className="mt-1 text-sm">
+                                          {formatHKD(a.amount)} · {a.purpose}
+                                        </p>
+                                        {a.aiAnalysis?.summary && (
+                                          <p className="mt-1 text-xs text-text-muted">
+                                            {a.aiAnalysis.summary}
+                                          </p>
+                                        )}
+                                      </li>
+                                    );
+                                  })}
+                                </ul>
+                              )}
+                            </div>
 
-                    <div>
-                      <p className="mb-2 text-xs font-medium text-text-muted">
-                        已收集文件（存放於此）
-                        {docs.length > 0 ? ` · ${docs.length} 份` : ""}
-                        {(c.applicationIds?.length ?? 0) > 0
-                          ? ` · 申請 ${c.applicationIds!.join("、")}`
-                          : ""}
-                      </p>
-                      {docs.length === 0 ? (
-                        <div className="space-y-2 rounded-xl bg-surface-2 px-3 py-3 text-sm text-text-secondary">
-                          <p>尚未有上載／分析文件歸戶到此客戶。</p>
-                          <p className="text-xs text-text-muted">
-                            申請提交上載的 PDF，或後台 AI 分析（公司名／BR
-                            對得上）會顯示於此。
-                          </p>
-                        </div>
-                      ) : (
-                        <ul className="space-y-2">
-                          {docs.map((d) => (
-                            <li
-                              key={`${d.source || "doc"}:${d.id}`}
-                              className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-surface-2 px-3 py-2 text-sm"
-                            >
-                              <div>
-                                <p className="font-medium text-navy-900">
-                                  {d.kindLabel}
-                                  <span className="ml-2 text-xs font-normal text-text-muted">
-                                    {d.slot}
-                                  </span>
+                            <div className="space-y-2">
+                              <p className="text-xs font-semibold text-navy-900">
+                                已收集／自動歸檔文件（{docs.length}）
+                              </p>
+                              {docs.length === 0 ? (
+                                <p className="text-sm text-text-muted">
+                                  尚未有文件。申請上載或 AI 分析（公司名／BR
+                                  一致）會自動歸檔至此。
                                 </p>
-                                <p className="text-xs text-text-secondary">
-                                  {d.fileName}
-                                  {d.size > 0 ? ` · ${formatSize(d.size)}` : ""}
-                                  {d.applicationId
-                                    ? ` · ${d.applicationId}`
-                                    : ""}
-                                  {d.source === "archive" ? " · AI 歸檔" : ""}
+                              ) : (
+                                <ul className="max-h-64 space-y-1.5 overflow-y-auto">
+                                  {docs.map((d) => (
+                                    <li
+                                      key={`${d.source}:${d.id}`}
+                                      className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-surface-1 px-3 py-2"
+                                    >
+                                      <div className="min-w-0">
+                                        <p className="font-medium text-navy-900">
+                                          {d.kindLabel}
+                                        </p>
+                                        <p className="truncate text-[11px] text-text-muted">
+                                          {d.fileName}
+                                          {d.size > 0
+                                            ? ` · ${formatSize(d.size)}`
+                                            : ""}
+                                          {d.source === "archive"
+                                            ? " · AI 歸檔"
+                                            : ""}
+                                        </p>
+                                      </div>
+                                      {d.downloadUrl ? (
+                                        <a href={d.downloadUrl}>
+                                          <Button size="sm" variant="outline">
+                                            <Download className="mr-1 size-3.5" />
+                                            下載
+                                          </Button>
+                                        </a>
+                                      ) : null}
+                                    </li>
+                                  ))}
+                                </ul>
+                              )}
+
+                              <p className="pt-2 text-xs font-semibold text-navy-900">
+                                AI 分析歸檔（{analyses.length}）
+                              </p>
+                              {analyses.length === 0 ? (
+                                <p className="text-sm text-text-muted">
+                                  尚未有分析歸檔。
                                 </p>
-                                {d.summary && (
-                                  <p className="mt-0.5 line-clamp-2 text-xs text-text-muted">
-                                    {d.summary}
-                                  </p>
-                                )}
-                              </div>
-                              <div className="flex flex-wrap gap-2">
-                                {d.source === "archive" ? (
-                                  <Button
-                                    size="sm"
-                                    variant="outline"
-                                    onClick={() => {
-                                      setExpandedArchive(d.archiveId || d.id);
-                                    }}
-                                  >
-                                    查看分析
-                                  </Button>
-                                ) : d.downloadUrl ? (
-                                  <a href={d.downloadUrl}>
-                                    <Button size="sm" variant="outline">
-                                      <Download className="mr-1 size-3.5" />
-                                      下載
-                                    </Button>
-                                  </a>
-                                ) : null}
-                              </div>
-                            </li>
-                          ))}
-                        </ul>
-                      )}
-                    </div>
-                  </div>
-                )}
-              </Card>
-            </div>
-          );
-        })}
-        {!loading && filtered.length === 0 && (
-          <Card className="py-10 text-center text-sm text-text-muted">
-            未有符合的客戶紀錄
-          </Card>
-        )}
+                              ) : (
+                                <ul className="space-y-2">
+                                  {analyses.map((a) => {
+                                    const aOpen = expandedArchive === a.id;
+                                    return (
+                                      <li
+                                        key={a.id}
+                                        className="rounded-lg border border-border bg-surface-1"
+                                      >
+                                        <button
+                                          type="button"
+                                          className="flex w-full items-start justify-between gap-2 px-3 py-2 text-left"
+                                          onClick={() =>
+                                            setExpandedArchive((prev) =>
+                                              prev === a.id ? null : a.id,
+                                            )
+                                          }
+                                        >
+                                          <div>
+                                            <p className="text-sm font-medium text-navy-900">
+                                              {a.title}
+                                            </p>
+                                            <p className="text-[11px] text-text-muted">
+                                              {a.docKind}
+                                              {a.overall
+                                                ? ` · ${assessmentLabel(a.overall)}`
+                                                : ""}
+                                            </p>
+                                          </div>
+                                          <span className="text-[11px] text-text-muted">
+                                            {aOpen ? "收起" : "展開"}
+                                          </span>
+                                        </button>
+                                        {aOpen && (
+                                          <div className="border-t border-border px-3 py-2">
+                                            <ArchiveExtractBody
+                                              payload={a.payload || {}}
+                                            />
+                                          </div>
+                                        )}
+                                      </li>
+                                    );
+                                  })}
+                                </ul>
+                              )}
+                            </div>
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
+                );
+              })}
+              {!loading && filtered.length === 0 && (
+                <tr>
+                  <td
+                    colSpan={TABLE_COLS.length}
+                    className="px-4 py-10 text-center text-sm text-text-muted"
+                  >
+                    未有符合的客戶紀錄
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
 
       <Disclaimer>
-        {storageNote ||
-          "客戶資料及上載文件屬敏感個人資料，下載須按角色權限及審計要求處理。"}
+        「報告 PDF」會開啟可列印報告，請用瀏覽器「另存為 PDF」。上載文件與 AI
+        分析會按公司名／BR／電郵自動歸檔到對應客戶。
       </Disclaimer>
     </main>
   );

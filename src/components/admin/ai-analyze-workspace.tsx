@@ -222,6 +222,10 @@ export function AiAnalyzeWorkspace({
 
   const [tab, setTab] = useState<"analyze" | "archive">("analyze");
   const [companyName, setCompanyName] = useState("");
+  const [customerId, setCustomerId] = useState<string | null>(null);
+  const [customerOptions, setCustomerOptions] = useState<
+    Array<{ id: string; companyNameZh: string; brNumber: string }>
+  >([]);
   const [personRole, setPersonRole] = useState<PersonRole>("董事");
   const [monthlyDebtPayments, setMonthlyDebtPayments] = useState("");
   const [gearingThreshold, setGearingThreshold] = useState("4");
@@ -373,6 +377,30 @@ export function AiAnalyzeWorkspace({
     if (enableArchive) void loadArchives();
     void loadGeminiHealth();
   }, [enableArchive, loadArchives, loadGeminiHealth]);
+
+  useEffect(() => {
+    if (!enableArchive) return;
+    void (async () => {
+      try {
+        const res = await fetch("/api/admin/customers", { cache: "no-store" });
+        const data = await res.json();
+        if (!res.ok) return;
+        setCustomerOptions(
+          ((data.customers ?? []) as Array<{
+            id: string;
+            companyNameZh?: string;
+            brNumber?: string;
+          }>).map((c) => ({
+            id: c.id,
+            companyNameZh: c.companyNameZh || c.id,
+            brNumber: c.brNumber || "",
+          })),
+        );
+      } catch {
+        /* ignore */
+      }
+    })();
+  }, [enableArchive]);
 
   useEffect(() => {
     if (tab === "archive") void loadArchives();
@@ -643,6 +671,7 @@ export function AiAnalyzeWorkspace({
         fileName: item.result.fileName || item.label,
         docKind: item.docKind,
         companyName: companyName || null,
+        customerId: customerId || null,
         summary: meta.summary,
         overall: meta.overall,
         payload: item.result,
@@ -996,6 +1025,25 @@ export function AiAnalyzeWorkspace({
               title="AI 文件分析（按類別分開上載）"
               subtitle="每類文件獨立上載區＋獨立分析要求；禁止重覆檔案"
             />
+            <Field label="歸檔客戶（上載文件自動歸戶）">
+              <Select
+                value={customerId || ""}
+                onChange={(e) => {
+                  const id = e.target.value || null;
+                  setCustomerId(id);
+                  const hit = customerOptions.find((c) => c.id === id);
+                  if (hit) setCompanyName(hit.companyNameZh);
+                }}
+              >
+                <option value="">不指定（按公司名／BR 自動對應）</option>
+                {customerOptions.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.companyNameZh}
+                    {c.brNumber ? ` · BR ${c.brNumber}` : ""}（{c.id}）
+                  </option>
+                ))}
+              </Select>
+            </Field>
             <Field label="公司名稱（選填提示）">
               <Input
                 value={companyName}

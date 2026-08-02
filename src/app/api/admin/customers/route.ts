@@ -3,7 +3,10 @@ import {
   clearApplicantUsers,
   removeApplicantUserByEmail,
 } from "@/lib/auth";
-import { listArchivedAnalyses } from "@/lib/analysis-archive-registry";
+import {
+  linkArchiveToCustomer,
+  listArchivedAnalyses,
+} from "@/lib/analysis-archive-registry";
 import {
   CustomerRegistrationSchema,
   clearAllCustomers,
@@ -32,6 +35,7 @@ import {
   deleteDocumentsByApplication,
   deleteDocumentsByCustomer,
   documentKindLabel,
+  linkDocumentsCustomer,
   listDocuments,
 } from "@/lib/documents-registry";
 import {
@@ -52,10 +56,36 @@ async function enrichCustomers<
     brNumber?: string | null;
   },
 >(customers: T[]) {
-  const [allDocs, apps, archives] = await Promise.all([
+  const [_allDocs, apps, archives] = await Promise.all([
     listDocuments(),
     listApplications(),
     listArchivedAnalyses().catch(() => []),
+  ]);
+
+  // 上載文件／分析歸檔自動歸戶
+  for (const c of customers) {
+    const linkedApps = apps.filter((a) => applicationMatchesCustomer(a, c));
+    for (const app of linkedApps) {
+      try {
+        await linkDocumentsCustomer(app.id, c.id);
+      } catch (err) {
+        console.error("[customers] auto link docs", app.id, err);
+      }
+    }
+    for (const a of archives) {
+      if (a.customerId === c.id) continue;
+      if (!archiveMatchesCustomer(a, c)) continue;
+      try {
+        await linkArchiveToCustomer(a.id, c.id);
+      } catch (err) {
+        console.error("[customers] auto link archive", a.id, err);
+      }
+    }
+  }
+
+  const [docs2, archives2] = await Promise.all([
+    listDocuments(),
+    listArchivedAnalyses().catch(() => archives),
   ]);
 
   return customers.map((c) => {
@@ -64,7 +94,6 @@ async function enrichCustomers<
       .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
     const appIds = new Set(linkedApps.map((a) => a.id));
 
-    // 申請內嵌 documents 亦視為已收集文件（即使 documents.json 空）
     const embeddedDocs = linkedApps.flatMap((a) =>
       (a.documents ?? []).map((d) => ({
         id: d.id,
@@ -81,7 +110,7 @@ async function enrichCustomers<
       })),
     );
 
-    const registryDocs = allDocs
+    const registryDocs = docs2
       .filter((d) => d.customerId === c.id || appIds.has(d.applicationId))
       .map((d) => ({
         id: d.id,
@@ -97,7 +126,7 @@ async function enrichCustomers<
         source: "registry" as const,
       }));
 
-    const linkedArchives = archives.filter((a) =>
+    const linkedArchives = archives2.filter((a) =>
       archiveMatchesCustomer(a, c),
     );
 
@@ -120,15 +149,18 @@ async function enrichCustomers<
     }));
 
     const seen = new Set<string>();
-    const uniqueDocs = [...registryDocs, ...embeddedDocs, ...archiveAsDocs].filter(
-      (d) => {
-        const key = `${d.source}:${d.id}`;
-        if (seen.has(key)) return false;
-        seen.add(key);
-        return true;
-      },
-    );
+    const uniqueDocs = [
+      ...registryDocs,
+      ...embeddedDocs,
+      ...archiveAsDocs,
+    ].filter((d) => {
+      const key = `${d.source}:${d.id}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
 
+    const latest = linkedApps[0];
     return {
       ...c,
       applicationIds: [...appIds],
@@ -161,6 +193,10 @@ async function enrichCustomers<
       })),
       documents: uniqueDocs,
       documentCount: uniqueDocs.length,
+      analysisCount: linkedArchives.length,
+      latestStatus: latest?.status ?? null,
+      latestAmount: latest?.amount ?? null,
+      reportUrl: `/api/admin/customers/${encodeURIComponent(c.id)}/report?print=1`,
     };
   });
 }

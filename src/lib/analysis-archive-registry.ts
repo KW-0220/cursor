@@ -150,7 +150,9 @@ export async function archiveAnalysis(
 
 export async function updateArchivedAnalysis(
   id: string,
-  patch: Partial<Pick<ArchivedAnalysisRecord, "title" | "notes">>,
+  patch: Partial<
+    Pick<ArchivedAnalysisRecord, "title" | "notes" | "customerId" | "companyName">
+  >,
 ) {
   const records = await ensureLoaded();
   const idx = records.findIndex((r) => r.id === id);
@@ -162,10 +164,26 @@ export async function updateArchivedAnalysis(
       patch.notes !== undefined
         ? patch.notes?.trim() || null
         : records[idx].notes,
+    customerId:
+      patch.customerId !== undefined
+        ? patch.customerId?.trim() || null
+        : records[idx].customerId ?? null,
+    companyName:
+      patch.companyName !== undefined
+        ? patch.companyName?.trim() || null
+        : records[idx].companyName,
     updatedAt: new Date().toISOString(),
   };
   await persist(records);
   return records[idx];
+}
+
+/** 將歸檔分析綁定到客戶（上載／分析後自動歸戶） */
+export async function linkArchiveToCustomer(
+  archiveId: string,
+  customerId: string,
+) {
+  return updateArchivedAnalysis(archiveId, { customerId });
 }
 
 export async function deleteArchivedAnalysis(id: string) {
