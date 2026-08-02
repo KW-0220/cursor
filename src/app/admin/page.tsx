@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Trash2 } from "lucide-react";
+import { FileText, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Select } from "@/components/ui/field";
 import { Card, EmptyState, SectionHeader } from "@/components/ui/layout";
@@ -33,11 +33,19 @@ type AdminApp = {
     summary?: string;
     decision?: string;
     decisionReason?: string | null;
+    analyzedAt?: string;
     bank?: { overall?: string; narrative?: string };
   } | null;
   updatedAt: string;
   createdAt: string;
 };
+
+function aiOverallLabel(o?: string) {
+  if (o === "adequate") return "尚可";
+  if (o === "tight") return "偏緊";
+  if (o === "weak") return "偏弱";
+  return null;
+}
 
 export default function AdminDashboardPage() {
   const [apps, setApps] = useState<AdminApp[]>([]);
@@ -290,7 +298,7 @@ export default function AdminDashboardPage() {
       </Card>
 
       <Card className="overflow-x-auto p-0">
-        <table className="w-full min-w-[1080px] text-left text-sm">
+        <table className="w-full min-w-[1200px] text-left text-sm">
           <thead className="border-b border-border bg-surface-2/80 text-xs text-text-muted">
             <tr>
               {[
@@ -300,6 +308,7 @@ export default function AdminDashboardPage() {
                 "申請金額",
                 "用途",
                 "文件",
+                "AI 分析報告",
                 "目前狀態",
                 "最後更新",
                 "操作",
@@ -314,6 +323,9 @@ export default function AdminDashboardPage() {
             {filtered.map((app) => {
               const status = normalizeClientAppStatus(app.status);
               const docCount = app.documents?.length ?? 0;
+              const hasAi = Boolean(app.aiAnalysis);
+              const bankLabel = aiOverallLabel(app.aiAnalysis?.bank?.overall);
+              const reportUrl = `/api/admin/applications/${encodeURIComponent(app.id)}/report?print=1`;
               return (
                 <tr
                   key={app.id}
@@ -360,6 +372,53 @@ export default function AdminDashboardPage() {
                       : ""}
                   </td>
                   <td className="px-4 py-3">
+                    <div className="flex min-w-[180px] flex-col gap-1.5">
+                      {hasAi ? (
+                        <>
+                          <p className="text-xs font-medium text-navy-900">
+                            {app.aiAnalysis?.decision === "approved"
+                              ? "AI：批核"
+                              : app.aiAnalysis?.decision === "rejected"
+                                ? "AI：拒絕"
+                                : "AI：審批中"}
+                            {bankLabel ? ` · 還款${bankLabel}` : ""}
+                          </p>
+                          {app.aiAnalysis?.summary && (
+                            <p className="line-clamp-2 max-w-[240px] text-[11px] text-text-secondary">
+                              {app.aiAnalysis.summary}
+                            </p>
+                          )}
+                          <a
+                            href={reportUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                          >
+                            <Button size="sm" variant="outline">
+                              <FileText className="mr-1 size-3.5" />
+                              下載報告
+                            </Button>
+                          </a>
+                        </>
+                      ) : (
+                        <>
+                          <p className="text-[11px] text-text-muted">
+                            尚未有 AI 分析
+                          </p>
+                          <a
+                            href={reportUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                          >
+                            <Button size="sm" variant="outline">
+                              <FileText className="mr-1 size-3.5" />
+                              下載報告
+                            </Button>
+                          </a>
+                        </>
+                      )}
+                    </div>
+                  </td>
+                  <td className="px-4 py-3">
                     <div className="flex min-w-[140px] flex-col gap-1.5">
                       <Select
                         className={cn(
@@ -391,18 +450,6 @@ export default function AdminDashboardPage() {
                           更新中…
                         </span>
                       )}
-                      {app.aiAnalysis?.bank?.overall && (
-                        <p className="text-[11px] text-text-muted">
-                          AI 還款能力：
-                          {app.aiAnalysis.bank.overall === "adequate"
-                            ? "尚可"
-                            : app.aiAnalysis.bank.overall === "tight"
-                              ? "偏緊"
-                              : app.aiAnalysis.bank.overall === "weak"
-                                ? "偏弱"
-                                : "未知"}
-                        </p>
-                      )}
                       {status === "rejected" &&
                         (app.failureReason ||
                           app.aiAnalysis?.decisionReason) && (
@@ -411,11 +458,6 @@ export default function AdminDashboardPage() {
                               app.aiAnalysis?.decisionReason}
                           </p>
                         )}
-                      {status !== "rejected" && app.aiAnalysis?.summary && (
-                        <p className="max-w-[220px] text-[11px] text-text-secondary">
-                          {app.aiAnalysis.summary}
-                        </p>
-                      )}
                     </div>
                   </td>
                   <td className="px-4 py-3 text-xs text-text-secondary">
