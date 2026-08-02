@@ -118,11 +118,6 @@ type Customer = {
   reportUrl?: string;
 };
 
-function maskId(v: string) {
-  if (v.length < 5) return v;
-  return `${v.slice(0, 1)}***${v.slice(-3)}`;
-}
-
 function formatSize(n: number) {
   if (n < 1024) return `${n} B`;
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
@@ -419,11 +414,15 @@ export default function AdminCustomersPage() {
                       <td className="px-3 py-2 tabular">{c.crNumber || "—"}</td>
                       <td className="px-3 py-2">{c.applicantNameZh || "—"}</td>
                       <td className="px-3 py-2">{c.applicantNameEn || "—"}</td>
-                      <td className="px-3 py-2">{maskId(c.idNumber || "")}</td>
+                      <td className="whitespace-nowrap px-3 py-2 font-mono tabular">
+                        {c.idNumber || "—"}
+                      </td>
                       <td className="px-3 py-2">{c.relation || "—"}</td>
                       <td className="px-3 py-2">{c.title || "—"}</td>
                       <td className="px-3 py-2">{c.email || "—"}</td>
-                      <td className="px-3 py-2">{c.phone || "—"}</td>
+                      <td className="whitespace-nowrap px-3 py-2 font-mono tabular">
+                        {c.phone || "—"}
+                      </td>
                       <td className="px-3 py-2">{c.contactPerson || "—"}</td>
                       <td className="px-3 py-2">{c.foundedAt || "—"}</td>
                       <td className="px-3 py-2">{c.companyType || "—"}</td>

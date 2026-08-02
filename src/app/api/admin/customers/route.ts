@@ -226,7 +226,7 @@ export async function GET(req: NextRequest) {
       backend: "supabase",
       collectFrom: "POST /api/customers + 申請提交文件",
       storageNote:
-        "客戶：Supabase Postgres；文件：Supabase Storage（customer-documents）",
+        "客戶：Supabase Postgres；文件自動歸檔至客戶；分析報告可下載 PDF",
     });
   } catch (err) {
     // table / network 問題時回退舊 registry（仍要已通過 admin gate）
