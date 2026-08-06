@@ -665,6 +665,7 @@ export default function BizAdminDetailPage() {
             )}
             {app.files.map((f) => {
               const slot = BIZ_DOC_SLOTS.find((s) => s.id === f.slotId);
+              const canDownload = Boolean(f.storagePath);
               return (
                 <div
                   key={f.id}
@@ -676,11 +677,99 @@ export default function BizAdminDetailPage() {
                       <p className="text-xs text-[color:var(--biz-muted)]">
                         {slot?.name || f.slotId} · 群組 {slot?.group} · v
                         {f.version} · {formatDateTime(f.uploadedAt)}
+                        {f.sizeBytes
+                          ? ` · ${(f.sizeBytes / 1024).toFixed(0)} KB`
+                          : ""}
                       </p>
+                      {!canDownload && (
+                        <p className="mt-1 text-xs text-[color:var(--biz-gold-800)]">
+                          此檔僅有檔名紀錄、尚未寫入 Storage；請請客戶重新上載後再下載。
+                        </p>
+                      )}
                     </div>
                     <BizDocBadge status={f.status} />
                   </div>
                   <div className="mt-3 flex flex-wrap gap-2">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={!canDownload}
+                      title={
+                        canDownload
+                          ? undefined
+                          : "檔案內容未同步，無法下載"
+                      }
+                      onClick={() => {
+                        void (async () => {
+                          try {
+                            const res = await fetch(
+                              `/api/biz/admin/applications/${encodeURIComponent(app.id)}/files/${encodeURIComponent(f.id)}`,
+                              { cache: "no-store" },
+                            );
+                            if (!res.ok) {
+                              const json = await res.json().catch(() => ({}));
+                              throw new Error(
+                                json.message ||
+                                  json.error ||
+                                  `下載失敗（HTTP ${res.status}）`,
+                              );
+                            }
+                            const blob = await res.blob();
+                            const url = URL.createObjectURL(blob);
+                            const a = document.createElement("a");
+                            a.href = url;
+                            a.download = f.originalName || "document";
+                            document.body.appendChild(a);
+                            a.click();
+                            a.remove();
+                            URL.revokeObjectURL(url);
+                            setMessage(`已下載：${f.originalName}`);
+                          } catch (e) {
+                            setMessage(
+                              e instanceof Error ? e.message : "下載失敗",
+                            );
+                          }
+                        })();
+                      }}
+                    >
+                      下載
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={!canDownload}
+                      onClick={() => {
+                        void (async () => {
+                          try {
+                            const res = await fetch(
+                              `/api/biz/admin/applications/${encodeURIComponent(app.id)}/files/${encodeURIComponent(f.id)}?inline=1`,
+                              { cache: "no-store" },
+                            );
+                            if (!res.ok) {
+                              const json = await res.json().catch(() => ({}));
+                              throw new Error(
+                                json.message ||
+                                  json.error ||
+                                  `預覽失敗（HTTP ${res.status}）`,
+                              );
+                            }
+                            const blob = await res.blob();
+                            const url = URL.createObjectURL(blob);
+                            window.open(url, "_blank", "noopener,noreferrer");
+                            window.setTimeout(
+                              () => URL.revokeObjectURL(url),
+                              60_000,
+                            );
+                          } catch (e) {
+                            setMessage(
+                              e instanceof Error ? e.message : "預覽失敗",
+                            );
+                          }
+                        })();
+                      }}
+                    >
+                      預覽
+                    </Button>
                     <Button
                       size="sm"
                       variant="outline"

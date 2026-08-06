@@ -1,15 +1,20 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import { FileUploadCard } from "@/components/biz/file-upload-card";
 import { BizDocBadge } from "@/components/biz/status";
 import { getDocSlot } from "@/lib/bizdoc/documents";
-import { addMockUpload } from "@/lib/bizdoc/store";
 import { useBizdoc } from "@/lib/bizdoc/client-store";
+import { uploadBizdocFile } from "@/lib/bizdoc/upload-client";
 import { Button } from "@/components/ui/button";
+import type { BizDocSlotId } from "@/lib/bizdoc/documents";
 
 export default function SupplementsPage() {
-  const { app, update, hydrated } = useBizdoc();
+  const { app, update, saveNow, hydrated } = useBizdoc();
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
   if (!hydrated || !app.id) {
     return (
       <div className="flex flex-1 items-center justify-center p-8 text-sm text-[color:var(--biz-muted)]">
@@ -30,6 +35,41 @@ export default function SupplementsPage() {
   );
   const slots = [...new Set(need.map((f) => f.slotId))];
 
+  async function reupload(slotId: BizDocSlotId, file: File) {
+    setError(null);
+    setBusy(true);
+    try {
+      const uploaded = await uploadBizdocFile({
+        applicationId: app.id,
+        slotId,
+        file,
+        uploadedBy: app.applicant.name || "客戶",
+      });
+      update((prev) => ({
+        ...prev,
+        status:
+          prev.status === "needs_supplement"
+            ? "supplement_review"
+            : prev.status,
+        files: [
+          ...prev.files.filter(
+            (f) => f.slotId !== slotId || f.status === "approved",
+          ),
+          {
+            ...uploaded,
+            status: "reuploaded" as const,
+            version: uploaded.version,
+          },
+        ],
+      }));
+      saveNow();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "上載失敗");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <main className="flex-1 px-4 py-6 md:px-8 md:py-8">
       <h1 className="font-[family-name:var(--font-biz-display)] text-3xl font-semibold text-[color:var(--biz-forest-900)]">
@@ -38,6 +78,17 @@ export default function SupplementsPage() {
       <p className="mt-1 text-sm text-[color:var(--biz-muted)]">
         請按指示重新上載；補交後狀態會更新為「補交文件檢查中」。
       </p>
+
+      {error && (
+        <p className="mt-4 rounded-xl bg-danger-100 px-3 py-2 text-sm text-danger-600">
+          {error}
+        </p>
+      )}
+      {busy && (
+        <p className="mt-2 text-sm text-[color:var(--biz-forest-700)]">
+          正在上載……
+        </p>
+      )}
 
       {need.length === 0 ? (
         <div className="mt-10 rounded-2xl border border-dashed border-[color:var(--biz-border)] px-6 py-16 text-center">
@@ -72,19 +123,14 @@ export default function SupplementsPage() {
             const slot = getDocSlot(slotId);
             if (!slot) return null;
             return (
-            <FileUploadCard
-              key={slotId}
-              slot={{ ...slot, required: true }}
-              files={app.files.filter((f) => f.slotId === slotId)}
-              onUpload={(file) => {
-                const next = addMockUpload(app, slotId, {
-                  name: file.name,
-                  size: file.size,
-                  type: file.type,
-                });
-                update(() => next);
-              }}
-            />
+              <FileUploadCard
+                key={slotId}
+                slot={{ ...slot, required: true }}
+                files={app.files.filter((f) => f.slotId === slotId)}
+                onUpload={(file) => {
+                  void reupload(slotId, file);
+                }}
+              />
             );
           })}
         </div>

@@ -201,6 +201,9 @@ export interface BizUploadedFile {
   adminNote?: string;
   version: number;
   proofMeta?: BizBusinessProofMeta;
+  /** Supabase Storage path（有值才可後台下載） */
+  storagePath?: string;
+  storage?: "supabase" | "local";
 }
 
 export interface BizConsent {

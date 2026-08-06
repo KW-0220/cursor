@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import { ApplyWizardShell } from "@/components/biz/apply-wizard-shell";
 import { FileUploadCard } from "@/components/biz/file-upload-card";
@@ -24,7 +25,7 @@ import {
   planToUploadDef,
   type BizDocSlotId,
 } from "@/lib/bizdoc/documents";
-import type { BizUploadedFile } from "@/lib/bizdoc/types";
+import { uploadBizdocFile } from "@/lib/bizdoc/upload-client";
 
 export default function DynamicDocumentsPage() {
   const { app, update, saveNow } = useBizdoc();
@@ -32,25 +33,34 @@ export default function DynamicDocumentsPage() {
   const cat = effectiveCategory(app.classification);
   const plans = getResolvedPlans(app);
   const progress = buildDocProgress(app);
+  const [uploading, setUploading] = useState<string | null>(null);
+  const [uploadError, setUploadError] = useState<string | null>(null);
 
-  function addFile(slotId: BizDocSlotId, file: File) {
-    const uploaded: BizUploadedFile = {
-      id: `f-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-      slotId,
-      originalName: file.name,
-      storedName: file.name,
-      sizeBytes: file.size,
-      mimeType: file.type || "application/octet-stream",
-      uploadedAt: new Date().toISOString(),
-      uploadedBy: app.applicant.name || "客戶",
-      status: "uploaded",
-      version: 1,
-    };
-    update((prev) => ({
-      ...prev,
-      files: [...prev.files.filter((f) => f.slotId !== slotId || f.status === "approved"), uploaded],
-    }));
-    saveNow();
+  async function addFile(slotId: BizDocSlotId, file: File) {
+    setUploadError(null);
+    setUploading(slotId);
+    try {
+      const uploaded = await uploadBizdocFile({
+        applicationId: app.id,
+        slotId,
+        file,
+        uploadedBy: app.applicant.name || "客戶",
+      });
+      update((prev) => ({
+        ...prev,
+        files: [
+          ...prev.files.filter(
+            (f) => f.slotId !== slotId || f.status === "approved",
+          ),
+          uploaded,
+        ],
+      }));
+      saveNow();
+    } catch (e) {
+      setUploadError(e instanceof Error ? e.message : "上載失敗");
+    } finally {
+      setUploading(null);
+    }
   }
 
   function removeFile(fileId: string) {
@@ -116,6 +126,17 @@ export default function DynamicDocumentsPage() {
             面簽當天需帶備：{progress.interviewNeeded} 項（見「面簽準備」步驟）
           </p>
         </div>
+
+        {uploadError && (
+          <p className="rounded-xl bg-danger-100 px-3 py-2 text-sm text-danger-600">
+            {uploadError}
+          </p>
+        )}
+        {uploading && (
+          <p className="text-sm text-[color:var(--biz-forest-700)]">
+            正在上載文件……
+          </p>
+        )}
 
         {showRelated && (
           <section className="space-y-3 rounded-2xl border border-[color:var(--biz-border)] bg-white p-5">
