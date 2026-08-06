@@ -41,16 +41,37 @@ export default function ConfirmClassPage() {
   const groups = [...new Set(required.map((p) => p.slot.group))];
 
   function confirm() {
-    if (!ready || !cat) return;
-    update((prev) => ({
-      ...prev,
-      classification: {
-        ...prev.classification,
-        systemCategory: cat,
-        clientConfirmed: true,
-        confirmedAt: new Date().toISOString(),
-      },
-    }));
+    let ok = false;
+    update((prev) => {
+      const c0 = prev.classification ?? {
+        shareholderIdentity: null,
+        companyAge: null,
+        hasRelatedCompany: null,
+        systemCategory: null,
+        clientConfirmed: false,
+        overrideCategory: null,
+      };
+      const cat0 = effectiveCategory(c0);
+      if (
+        !c0.shareholderIdentity ||
+        !c0.companyAge ||
+        !c0.hasRelatedCompany ||
+        !cat0
+      ) {
+        return prev;
+      }
+      ok = true;
+      return {
+        ...prev,
+        classification: {
+          ...c0,
+          systemCategory: cat0,
+          clientConfirmed: true,
+          confirmedAt: new Date().toISOString(),
+        },
+      };
+    });
+    if (!ok) return;
     saveNow();
     router.push("/workspace/apply/applicant");
   }
