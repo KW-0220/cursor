@@ -15,6 +15,7 @@ import {
   saveClientApplication,
   submitClientApplication,
 } from "@/lib/bizdoc/store";
+import { createEmptyApplication } from "@/lib/bizdoc/completeness";
 
 type SaveState = "idle" | "saving" | "saved" | "error" | "offline";
 
@@ -37,16 +38,18 @@ function emit() {
   listeners.forEach((l) => l());
 }
 
+const EMPTY_APP = createEmptyApplication({ id: "" });
+
 function getSnapshot(): BizApplication {
   if (typeof window === "undefined") {
-    return memoryApp ?? ({} as BizApplication);
+    return memoryApp ?? EMPTY_APP;
   }
   if (!memoryApp) memoryApp = loadClientApplication();
   return memoryApp;
 }
 
 function getServerSnapshot(): BizApplication {
-  return {} as BizApplication;
+  return EMPTY_APP;
 }
 
 function subscribe(cb: () => void) {
