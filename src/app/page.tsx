@@ -16,7 +16,7 @@ export default function MarketingHomePage() {
             >
               服務介紹
             </Link>
-            <Link href="/auth/login">
+            <Link href="/workspace/login?intent=login">
               <Button
                 size="sm"
                 variant="outline"
@@ -42,7 +42,7 @@ export default function MarketingHomePage() {
             掌握文件處理進度。
           </p>
           <div className="animate-biz-rise-delay-2 mt-8 flex flex-wrap gap-3">
-            <Link href="/auth/login?intent=register">
+            <Link href="/workspace/login?intent=register">
               <Button
                 size="lg"
                 className="bg-[color:var(--biz-gold-500)] text-[color:var(--biz-ink)] hover:bg-[color:var(--biz-gold-600)] hover:text-white"

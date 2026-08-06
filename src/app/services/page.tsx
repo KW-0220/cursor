@@ -12,7 +12,7 @@ export default function ServicesPage() {
           >
             開戶文件通
           </Link>
-          <Link href="/auth/login?intent=register">
+          <Link href="/workspace/login?intent=register">
             <Button size="sm">開始申請</Button>
           </Link>
         </div>

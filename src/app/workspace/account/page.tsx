@@ -53,7 +53,7 @@ export default function AccountPage() {
           更改密碼請使用登入頁的重設流程（電郵驗證）。
         </p>
         <div className="flex flex-wrap gap-2 pt-4">
-          <Link href="/auth/login">
+          <Link href="/workspace/login?intent=login">
             <Button variant="outline">登出／切換帳戶</Button>
           </Link>
           <Button
