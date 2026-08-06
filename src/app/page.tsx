@@ -126,12 +126,12 @@ export default function MarketingHomePage() {
                 進入客戶工作台
               </Button>
             </Link>
-            <Link href="/biz-admin">
+            <Link href="/biz-admin/login">
               <Button
                 variant="outline"
                 className="border-white/30 bg-transparent text-white hover:bg-white/10"
               >
-                後台申請管理
+                後台登入
               </Button>
             </Link>
             <Link

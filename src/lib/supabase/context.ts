@@ -173,3 +173,43 @@ export async function requireAdminContext(request?: Request): Promise<
 
   return { data: result.data, error: null };
 }
+
+/** 開戶文件通後台：必須已登入 + app_metadata.role = biz_admin */
+export async function requireBizAdminContext(request?: Request): Promise<
+  | { data: SupabaseContext; error: null }
+  | { data: null; error: Error; status: number }
+> {
+  const result = await createSupabaseContext({
+    auth: "user",
+    request,
+  });
+  if (result.error || !result.data) {
+    return {
+      data: null,
+      error: result.error ?? new Error("UNAUTHORIZED"),
+      status: 401,
+    };
+  }
+
+  const appRole =
+    (
+      result.data.jwtClaims as {
+        app_metadata?: { role?: string };
+      } | null
+    )?.app_metadata?.role ??
+    (
+      result.data.userClaims as {
+        app_metadata?: { role?: string };
+      } | null
+    )?.app_metadata?.role;
+
+  if (appRole !== "biz_admin") {
+    return {
+      data: null,
+      error: new Error("FORBIDDEN_BIZ_ADMIN"),
+      status: 403,
+    };
+  }
+
+  return { data: result.data, error: null };
+}

@@ -17,7 +17,7 @@
 - 提交前檢查 + 正式提交
 - 進度 Timeline + 補件中心
 - WhatsApp 通知紀錄（提交／補件／收齊）
-- 後台申請列表／詳情／逐項審核／確認文件已收齊（**Supabase `biz_applications`**）
+- 後台申請列表／詳情／逐項審核／確認文件已收齊（**獨立後台 `/biz-admin`，角色 `biz_admin`**）
 - 角色預留 + 操作紀錄結構
 
 ## Supabase
@@ -26,10 +26,11 @@
 | --- | --- |
 | Project | `szftkaipvrdvzgcurofa`（SME） |
 | Table | `public.biz_applications` |
-| Admin API | `/api/biz/admin/applications`（需 `app_metadata.role=admin`） |
+| Admin API | `/api/biz/admin/applications`（需 `app_metadata.role=biz_admin`） |
+| Admin bootstrap | `/api/biz/admin/bootstrap`（帳密 `admin@hkbank.com`） |
 | Client sync | `POST /api/biz/applications` |
 
-Migration：`supabase/migrations/20260806075714_create_biz_applications.sql`
+Migration：`supabase/migrations/20260806075714_create_biz_applications.sql`、`20260806111000_biz_admin_role_rls.sql`
 
 ## 路由
 
@@ -40,9 +41,12 @@ Migration：`supabase/migrations/20260806075714_create_biz_applications.sql`
 | 客戶工作台 | `/workspace` |
 | 分步申請 | `/workspace/apply/[step]` |
 | 進度／補件／文件中心 | `/workspace/progress` · `/workspace/supplements` · `/workspace/documents` |
-| 後台申請 | `/biz-admin` · `/biz-admin/[id]` |
+| **獨立後台登入** | `/biz-admin/login` |
+| 後台總覽 | `/biz-admin` |
+| 申請管理 | `/biz-admin/applications` · `/biz-admin/applications/[id]` |
+| 補件／WhatsApp／審計 | `/biz-admin/supplements` · `/biz-admin/whatsapp` · `/biz-admin/audit` |
 
-貸款產品既有路由（`/app`、`/apply`、`/admin` 案件）保留不變。
+貸款產品既有路由（`/app`、`/apply`、`/admin`）保留不變，**與開戶文件通後台完全分離**（不同帳號、角色、UI、API gate）。
 
 ## 設計方向
 

@@ -5,6 +5,9 @@ import path from "path";
 import bcrypt from "bcryptjs";
 import { EncryptJWT, SignJWT, jwtDecrypt, jwtVerify } from "jose";
 import { z } from "zod";
+import { ADMIN_EMAIL, BIZ_ADMIN_EMAIL } from "@/lib/auth-public";
+
+export { ADMIN_EMAIL, BIZ_ADMIN_EMAIL } from "@/lib/auth-public";
 
 export const RegisterSchema = z.object({
   email: z.string().email("請輸入有效電郵"),
@@ -19,7 +22,7 @@ export const LoginSchema = z.object({
   password: z.string().min(1, "請輸入密碼"),
 });
 
-export type AuthRole = "applicant" | "admin";
+export type AuthRole = "applicant" | "admin" | "biz_admin";
 
 export interface AuthUser {
   id: string;
@@ -36,9 +39,11 @@ export interface AuthUser {
 
 export type PublicUser = Omit<AuthUser, "passwordHash">;
 
-/** 示範後台管理員（固定帳密） */
-export const ADMIN_EMAIL = "admin@sme.com";
+/** 示範後台管理員（固定帳密）— SME LoanFlow */
 export const ADMIN_PASSWORD = "Sme2026!";
+
+/** 開戶文件通專屬後台（與 SME 帳號／角色分離） */
+export const BIZ_ADMIN_PASSWORD = "HkBank2026!";
 
 export function isAdminEmail(email: string) {
   return email.trim().toLowerCase() === ADMIN_EMAIL;
@@ -46,6 +51,14 @@ export function isAdminEmail(email: string) {
 
 export function isAdminCredentials(email: string, password: string) {
   return isAdminEmail(email) && password === ADMIN_PASSWORD;
+}
+
+export function isBizAdminEmail(email: string) {
+  return email.trim().toLowerCase() === BIZ_ADMIN_EMAIL;
+}
+
+export function isBizAdminCredentials(email: string, password: string) {
+  return isBizAdminEmail(email) && password === BIZ_ADMIN_PASSWORD;
 }
 
 const DATA_DIR = path.join(process.cwd(), "data");

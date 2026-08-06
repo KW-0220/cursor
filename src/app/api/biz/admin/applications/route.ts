@@ -8,12 +8,12 @@ import {
   listBizApplicationsFromDb,
   upsertBizApplicationToDb,
 } from "@/lib/bizdoc/supabase";
-import { requireAdminContext } from "@/lib/supabase/context";
+import { requireBizAdminContext } from "@/lib/supabase/context";
 
 export const runtime = "nodejs";
 
 async function gate(req: NextRequest) {
-  return requireAdminContext(req);
+  return requireBizAdminContext(req);
 }
 
 export async function GET(req: NextRequest) {

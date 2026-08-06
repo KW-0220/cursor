@@ -14,11 +14,13 @@
 | 客戶工作台 | `/workspace` |
 | 八步申請 | `/workspace/apply/*` |
 | 進度／補件／文件中心 | `/workspace/progress` · `/workspace/supplements` · `/workspace/documents` |
-| 後台審核 | `/biz-admin` · `/biz-admin/[id]` |
+| 後台登入 | `/biz-admin/login`（`admin@hkbank.com`／角色 `biz_admin`） |
+| 後台總覽／申請 | `/biz-admin` · `/biz-admin/applications` · `/biz-admin/applications/[id]` |
+| 補件／WhatsApp／審計 | `/biz-admin/supplements` · `/biz-admin/whatsapp` · `/biz-admin/audit` |
 
 詳見 [`docs/BIZ_ACCOUNT_BRIEF.md`](docs/BIZ_ACCOUNT_BRIEF.md)、[`docs/BIZ_ACCOUNT_SITEMAP.md`](docs/BIZ_ACCOUNT_SITEMAP.md)。
 
-MVP 客戶草稿暫存 **localStorage**，提交／儲存會同步至 Supabase `biz_applications`；後台 `/biz-admin` 直接讀寫 Supabase（需 admin 登入）。
+MVP 客戶草稿暫存 **localStorage**，提交／儲存會同步至 Supabase `biz_applications`；**獨立後台** `/biz-admin` 讀寫 Supabase（需 `biz_admin`，與 SME `/admin` 完全分離）。
 
 ---
 

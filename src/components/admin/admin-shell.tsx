@@ -19,7 +19,6 @@ import { cn } from "@/lib/utils";
 
 const nav = [
   { href: "/admin", label: "案件總覽", icon: LayoutDashboard },
-  { href: "/biz-admin", label: "開戶文件申請", icon: FolderOpen },
   { href: "/admin/customers", label: "客戶登記資料庫", icon: Database },
   { href: "/admin/documents", label: "文件管理", icon: FolderOpen },
   { href: "/admin/cashflow-rules", label: "現金流審批規則", icon: Settings2 },
