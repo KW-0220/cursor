@@ -11,9 +11,14 @@ import { cn } from "@/lib/utils";
 export function ApplyWizardShell({
   stepId,
   children,
+  onNext,
+  nextLabel,
 }: {
   stepId: ApplyStepId;
   children: React.ReactNode;
+  /** 覆寫預設「儲存並下一步」行為（例如分類頁要先驗證） */
+  onNext?: () => void;
+  nextLabel?: string;
 }) {
   const router = useRouter();
   const { app, saveState, lastSavedAt, saveNow, hydrated } = useBizdoc();
@@ -110,21 +115,29 @@ export function ApplyWizardShell({
                 <Button
                   type="button"
                   onClick={() => {
+                    if (onNext) {
+                      onNext();
+                      return;
+                    }
                     saveNow();
                     router.push(`/workspace/apply/${next.id}`);
                   }}
                 >
-                  儲存並下一步
+                  {nextLabel || "儲存並下一步"}
                 </Button>
               ) : (
                 <Button
                   type="button"
                   onClick={() => {
+                    if (onNext) {
+                      onNext();
+                      return;
+                    }
                     saveNow();
                     router.push("/workspace/apply/review");
                   }}
                 >
-                  前往檢查及提交
+                  {nextLabel || "前往檢查及提交"}
                 </Button>
               )}
             </div>

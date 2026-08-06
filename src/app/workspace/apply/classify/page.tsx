@@ -1,14 +1,20 @@
 "use client";
 
+import { useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { ApplyWizardShell } from "@/components/biz/apply-wizard-shell";
 import { Button } from "@/components/ui/button";
 import { Field } from "@/components/ui/field";
 import {
   COMPANY_AGE_LABEL,
+  DOC_CATEGORY_LABEL,
+  DOC_CATEGORY_SHORT,
   RELATED_COMPANY_LABEL,
   SHAREHOLDER_IDENTITY_LABEL,
+  emptyClassification,
   inferCompanyAgeBand,
   resolveDocCategory,
+  type BizClassification,
   type CompanyAgeBand,
   type RelatedCompanyFlag,
   type ShareholderIdentity,
@@ -41,69 +47,111 @@ function ChoiceCard({
   );
 }
 
-export default function ClassifyPage() {
-  const { app, update, saveNow } = useBizdoc();
-  const c = app.classification ?? {
-    shareholderIdentity: null,
-    companyAge: null,
-    hasRelatedCompany: null,
-    systemCategory: null,
+function patchClassification(
+  prev: BizClassification | undefined,
+  patch: Partial<BizClassification>,
+): BizClassification {
+  const next: BizClassification = {
+    ...emptyClassification(),
+    ...prev,
+    ...patch,
     clientConfirmed: false,
-    overrideCategory: null,
+    confirmedAt: undefined,
   };
+  if (next.shareholderIdentity && next.companyAge && next.hasRelatedCompany) {
+    next.systemCategory = resolveDocCategory(
+      next.shareholderIdentity,
+      next.companyAge,
+      next.hasRelatedCompany,
+    );
+  } else {
+    next.systemCategory = null;
+  }
+  return next;
+}
+
+export default function ClassifyPage() {
+  const router = useRouter();
+  const { app, update, saveNow } = useBizdoc();
+  const [error, setError] = useState<string | null>(null);
+
+  const c = app.classification ?? emptyClassification();
+
+  const answersReady = Boolean(
+    c.shareholderIdentity && c.companyAge && c.hasRelatedCompany && c.systemCategory,
+  );
+
+  const previewLabel = useMemo(() => {
+    if (!c.systemCategory) return null;
+    return DOC_CATEGORY_SHORT[c.systemCategory];
+  }, [c.systemCategory]);
 
   function setIdentity(v: ShareholderIdentity) {
-    update((prev) => {
-      const next = {
-        ...prev.classification,
+    setError(null);
+    update((prev) => ({
+      ...prev,
+      classification: patchClassification(prev.classification, {
         shareholderIdentity: v,
-        clientConfirmed: false,
-      };
-      if (next.companyAge && next.hasRelatedCompany) {
-        next.systemCategory = resolveDocCategory(
-          v,
-          next.companyAge,
-          next.hasRelatedCompany,
-        );
-      }
-      return { ...prev, classification: next };
-    });
+      }),
+    }));
   }
 
   function setAge(v: CompanyAgeBand) {
-    update((prev) => {
-      const next = {
-        ...prev.classification,
+    setError(null);
+    update((prev) => ({
+      ...prev,
+      classification: patchClassification(prev.classification, {
         companyAge: v,
-        clientConfirmed: false,
-      };
-      if (next.shareholderIdentity && next.hasRelatedCompany) {
-        next.systemCategory = resolveDocCategory(
-          next.shareholderIdentity,
-          v,
-          next.hasRelatedCompany,
-        );
-      }
-      return { ...prev, classification: next };
-    });
+      }),
+    }));
   }
 
   function setRelated(v: RelatedCompanyFlag) {
-    update((prev) => {
-      const next = {
-        ...prev.classification,
+    setError(null);
+    update((prev) => ({
+      ...prev,
+      classification: patchClassification(prev.classification, {
         hasRelatedCompany: v,
-        clientConfirmed: false,
-      };
-      if (next.shareholderIdentity && next.companyAge) {
-        next.systemCategory = resolveDocCategory(
-          next.shareholderIdentity,
-          next.companyAge,
-          v,
-        );
+      }),
+    }));
+  }
+
+  function goGenerateChecklist() {
+    let blockedReason: string | null = null;
+    update((prev) => {
+      const latest = prev.classification ?? emptyClassification();
+      if (
+        !latest.shareholderIdentity ||
+        !latest.companyAge ||
+        !latest.hasRelatedCompany
+      ) {
+        blockedReason = "請先完成以上三題，才能生成專屬 Checklist。";
+        return prev;
       }
-      return { ...prev, classification: next };
+      const category =
+        latest.systemCategory ??
+        resolveDocCategory(
+          latest.shareholderIdentity,
+          latest.companyAge,
+          latest.hasRelatedCompany,
+        );
+      return {
+        ...prev,
+        classification: {
+          ...emptyClassification(),
+          ...latest,
+          systemCategory: category,
+          clientConfirmed: false,
+        },
+      };
     });
+    if (blockedReason) {
+      setError(blockedReason);
+      return;
+    }
+    setError(null);
+    saveNow();
+    router.push("/workspace/apply/confirm-class");
   }
 
   const inferred = inferCompanyAgeBand(app.company?.foundedAt ?? "");
@@ -117,7 +165,11 @@ export default function ClassifyPage() {
   }
 
   return (
-    <ApplyWizardShell stepId="classify">
+    <ApplyWizardShell
+      stepId="classify"
+      onNext={goGenerateChecklist}
+      nextLabel="儲存答案，生成專屬 Checklist"
+    >
       <div className="mx-auto max-w-3xl space-y-8">
         <div>
           <h2 className="text-2xl font-semibold text-[color:var(--biz-ink)]">
@@ -207,15 +259,30 @@ export default function ClassifyPage() {
           </Field>
         </section>
 
-        <div className="rounded-2xl border border-[color:var(--biz-border)] bg-[color:var(--biz-surface-2)] px-4 py-3 text-sm text-[color:var(--biz-muted)]">
-          下一步將顯示系統配對的文件類別，請確認後才生成專屬 Checklist。
-          <Button
-            type="button"
-            size="sm"
-            className="ml-3"
-            onClick={() => saveNow()}
-          >
-            儲存答案
+        {answersReady && previewLabel && (
+          <div className="rounded-2xl border border-[color:var(--biz-forest-600)] bg-[color:var(--biz-forest-100)] px-4 py-4 text-sm">
+            <p className="text-xs text-[color:var(--biz-muted)]">初步配對結果</p>
+            <p className="mt-1 text-lg font-semibold text-[color:var(--biz-forest-900)]">
+              {previewLabel}
+            </p>
+            <p className="mt-1 text-[color:var(--biz-muted)]">
+              {DOC_CATEGORY_LABEL[c.systemCategory!]}
+            </p>
+          </div>
+        )}
+
+        {error && (
+          <p className="rounded-xl bg-danger-100 px-3 py-2 text-sm text-danger-600">
+            {error}
+          </p>
+        )}
+
+        <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-[color:var(--biz-border)] bg-[color:var(--biz-surface-2)] px-4 py-4">
+          <p className="flex-1 text-sm text-[color:var(--biz-muted)]">
+            儲存後會進入確認頁，顯示你的專屬文件 Checklist；確認後才正式生效。
+          </p>
+          <Button type="button" onClick={goGenerateChecklist}>
+            儲存答案，生成專屬 Checklist
           </Button>
         </div>
       </div>
