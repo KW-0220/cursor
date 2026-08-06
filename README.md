@@ -18,7 +18,7 @@
 
 詳見 [`docs/BIZ_ACCOUNT_BRIEF.md`](docs/BIZ_ACCOUNT_BRIEF.md)、[`docs/BIZ_ACCOUNT_SITEMAP.md`](docs/BIZ_ACCOUNT_SITEMAP.md)。
 
-MVP 客戶／後台申請資料暫存 **localStorage**（示範種子 `BA-2026-10482`）；正式環境將接 Supabase／Object Storage／WhatsApp provider。
+MVP 客戶草稿暫存 **localStorage**，提交／儲存會同步至 Supabase `biz_applications`；後台 `/biz-admin` 直接讀寫 Supabase（需 admin 登入）。
 
 ---
 

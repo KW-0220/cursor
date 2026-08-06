@@ -19,7 +19,7 @@ function now() {
   return new Date().toISOString();
 }
 
-function seedDemo(): BizApplication {
+export function seedDemo(): BizApplication {
   const app = createEmptyApplication({
     id: "BA-2026-10482",
   });
@@ -434,7 +434,7 @@ export function listAdminApplications(): BizApplication[] {
   return seeded;
 }
 
-function createDraftSecondary(): BizApplication {
+export function createDraftSecondary(): BizApplication {
   const app = createEmptyApplication({ id: "BA-2026-11003" });
   app.applicant = {
     name: "王俊傑",

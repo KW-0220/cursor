@@ -1,4 +1,4 @@
-# 公司成立及商業戶口文件管理｜產品 Brief（開發版）
+# 開戶文件通｜產品 Brief（開發版）
 
 > 完整 UI／UX Brief 已整合。本文件為開發落地摘要；細節以本 repo 程式常數與狀態機為準。
 
@@ -17,8 +17,19 @@
 - 提交前檢查 + 正式提交
 - 進度 Timeline + 補件中心
 - WhatsApp 通知紀錄（提交／補件／收齊）
-- 後台申請列表／詳情／逐項審核／確認文件已收齊
+- 後台申請列表／詳情／逐項審核／確認文件已收齊（**Supabase `biz_applications`**）
 - 角色預留 + 操作紀錄結構
+
+## Supabase
+
+| 項目 | 值 |
+| --- | --- |
+| Project | `szftkaipvrdvzgcurofa`（SME） |
+| Table | `public.biz_applications` |
+| Admin API | `/api/biz/admin/applications`（需 `app_metadata.role=admin`） |
+| Client sync | `POST /api/biz/applications` |
+
+Migration：`supabase/migrations/20260806075714_create_biz_applications.sql`
 
 ## 路由
 
@@ -29,7 +40,7 @@
 | 客戶工作台 | `/workspace` |
 | 分步申請 | `/workspace/apply/[step]` |
 | 進度／補件／文件中心 | `/workspace/progress` · `/workspace/supplements` · `/workspace/documents` |
-| 後台申請 | `/admin/biz` · `/admin/biz/[id]` |
+| 後台申請 | `/biz-admin` · `/biz-admin/[id]` |
 
 貸款產品既有路由（`/app`、`/apply`、`/admin` 案件）保留不變。
 

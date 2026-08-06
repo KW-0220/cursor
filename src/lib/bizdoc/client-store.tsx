@@ -132,6 +132,11 @@ export function BizdocProvider({ children }: { children: React.ReactNode }) {
       setSaveState("saved");
       setDirty(false);
       emit();
+      void fetch("/api/biz/applications", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ application: memoryApp }),
+      }).catch(() => null);
     } catch {
       setSaveState("error");
     }
@@ -145,6 +150,11 @@ export function BizdocProvider({ children }: { children: React.ReactNode }) {
       setSaveState("saved");
       setDirty(false);
       emit();
+      void fetch("/api/biz/applications", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ application: memoryApp }),
+      }).catch(() => null);
       return { ok: true as const };
     } catch (e) {
       return {

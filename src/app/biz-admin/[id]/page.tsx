@@ -18,13 +18,6 @@ import {
 } from "@/lib/bizdoc/completeness";
 import { BIZ_DOC_SLOTS } from "@/lib/bizdoc/documents";
 import {
-  confirmDocsComplete,
-  getAdminApplication,
-  requestSupplement,
-  setFileStatus,
-  updateAdminApplication,
-} from "@/lib/bizdoc/store";
-import {
   DOC_ISSUE_REASONS,
   type BizApplication,
 } from "@/lib/bizdoc/types";
@@ -41,29 +34,65 @@ const TABS = [
   "操作記錄",
 ] as const;
 
+async function postAction(body: Record<string, unknown>) {
+  const res = await fetch("/api/biz/admin/applications", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const json = await res.json();
+  if (!res.ok) {
+    throw new Error(json.message || json.error || "操作失敗");
+  }
+  return json.application as BizApplication;
+}
+
 export default function BizAdminDetailPage() {
   const params = useParams<{ id: string }>();
   const id = decodeURIComponent(params.id);
   const [app, setApp] = useState<BizApplication | null>(null);
+  const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<(typeof TABS)[number]>("概覽");
   const [issueType, setIssueType] = useState<string>(DOC_ISSUE_REASONS[0]);
   const [issueReason, setIssueReason] = useState("");
   const [selectedFile, setSelectedFile] = useState<string>("");
   const [note, setNote] = useState("");
   const [message, setMessage] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
-  const reload = useCallback(() => {
-    setApp(getAdminApplication(id));
+  const reload = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch(
+        `/api/biz/admin/applications?id=${encodeURIComponent(id)}`,
+        { cache: "no-store" },
+      );
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.message || json.error || "載入失敗");
+      setApp(json.application);
+    } catch (e) {
+      setApp(null);
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setLoading(false);
+    }
   }, [id]);
 
   useEffect(() => {
-    reload();
+    void reload();
   }, [reload]);
+
+  if (loading) {
+    return (
+      <p className="text-sm text-[color:var(--biz-muted)]">載入 Supabase…</p>
+    );
+  }
 
   if (!app) {
     return (
       <div className="rounded-2xl border border-dashed border-[color:var(--biz-border)] bg-white px-6 py-16 text-center text-sm text-[color:var(--biz-muted)]">
-        找不到申請 {id}
+        {error || `找不到申請 ${id}`}
         <div className="mt-4">
           <Link href="/biz-admin">
             <Button variant="outline">返回列表</Button>
@@ -100,23 +129,20 @@ export default function BizAdminDetailPage() {
           size="sm"
           variant="outline"
           onClick={() => {
-            updateAdminApplication(app.id, (a) => ({
-              ...a,
-              status: "doc_review",
-              assignee: a.assignee || "林雅雯",
-              auditLog: [
-                ...a.auditLog,
-                {
-                  id: `a-${Date.now()}`,
-                  actor: a.assignee || "林雅雯",
-                  action: "start_review",
-                  detail: "開始檢查",
-                  at: new Date().toISOString(),
-                },
-              ],
-            }));
-            setMessage("已開始檢查");
-            reload();
+            void (async () => {
+              try {
+                const next = await postAction({
+                  action: "set_status",
+                  id: app.id,
+                  status: "doc_review",
+                  assignee: app.assignee || "林雅雯",
+                });
+                setApp(next);
+                setMessage("已開始檢查（已寫入 Supabase）");
+              } catch (e) {
+                setMessage(e instanceof Error ? e.message : "失敗");
+              }
+            })();
           }}
         >
           開始檢查
@@ -130,13 +156,19 @@ export default function BizAdminDetailPage() {
               : "仍有必須文件未通過／未檢查，不可確認收齊"
           }
           onClick={() => {
-            try {
-              confirmDocsComplete(app.id, app.assignee || "林雅雯");
-              setMessage("已確認文件收齊，並發送 WhatsApp 通知");
-              reload();
-            } catch (e) {
-              setMessage(e instanceof Error ? e.message : "操作失敗");
-            }
+            void (async () => {
+              try {
+                const next = await postAction({
+                  action: "confirm_docs_complete",
+                  id: app.id,
+                  actor: app.assignee || "林雅雯",
+                });
+                setApp(next);
+                setMessage("已確認文件收齊，並發送 WhatsApp 通知");
+              } catch (e) {
+                setMessage(e instanceof Error ? e.message : "失敗");
+              }
+            })();
           }}
         >
           確認文件已收齊
@@ -145,28 +177,22 @@ export default function BizAdminDetailPage() {
           size="sm"
           variant="outline"
           onClick={() => {
-            updateAdminApplication(app.id, (a) => ({
-              ...a,
-              status: "next_stage",
-              auditLog: [
-                ...a.auditLog,
-                {
-                  id: `a-${Date.now()}`,
-                  actor: a.assignee || "顧問",
-                  action: "next_stage",
-                  detail: "進入下一階段",
-                  at: new Date().toISOString(),
-                },
-              ],
-            }));
-            setMessage("已進入下一階段（仍非開戶獲批）");
-            reload();
+            void (async () => {
+              try {
+                const next = await postAction({
+                  action: "set_status",
+                  id: app.id,
+                  status: "next_stage",
+                });
+                setApp(next);
+                setMessage("已進入下一階段（仍非開戶獲批）");
+              } catch (e) {
+                setMessage(e instanceof Error ? e.message : "失敗");
+              }
+            })();
           }}
         >
           進入下一階段
-        </Button>
-        <Button size="sm" variant="ghost" disabled>
-          下載全部文件（接 Object Storage 後開放）
         </Button>
       </div>
 
@@ -196,10 +222,7 @@ export default function BizAdminDetailPage() {
           <div className="space-y-4">
             <BizProgressBar value={app.completeness} />
             <div className="grid gap-3 sm:grid-cols-3">
-              <Stat
-                label="已上載文件"
-                value={String(app.files.length)}
-              />
+              <Stat label="已上載文件" value={String(app.files.length)} />
               <Stat
                 label="已通過"
                 value={String(
@@ -209,8 +232,7 @@ export default function BizAdminDetailPage() {
               <Stat
                 label="需補件"
                 value={String(
-                  app.files.filter((f) => f.status === "needs_resubmit")
-                    .length,
+                  app.files.filter((f) => f.status === "needs_resubmit").length,
                 )}
               />
             </div>
@@ -218,11 +240,6 @@ export default function BizAdminDetailPage() {
               負責人：{app.assignee || "未指派"} · 最近更新{" "}
               {formatDateTime(app.updatedAt)}
             </p>
-            {!canComplete && (
-              <p className="text-sm text-[color:var(--biz-gold-800)]">
-                「確認文件已收齊」需所有必須文件狀態為已通過後才可用。
-              </p>
-            )}
           </div>
         )}
 
@@ -238,16 +255,6 @@ export default function BizAdminDetailPage() {
             <Item label="BR" value={app.company.brNumber} />
             <Item label="CR" value={app.company.crNumber} />
             <Item label="業務性質" value={app.company.nature} />
-            <Item
-              label="戶口需求"
-              value={[
-                app.accountNeeds.hkd && "HKD",
-                app.accountNeeds.cny && "CNY",
-                app.accountNeeds.usd && "USD",
-              ]
-                .filter(Boolean)
-                .join(" / ")}
-            />
           </dl>
         )}
 
@@ -263,7 +270,6 @@ export default function BizAdminDetailPage() {
                   >
                     {d.nameZh || d.nameEn} · {d.idType}{" "}
                     {maskIdNumber(d.idNumber)} · {d.residenceCountry}
-                    {d.isPrimaryContact ? " · 主要聯絡人" : ""}
                   </li>
                 ))}
               </ul>
@@ -277,7 +283,6 @@ export default function BizAdminDetailPage() {
                     className="rounded-xl border border-[color:var(--biz-border)] px-3 py-2"
                   >
                     {s.name}（{s.type}）· {s.sharePercent}%
-                    {s.isUbo ? " · UBO" : ""}
                   </li>
                 ))}
               </ul>
@@ -321,9 +326,16 @@ export default function BizAdminDetailPage() {
                         size="sm"
                         variant="outline"
                         onClick={() => {
-                          setFileStatus(app.id, f.id, "approved");
-                          setMessage(`已標示通過：${f.originalName}`);
-                          reload();
+                          void (async () => {
+                            const next = await postAction({
+                              action: "set_file_status",
+                              id: app.id,
+                              fileId: f.id,
+                              status: "approved",
+                            });
+                            setApp(next);
+                            setMessage(`已標示通過：${f.originalName}`);
+                          })();
                         }}
                       >
                         標示已通過
@@ -369,20 +381,23 @@ export default function BizAdminDetailPage() {
                   <Button
                     size="sm"
                     onClick={() => {
-                      if (!issueReason.trim()) {
-                        setMessage("請填寫補件說明");
-                        return;
-                      }
-                      requestSupplement(
-                        app.id,
-                        selectedFile,
-                        issueType,
-                        issueReason,
-                      );
-                      setSelectedFile("");
-                      setIssueReason("");
-                      setMessage("已發出補件要求並發送 WhatsApp");
-                      reload();
+                      void (async () => {
+                        if (!issueReason.trim()) {
+                          setMessage("請填寫補件說明");
+                          return;
+                        }
+                        const next = await postAction({
+                          action: "request_supplement",
+                          id: app.id,
+                          fileId: selectedFile,
+                          issueType,
+                          issueReason,
+                        });
+                        setApp(next);
+                        setSelectedFile("");
+                        setIssueReason("");
+                        setMessage("已發出補件要求並寫入 Supabase");
+                      })();
                     }}
                   >
                     發送 WhatsApp 補件通知
@@ -451,21 +466,17 @@ export default function BizAdminDetailPage() {
             <Button
               size="sm"
               onClick={() => {
-                if (!note.trim()) return;
-                updateAdminApplication(app.id, (a) => ({
-                  ...a,
-                  internalNotes: [
-                    ...a.internalNotes,
-                    {
-                      id: `n-${Date.now()}`,
-                      author: a.assignee || "審核員",
-                      content: note,
-                      createdAt: new Date().toISOString(),
-                    },
-                  ],
-                }));
-                setNote("");
-                reload();
+                void (async () => {
+                  if (!note.trim()) return;
+                  const next = await postAction({
+                    action: "add_note",
+                    id: app.id,
+                    content: note,
+                    author: app.assignee || "審核員",
+                  });
+                  setApp(next);
+                  setNote("");
+                })();
               }}
             >
               新增內部備註
