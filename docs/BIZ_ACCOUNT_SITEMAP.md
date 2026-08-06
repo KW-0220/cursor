@@ -2,24 +2,32 @@
 
 ```text
 /
-├── /services                    # 服務介紹／文件清單／FAQ
+├── /services
 ├── /legal/privacy
 ├── /legal/terms
-├── /auth/login                  # 客戶電郵註冊／登入（及 SME 貸款後台）
-├── /workspace                   # 客戶控制台
-│   ├── /apply/[step]            # 八步申請
-│   ├── /documents               # 文件中心
-│   ├── /supplements             # 補件
-│   ├── /progress                # Timeline + WhatsApp 紀錄
+├── /auth/login
+├── /workspace
+│   ├── /apply/classify           # ★ 申請前分類問卷（身份／年期／關聯公司）
+│   ├── /apply/confirm-class     # ★ 確認六類文件類別
+│   ├── /apply/applicant
+│   ├── /apply/company
+│   ├── /apply/people
+│   ├── /apply/documents         # ★ 動態文件群組 A–J 上載
+│   ├── /apply/interview         # ★ 面簽帶備 Checklist
+│   ├── /apply/regions
+│   ├── /apply/review
+│   ├── /documents
+│   ├── /supplements
+│   ├── /progress
 │   └── /account
-└── /biz-admin                   # ★ 獨立後台（非 SME /admin）
-    ├── /login                   # biz_admin 專屬登入
-    ├── /                        # 總覽 dashboard
-    ├── /applications            # 申請列表
-    ├── /applications/[id]       # 詳情 Tabs + 文件審核
-    ├── /supplements             # 跨申請補件中心
-    ├── /whatsapp                # WhatsApp 通知中心
-    └── /audit                   # 操作審計
+└── /biz-admin
+    ├── /login
+    ├── /
+    ├── /applications
+    ├── /applications/[id]       # 含申請分類／改類別／文件要求控制
+    ├── /supplements
+    ├── /whatsapp
+    └── /audit
 ```
 
-貸款產品路由（`/app`、`/apply`、`/admin`）保留，**不與開戶文件通後台共用 UI／導航／角色**。
+舊路徑 `/workspace/apply/company-docs|personal-docs|business-proof` 會 redirect 至 `/workspace/apply/documents`。

@@ -8,7 +8,8 @@ import {
   BIZ_STATUS_CTA,
   BIZ_STATUS_DESC,
 } from "@/lib/bizdoc/types";
-import { buildChecklist, formatDateTime } from "@/lib/bizdoc/completeness";
+import { buildChecklist, buildDocProgress, formatDateTime } from "@/lib/bizdoc/completeness";
+import { classificationSummary, isClassificationComplete } from "@/lib/bizdoc/classification";
 import { useBizdoc } from "@/lib/bizdoc/client-store";
 
 export default function WorkspaceDashboardPage() {
@@ -24,6 +25,7 @@ export default function WorkspaceDashboardPage() {
 
   const checklist = buildChecklist(app);
   const missing = checklist.filter((c) => !c.done);
+  const docProgress = buildDocProgress(app);
   const needsAction =
     app.status === "draft" ||
     app.status === "missing_docs" ||
@@ -33,9 +35,11 @@ export default function WorkspaceDashboardPage() {
   const ctaHref =
     app.status === "needs_supplement"
       ? "/workspace/supplements"
-      : app.status === "missing_docs"
-        ? "/workspace/documents"
-        : "/workspace/apply/applicant";
+      : !isClassificationComplete(app.classification)
+        ? "/workspace/apply/classify"
+        : app.status === "missing_docs"
+          ? "/workspace/apply/documents"
+          : "/workspace/apply/classify";
   const lastWa = app.whatsapp[app.whatsapp.length - 1];
 
   return (
@@ -58,6 +62,13 @@ export default function WorkspaceDashboardPage() {
       <div className="animate-biz-rise-delay mt-6 grid gap-4 lg:grid-cols-3">
         <section className="rounded-2xl border border-[color:var(--biz-border)] bg-[color:var(--biz-surface)] p-5 lg:col-span-2">
           <BizProgressBar value={app.completeness} />
+          <p className="mt-3 text-sm text-[color:var(--biz-forest-800)]">
+            申請類別：{classificationSummary(app.classification)}
+          </p>
+          <p className="mt-1 text-xs text-[color:var(--biz-muted)]">
+            文件 {docProgress.requiredDone}／{docProgress.requiredTotal} · 面簽待帶備{" "}
+            {docProgress.interviewNeeded} 項
+          </p>
           <p className="mt-4 text-sm leading-relaxed text-[color:var(--biz-ink)]">
             {BIZ_STATUS_DESC[app.status]}
             {app.pausedReason ? ` 原因：${app.pausedReason}` : ""}

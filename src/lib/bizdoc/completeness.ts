@@ -1,8 +1,22 @@
-import { BIZ_DOC_SLOTS } from "./documents";
-import type {
-  BizApplication,
-  BizApplicationStatus,
-  BizDocSlotId,
+import {
+  DOC_CATEGORY_SHORT,
+  classificationSummary,
+  effectiveCategory,
+  isClassificationComplete,
+} from "./classification";
+import {
+  INTERVIEW_CHECKLIST_BASE,
+  STATEMENT_MONTH_SETS,
+  getDocSlot,
+  resolveSlotPlan,
+  type BizDocSlotId,
+} from "./documents";
+import {
+  emptyClassification,
+  emptyProofMeta,
+  emptyRelatedCompany,
+  type BizApplication,
+  type BizApplicationStatus,
 } from "./types";
 
 export interface ChecklistItem {
@@ -10,6 +24,16 @@ export interface ChecklistItem {
   label: string;
   done: boolean;
   href?: string;
+}
+
+export interface DocProgress {
+  categoryLabel: string;
+  requiredTotal: number;
+  requiredDone: number;
+  missingLabels: string[];
+  interviewNeeded: number;
+  interviewPrepared: number;
+  percent: number;
 }
 
 export function emptyApplicant(): BizApplication["applicant"] {
@@ -88,15 +112,7 @@ export function emptyBusinessRegion(): BizApplication["businessRegion"] {
 }
 
 export function emptyBusinessProof(): BizApplication["businessSet1"] {
-  return {
-    docType: "",
-    counterparty: "",
-    tradeDate: "",
-    amount: "",
-    currency: "HKD",
-    description: "",
-    countries: [],
-  };
+  return emptyProofMeta();
 }
 
 export function emptyConsents(): BizApplication["consents"] {
@@ -112,10 +128,14 @@ export function emptyConsents(): BizApplication["consents"] {
   };
 }
 
-export function createEmptyApplication(partial?: Partial<BizApplication>): BizApplication {
+export function createEmptyApplication(
+  partial?: Partial<BizApplication>,
+): BizApplication {
   const now = new Date().toISOString();
-  return {
-    id: partial?.id ?? `BA-${new Date().getFullYear()}-${String(Math.floor(Math.random() * 90000) + 10000)}`,
+  const base: BizApplication = {
+    id:
+      partial?.id ??
+      `BA-${new Date().getFullYear()}-${String(Math.floor(Math.random() * 90000) + 10000)}`,
     createdAt: now,
     updatedAt: now,
     status: "draft",
@@ -126,11 +146,20 @@ export function createEmptyApplication(partial?: Partial<BizApplication>): BizAp
     directors: [],
     shareholders: [],
     ubos: [],
+    classification: emptyClassification(),
+    relatedCompany: emptyRelatedCompany(),
+    slotOverrides: {},
+    interviewChecklist: Object.fromEntries(
+      INTERVIEW_CHECKLIST_BASE.map((i) => [i.id, "needed" as const]),
+    ),
+    extraDocRequests: [],
     nar1Option: null,
     tradingStatus: null,
     businessRegion: emptyBusinessRegion(),
     businessSet1: emptyBusinessProof(),
     businessSet2: emptyBusinessProof(),
+    hkBusinessProofs: [emptyProofMeta(), emptyProofMeta(), emptyProofMeta()],
+    relatedInvoices: [emptyProofMeta(), emptyProofMeta(), emptyProofMeta()],
     files: [],
     consents: emptyConsents(),
     timeline: [
@@ -146,8 +175,8 @@ export function createEmptyApplication(partial?: Partial<BizApplication>): BizAp
         status: "draft",
         label: "申請資料填寫中",
         at: now,
-        description: "請按步驟填寫資料並上載文件。",
-        clientAction: "繼續填寫",
+        description: "請先完成申請分類，再按步驟填寫資料並上載文件。",
+        clientAction: "開始分類",
       },
     ],
     whatsapp: [],
@@ -161,8 +190,8 @@ export function createEmptyApplication(partial?: Partial<BizApplication>): BizAp
         at: now,
       },
     ],
-    ...partial,
   };
+  return { ...base, ...partial, classification: partial?.classification ?? base.classification };
 }
 
 function hasText(v: string | undefined | null) {
@@ -178,26 +207,114 @@ function slotHasFile(app: BizApplication, slot: BizDocSlotId) {
   );
 }
 
-function nar1Satisfied(app: BizApplication) {
-  if (app.nar1Option === "under_one_year" || app.nar1Option === "not_yet") {
-    return true;
-  }
-  return slotHasFile(app, "nar1");
+/** 三個月流水：合併 PDF 可替代分月 */
+export function statementSetSatisfied(
+  app: BizApplication,
+  key: keyof typeof STATEMENT_MONTH_SETS,
+): boolean {
+  const set = STATEMENT_MONTH_SETS[key];
+  if (slotHasFile(app, set.combined)) return true;
+  return set.months.every((m) => slotHasFile(app, m));
 }
 
-function businessProofSatisfied(app: BizApplication) {
-  if (app.tradingStatus === "not_started" || app.tradingStatus === "preparing") {
-    return slotHasFile(app, "business_alt");
+export function statementSetMissing(
+  app: BizApplication,
+  key: keyof typeof STATEMENT_MONTH_SETS,
+): string[] {
+  const set = STATEMENT_MONTH_SETS[key];
+  if (slotHasFile(app, set.combined)) return [];
+  return set.months
+    .filter((m) => !slotHasFile(app, m))
+    .map((m) => getDocSlot(m)?.name || m);
+}
+
+function requiredSlotDone(app: BizApplication, slotId: BizDocSlotId): boolean {
+  // 流水集合特殊處理
+  for (const [key, set] of Object.entries(STATEMENT_MONTH_SETS) as [
+    keyof typeof STATEMENT_MONTH_SETS,
+    (typeof STATEMENT_MONTH_SETS)[keyof typeof STATEMENT_MONTH_SETS],
+  ][]) {
+    if (set.months.includes(slotId) || set.combined === slotId) {
+      return statementSetSatisfied(app, key);
+    }
   }
-  return (
-    slotHasFile(app, "business_set_1") &&
-    slotHasFile(app, "business_set_2") &&
-    hasText(app.businessSet1.counterparty) &&
-    hasText(app.businessSet2.counterparty)
-  );
+  return slotHasFile(app, slotId);
+}
+
+export function getResolvedPlans(app: BizApplication) {
+  const cat = effectiveCategory(app.classification ?? emptyClassification());
+  if (!cat) return [];
+  return resolveSlotPlan({
+    category: cat,
+    identity: app.classification?.shareholderIdentity ?? null,
+    overrides: app.slotOverrides,
+  });
+}
+
+export function buildDocProgress(app: BizApplication): DocProgress {
+  const plans = getResolvedPlans(app).filter((p) => p.requirement === "required");
+  // 流水：同一 set 只計一次
+  const counted = new Set<string>();
+  let requiredTotal = 0;
+  let requiredDone = 0;
+  const missingLabels: string[] = [];
+
+  for (const plan of plans) {
+    const id = plan.slot.id;
+    let groupKey: string | null = null;
+    for (const [key, set] of Object.entries(STATEMENT_MONTH_SETS)) {
+      if (set.months.includes(id) || set.combined === id) {
+        groupKey = `stmt:${key}`;
+        break;
+      }
+    }
+    const dedupe = groupKey ?? id;
+    if (counted.has(dedupe)) continue;
+    counted.add(dedupe);
+    requiredTotal += 1;
+    const done = requiredSlotDone(app, id);
+    if (done) requiredDone += 1;
+    else {
+      if (groupKey) {
+        const key = groupKey.replace("stmt:", "") as keyof typeof STATEMENT_MONTH_SETS;
+        missingLabels.push(...statementSetMissing(app, key));
+      } else {
+        missingLabels.push(plan.slot.name);
+      }
+    }
+  }
+
+  const interviewNeeded = INTERVIEW_CHECKLIST_BASE.filter(
+    (i) => (app.interviewChecklist?.[i.id] ?? "needed") === "needed",
+  ).length;
+  const interviewPrepared = INTERVIEW_CHECKLIST_BASE.filter(
+    (i) => app.interviewChecklist?.[i.id] === "prepared",
+  ).length;
+
+  const cat = effectiveCategory(app.classification ?? emptyClassification());
+  return {
+    categoryLabel: cat ? DOC_CATEGORY_SHORT[cat] : "尚未完成分類",
+    requiredTotal,
+    requiredDone,
+    missingLabels,
+    interviewNeeded,
+    interviewPrepared,
+    percent:
+      requiredTotal === 0
+        ? 0
+        : Math.round((requiredDone / requiredTotal) * 100),
+  };
 }
 
 export function buildChecklist(app: BizApplication): ChecklistItem[] {
+  const classification = app.classification ?? emptyClassification();
+  const classDone = isClassificationComplete(classification);
+  const docProgress = buildDocProgress(app);
+  const docsDone =
+    classDone &&
+    docProgress.requiredTotal > 0 &&
+    docProgress.requiredDone === docProgress.requiredTotal;
+
   const applicantDone =
     hasText(app.applicant.name) &&
     hasText(app.applicant.email) &&
@@ -211,6 +328,7 @@ export function buildChecklist(app: BizApplication): ChecklistItem[] {
     hasText(app.company.brNumber) &&
     hasText(app.company.crNumber) &&
     hasText(app.company.nature) &&
+    hasText(app.company.foundedAt) &&
     (app.accountNeeds.hkd ||
       app.accountNeeds.cny ||
       app.accountNeeds.usd ||
@@ -223,16 +341,22 @@ export function buildChecklist(app: BizApplication): ChecklistItem[] {
       (d) => hasText(d.nameEn) && hasText(d.idNumber) && hasText(d.phone),
     );
 
-  const companyDocsDone =
-    slotHasFile(app, "br") &&
-    slotHasFile(app, "ci") &&
-    nar1Satisfied(app) &&
-    slotHasFile(app, "aoa");
+  const relatedNeeded =
+    classification.hasRelatedCompany === "yes" ||
+    Boolean(
+      effectiveCategory(classification) &&
+        ["1", "4", "3r", "6r"].includes(String(effectiveCategory(classification))),
+    );
+  const relatedDone =
+    !relatedNeeded ||
+    (hasText(app.relatedCompany?.name) &&
+      hasText(app.relatedCompany?.location) &&
+      hasText(app.relatedCompany?.relation));
 
-  const personalDocsDone =
-    slotHasFile(app, "director_id") && slotHasFile(app, "address_proof");
-
-  const businessDone = businessProofSatisfied(app);
+  const interviewDone = INTERVIEW_CHECKLIST_BASE.every((i) => {
+    const s = app.interviewChecklist?.[i.id] ?? "needed";
+    return s === "prepared" || s === "na";
+  });
 
   const regionDone =
     app.businessRegion.operatingCountries.length > 0 &&
@@ -240,10 +364,15 @@ export function buildChecklist(app: BizApplication): ChecklistItem[] {
     hasText(app.businessRegion.monthlyReceiveAmount);
 
   const whatsappOk = /^\+?[0-9\s-]{8,}$/.test(app.applicant.whatsapp.trim());
-
   const consentsDone = Object.values(app.consents).every(Boolean);
 
   return [
+    {
+      id: "classify",
+      label: `申請分類${classDone ? `（${classificationSummary(classification)}）` : ""}`,
+      done: classDone,
+      href: "/workspace/apply/classify",
+    },
     {
       id: "applicant",
       label: "申請人資料",
@@ -263,22 +392,22 @@ export function buildChecklist(app: BizApplication): ChecklistItem[] {
       href: "/workspace/apply/people",
     },
     {
-      id: "company-docs",
-      label: "公司文件齊全",
-      done: companyDocsDone,
-      href: "/workspace/apply/company-docs",
+      id: "related",
+      label: "關聯公司資料",
+      done: relatedDone,
+      href: "/workspace/apply/documents",
     },
     {
-      id: "personal-docs",
-      label: "個人文件齊全",
-      done: personalDocsDone,
-      href: "/workspace/apply/personal-docs",
+      id: "documents",
+      label: `文件上載（${docProgress.requiredDone}/${docProgress.requiredTotal}）`,
+      done: docsDone,
+      href: "/workspace/apply/documents",
     },
     {
-      id: "business",
-      label: "業務證明齊全",
-      done: businessDone,
-      href: "/workspace/apply/business-proof",
+      id: "interview",
+      label: "面簽帶備 Checklist",
+      done: interviewDone,
+      href: "/workspace/apply/interview",
     },
     {
       id: "regions",
@@ -309,27 +438,37 @@ export function computeCompleteness(app: BizApplication): number {
 
 export function missingRequiredDocSlots(app: BizApplication): BizDocSlotId[] {
   const missing: BizDocSlotId[] = [];
-  for (const slot of BIZ_DOC_SLOTS) {
-    if (!slot.required) continue;
-    if (slot.id === "nar1" && nar1Satisfied(app)) continue;
-    if (slot.id === "business_set_1" || slot.id === "business_set_2") {
-      if (businessProofSatisfied(app)) continue;
-      if (!slotHasFile(app, slot.id) && app.tradingStatus === "operating") {
-        missing.push(slot.id);
+  const plans = getResolvedPlans(app).filter((p) => p.requirement === "required");
+  const seenStmt = new Set<string>();
+  for (const plan of plans) {
+    const id = plan.slot.id;
+    for (const [key, set] of Object.entries(STATEMENT_MONTH_SETS) as [
+      keyof typeof STATEMENT_MONTH_SETS,
+      (typeof STATEMENT_MONTH_SETS)[keyof typeof STATEMENT_MONTH_SETS],
+    ][]) {
+      if (set.months.includes(id) || set.combined === id) {
+        if (seenStmt.has(key)) continue;
+        seenStmt.add(key);
+        if (!statementSetSatisfied(app, key)) {
+          for (const m of set.months) {
+            if (!slotHasFile(app, m) && !slotHasFile(app, set.combined)) {
+              missing.push(m);
+            }
+          }
+        }
+        continue;
       }
-      continue;
     }
-    if (slot.id === "shareholder_id") {
-      // MVP：有董事身份證明即可；股東身份可後補
-      continue;
+    if (!requiredSlotDone(app, id)) {
+      // avoid dup from statement handling
+      if (
+        !Object.values(STATEMENT_MONTH_SETS).some(
+          (s) => s.months.includes(id) || s.combined === id,
+        )
+      ) {
+        missing.push(id);
+      }
     }
-    if (!slotHasFile(app, slot.id)) missing.push(slot.id);
-  }
-  if (
-    (app.tradingStatus === "not_started" || app.tradingStatus === "preparing") &&
-    !slotHasFile(app, "business_alt")
-  ) {
-    missing.push("business_alt");
   }
   return missing;
 }
@@ -353,7 +492,9 @@ export function deriveClientStatus(app: BizApplication): BizApplicationStatus {
     const docsMissing = missingRequiredDocSlots(app).length > 0;
     const formMissing = core
       .filter((c) =>
-        ["applicant", "company", "people", "regions"].includes(c.id),
+        ["classify", "applicant", "company", "people", "regions"].includes(
+          c.id,
+        ),
       )
       .some((c) => !c.done);
     if (docsMissing && !formMissing) return "missing_docs";
@@ -363,27 +504,48 @@ export function deriveClientStatus(app: BizApplication): BizApplicationStatus {
 }
 
 export function canConfirmDocsComplete(app: BizApplication): boolean {
-  const requiredSlots = BIZ_DOC_SLOTS.filter((s) => {
-    if (!s.required) return false;
-    if (s.id === "shareholder_id") return false;
-    if (s.id === "nar1") return app.nar1Option === "has_nar1" || !app.nar1Option;
-    if (s.id === "business_set_1" || s.id === "business_set_2") {
-      return app.tradingStatus === "operating" || !app.tradingStatus;
+  const plans = getResolvedPlans(app).filter((p) => p.requirement === "required");
+  if (!plans.length) return false;
+  const seenStmt = new Set<string>();
+  for (const plan of plans) {
+    const id = plan.slot.id;
+    let stmtKey: keyof typeof STATEMENT_MONTH_SETS | null = null;
+    for (const [key, set] of Object.entries(STATEMENT_MONTH_SETS) as [
+      keyof typeof STATEMENT_MONTH_SETS,
+      (typeof STATEMENT_MONTH_SETS)[keyof typeof STATEMENT_MONTH_SETS],
+    ][]) {
+      if (set.months.includes(id) || set.combined === id) {
+        stmtKey = key;
+        break;
+      }
     }
-    return true;
-  }).map((s) => s.id);
-
-  if (
-    (app.tradingStatus === "not_started" || app.tradingStatus === "preparing") &&
-    !app.files.some((f) => f.slotId === "business_alt" && f.status === "approved")
-  ) {
-    return false;
-  }
-
-  for (const slotId of requiredSlots) {
-    const files = app.files.filter((f) => f.slotId === slotId);
+    if (stmtKey) {
+      if (seenStmt.has(stmtKey)) continue;
+      seenStmt.add(stmtKey);
+      const set = STATEMENT_MONTH_SETS[stmtKey];
+      const files = app.files.filter(
+        (f) =>
+          (set.months.includes(f.slotId as BizDocSlotId) ||
+            f.slotId === set.combined) &&
+          f.status !== "not_uploaded",
+      );
+      if (!statementSetSatisfied(app, stmtKey)) return false;
+      if (
+        !files.every(
+          (f) => f.status === "approved" || f.status === "not_applicable",
+        )
+      ) {
+        return false;
+      }
+      continue;
+    }
+    const files = app.files.filter((f) => f.slotId === id);
     if (files.length === 0) return false;
-    if (!files.every((f) => f.status === "approved" || f.status === "not_applicable")) {
+    if (
+      !files.every(
+        (f) => f.status === "approved" || f.status === "not_applicable",
+      )
+    ) {
       return false;
     }
   }

@@ -4,13 +4,8 @@ import {
   createEmptyApplication,
   deriveClientStatus,
 } from "./completeness";
-import type {
-  BizApplication,
-  BizApplicationStatus,
-  BizDocStatus,
-  BizUploadedFile,
-  WhatsAppSendStatus,
-} from "./types";
+import { emptyRelatedCompany, type BizApplication, type BizApplicationStatus, type BizDocStatus, type BizUploadedFile, type WhatsAppSendStatus } from "./types";
+import { normalizeApplication } from "./normalize";
 
 const STORAGE_KEY = "bizdoc.application.v1";
 const ADMIN_KEY = "bizdoc.admin.applications.v1";
@@ -137,6 +132,16 @@ export function seedDemo(): BizApplication {
       idNumber: "P45891289",
     },
   ];
+  app.classification = {
+    shareholderIdentity: "hk_local",
+    companyAge: "over_one_year",
+    hasRelatedCompany: "no",
+    systemCategory: 6,
+    clientConfirmed: true,
+    confirmedAt: "2026-07-20T10:10:00.000Z",
+    overrideCategory: null,
+  };
+  app.relatedCompany = emptyRelatedCompany();
   app.nar1Option = "has_nar1";
   app.tradingStatus = "operating";
   app.businessRegion = {
@@ -177,16 +182,26 @@ export function seedDemo(): BizApplication {
   app.files = [
     file("br", "BR_SmartSail.pdf", "approved"),
     file("ci", "CI_SmartSail.pdf", "approved"),
-    file("nar1", "NAR1_2025.pdf", "awaiting_review"),
-    file("aoa", "AOA_SmartSail.pdf", "awaiting_review"),
-    file("director_id", "HKID_Chan.jpg", "needs_resubmit", {
+    file("id_hkid", "HKID_Chan.jpg", "needs_resubmit", {
       issueType: "文件不清晰",
       issueReason: "身份證反面部份反光，無法確認出生日期。",
     }),
-    file("address_proof", "WaterBill_Chan.pdf", "awaiting_review"),
-    file("business_set_1", "Invoice_PG_202605.pdf", "awaiting_review"),
-    file("business_set_2", "PO_SZXL_202604.pdf", "awaiting_review"),
+    file("cv", "CV_Chan.pdf", "awaiting_review"),
+    file("personal_bank_m1", "Personal_Bank_M1.pdf", "awaiting_review"),
+    file("personal_bank_m2", "Personal_Bank_M2.pdf", "awaiting_review"),
+    file("work_experience", "MPF_Chan.pdf", "awaiting_review"),
+    file("hk_bank_m1", "HK_Bank_M1.pdf", "awaiting_review"),
+    file("hk_bank_m2", "HK_Bank_M2.pdf", "awaiting_review"),
+    file("audit_report", "Audit_2025.pdf", "awaiting_review"),
   ];
+  app.interviewChecklist = {
+    cv_print: "needed",
+    id_original: "needed",
+    passport_original: "na",
+    permit_original: "na",
+    bank_other: "needed",
+    extra: "na",
+  };
   app.status = "needs_supplement";
   app.submittedAt = "2026-08-01T09:20:00.000Z";
   app.assignee = "林雅雯";
@@ -332,8 +347,7 @@ function writeLocal(key: string, value: unknown) {
 export function loadClientApplication(): BizApplication {
   const existing = readLocal<BizApplication>(STORAGE_KEY);
   if (existing) {
-    existing.completeness = computeCompleteness(existing);
-    return existing;
+    return normalizeApplication(existing);
   }
   const seeded = seedDemo();
   writeLocal(STORAGE_KEY, seeded);
@@ -427,7 +441,7 @@ function upsertAdminCopy(app: BizApplication) {
 
 export function listAdminApplications(): BizApplication[] {
   const list = readLocal<BizApplication[]>(ADMIN_KEY);
-  if (list && list.length > 0) return list;
+  if (list && list.length > 0) return list.map(normalizeApplication);
   const seeded = [seedDemo(), createDraftSecondary()];
   writeLocal(ADMIN_KEY, seeded);
   writeLocal(STORAGE_KEY, seeded[0]);

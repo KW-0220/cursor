@@ -120,6 +120,29 @@ const actionSchema = z.discriminatedUnion("action", [
     action: z.literal("delete"),
     id: z.string().min(1),
   }),
+  z.object({
+    action: z.literal("override_category"),
+    id: z.string().min(1),
+    category: z.union([
+      z.literal(1),
+      z.literal(2),
+      z.literal(3),
+      z.literal(4),
+      z.literal(5),
+      z.literal(6),
+      z.literal("3r"),
+      z.literal("6r"),
+    ]),
+    reason: z.string().min(1),
+    actor: z.string().optional(),
+  }),
+  z.object({
+    action: z.literal("set_slot_requirement"),
+    id: z.string().min(1),
+    slotId: z.string().min(1),
+    requirement: z.enum(["required", "optional", "na"]),
+    actor: z.string().optional(),
+  }),
 ]);
 
 export async function POST(req: NextRequest) {
@@ -314,6 +337,53 @@ export async function POST(req: NextRequest) {
             author: body.author || existing.assignee || actorEmail,
             content: body.content,
             createdAt: now,
+          },
+        ],
+      };
+    }
+
+    if (body.action === "override_category") {
+      const prevCat =
+        existing.classification.overrideCategory ??
+        existing.classification.systemCategory;
+      next = {
+        ...existing,
+        classification: {
+          ...existing.classification,
+          previousCategory: prevCat,
+          overrideCategory: body.category,
+          overrideReason: body.reason,
+          overrideBy: body.actor || existing.assignee || actorEmail,
+          overrideAt: now,
+        },
+        auditLog: [
+          ...existing.auditLog,
+          {
+            id: `a-cat-${now}`,
+            actor: body.actor || existing.assignee || actorEmail,
+            action: "override_category",
+            detail: `${String(prevCat)} → ${String(body.category)}：${body.reason}`,
+            at: now,
+          },
+        ],
+      };
+    }
+
+    if (body.action === "set_slot_requirement") {
+      next = {
+        ...existing,
+        slotOverrides: {
+          ...existing.slotOverrides,
+          [body.slotId]: body.requirement,
+        },
+        auditLog: [
+          ...existing.auditLog,
+          {
+            id: `a-slot-${now}`,
+            actor: body.actor || existing.assignee || actorEmail,
+            action: "set_slot_requirement",
+            detail: `${body.slotId} → ${body.requirement}`,
+            at: now,
           },
         ],
       };

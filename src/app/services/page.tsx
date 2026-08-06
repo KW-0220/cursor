@@ -1,5 +1,4 @@
 import Link from "next/link";
-import { BIZ_DOC_SLOTS } from "@/lib/bizdoc/documents";
 import { Button } from "@/components/ui/button";
 
 export default function ServicesPage() {
@@ -51,25 +50,30 @@ export default function ServicesPage() {
         </section>
 
         <section id="docs" className="mt-14 scroll-mt-20">
-          <h2 className="text-xl font-semibold">所需文件</h2>
+          <h2 className="text-xl font-semibold">動態文件分類（六類）</h2>
+          <p className="mt-2 text-sm text-[color:var(--biz-muted)]">
+            系統先按主要股東身份、公司年期、是否有關聯公司分類，再顯示專屬文件清單。不會向所有客戶顯示同一份清單。
+          </p>
           <ul className="mt-4 space-y-3">
-            {BIZ_DOC_SLOTS.filter((s) => s.id !== "business_alt").map((s) => (
+            {[
+              "類別 1：內地／外國 · 新成立 · 有關聯公司 → 關聯公司執照、三個月流水、一份發票",
+              "類別 2：內地／外國 · 新成立 · 無關聯 → CV、社保、個人三個月流水",
+              "類別 3：香港本地 · 新成立 · 無關聯 → CV、個人流水、工作經驗證明",
+              "類別 4：內地／外國 · 超過一年 · 有關聯 → 關聯公司文件、三份發票、審計報告",
+              "類別 5：內地／外國 · 超過一年 · 無關聯 → CV／社保／流水、三份香港業務證明、審計報告",
+              "類別 6：香港本地 · 超過一年 · 無關聯 → CV／流水／工作證明、香港公司結單、審計報告",
+            ].map((t) => (
               <li
-                key={s.id}
-                className="rounded-xl border border-[color:var(--biz-border)] bg-[color:var(--biz-surface)] px-4 py-3"
+                key={t}
+                className="rounded-xl border border-[color:var(--biz-border)] bg-[color:var(--biz-surface)] px-4 py-3 text-sm"
               >
-                <div className="flex flex-wrap items-center gap-2">
-                  <p className="font-medium">{s.name}</p>
-                  <span className="text-[11px] text-[color:var(--biz-muted)]">
-                    {s.required ? "必須" : "選填"} · {s.formats.join("/")}
-                  </span>
-                </div>
-                <p className="mt-1 text-sm text-[color:var(--biz-muted)]">
-                  {s.purpose}
-                </p>
+                {t}
               </li>
             ))}
           </ul>
+          <p className="mt-4 text-xs text-[color:var(--biz-muted)]">
+            共用文件模組包含：公司基本文件、身份證明、個人背景、銀行流水、關聯公司、發票合約、審計報告及面簽 Checklist。
+          </p>
         </section>
 
         <section className="mt-14">

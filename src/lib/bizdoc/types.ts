@@ -1,5 +1,19 @@
 /** 公司成立及商業戶口申請 — domain types */
 
+import type { BizClassification, DocCategoryId } from "./classification";
+import type { BizDocSlotId, SlotRequirement, InterviewItemStatus } from "./documents";
+import { emptyClassification } from "./classification";
+
+export type { BizDocSlotId, SlotRequirement, InterviewItemStatus } from "./documents";
+export type {
+  BizClassification,
+  DocCategoryId,
+  ShareholderIdentity,
+  CompanyAgeBand,
+  RelatedCompanyFlag,
+  DocGroupId,
+} from "./classification";
+
 export type BizApplicationStatus =
   | "draft"
   | "missing_docs"
@@ -8,6 +22,7 @@ export type BizApplicationStatus =
   | "needs_supplement"
   | "supplement_review"
   | "docs_complete"
+  | "interview_prep"
   | "next_stage"
   | "sent_to_institution"
   | "institution_processing"
@@ -40,23 +55,12 @@ export type WhatsAppSendStatus =
   | "undeliverable"
   | "resent";
 
+/** @deprecated 舊五類；新系統用 DocGroupId A–J */
 export type BizDocCategory =
   | "company"
   | "identity"
   | "address"
   | "business_proof"
-  | "business_alt";
-
-export type BizDocSlotId =
-  | "br"
-  | "ci"
-  | "nar1"
-  | "aoa"
-  | "director_id"
-  | "shareholder_id"
-  | "address_proof"
-  | "business_set_1"
-  | "business_set_2"
   | "business_alt";
 
 export interface BizApplicant {
@@ -168,6 +172,14 @@ export interface BizBusinessProofMeta {
   currency: string;
   description: string;
   countries: string[];
+  invoiceNo?: string;
+}
+
+export interface BizRelatedCompany {
+  name: string;
+  location: string;
+  relation: string;
+  notes: string;
 }
 
 export type Nar1Option = "has_nar1" | "under_one_year" | "not_yet";
@@ -188,6 +200,7 @@ export interface BizUploadedFile {
   issueReason?: string;
   adminNote?: string;
   version: number;
+  proofMeta?: BizBusinessProofMeta;
 }
 
 export interface BizConsent {
@@ -236,6 +249,18 @@ export interface BizAuditEntry {
   at: string;
 }
 
+export interface BizExtraDocRequest {
+  id: string;
+  name: string;
+  description: string;
+  requirement: string;
+  formats: string[];
+  reason: string;
+  deadline?: string;
+  createdAt: string;
+  createdBy: string;
+}
+
 export interface BizApplication {
   id: string;
   createdAt: string;
@@ -250,11 +275,18 @@ export interface BizApplication {
   directors: BizDirector[];
   shareholders: BizShareholder[];
   ubos: BizUbo[];
+  classification: BizClassification;
+  relatedCompany: BizRelatedCompany;
+  slotOverrides: Partial<Record<string, SlotRequirement>>;
+  interviewChecklist: Record<string, InterviewItemStatus>;
+  extraDocRequests: BizExtraDocRequest[];
   nar1Option: Nar1Option | null;
   tradingStatus: TradingStatus | null;
   businessRegion: BizBusinessRegion;
   businessSet1: BizBusinessProofMeta;
   businessSet2: BizBusinessProofMeta;
+  hkBusinessProofs: [BizBusinessProofMeta, BizBusinessProofMeta, BizBusinessProofMeta];
+  relatedInvoices: [BizBusinessProofMeta, BizBusinessProofMeta, BizBusinessProofMeta];
   files: BizUploadedFile[];
   consents: BizConsent;
   timeline: BizTimelineEvent[];
@@ -272,6 +304,7 @@ export const BIZ_STATUS_LABEL: Record<BizApplicationStatus, string> = {
   needs_supplement: "需要補交資料",
   supplement_review: "補交文件檢查中",
   docs_complete: "文件已收齊",
+  interview_prep: "面簽安排中",
   next_stage: "下一階段處理中",
   sent_to_institution: "已提交相關機構",
   institution_processing: "相關機構處理中",
@@ -288,6 +321,7 @@ export const BIZ_STATUS_DESC: Record<BizApplicationStatus, string> = {
   needs_supplement: "部分資料或文件需要補充、修正或重新上載。",
   supplement_review: "團隊正在檢查最新補交的資料及文件。",
   docs_complete: "所有初步所需文件已確認收齊，申請將進入下一階段。",
+  interview_prep: "文件已收齊，正在安排面簽及後續步驟。",
   next_stage: "團隊正在處理後續安排。",
   sent_to_institution: "申請資料已提交至相關銀行或合作機構處理。",
   institution_processing: "相關機構正在處理申請，實際進度視個別情況而定。",
@@ -301,6 +335,7 @@ export const BIZ_STATUS_CTA: Partial<Record<BizApplicationStatus, string>> = {
   missing_docs: "查看尚欠項目",
   needs_supplement: "查看補件要求",
   needs_further_info: "查看所需資料",
+  interview_prep: "查看面簽準備",
 };
 
 export const BIZ_DOC_STATUS_LABEL: Record<BizDocStatus, string> = {
@@ -331,17 +366,39 @@ export const DOC_ISSUE_REASONS = [
   "缺少部分頁面",
   "無法確認資料",
   "需要其他補充文件",
+  "月份不連續",
+  "發票／合約數量不足",
 ] as const;
 
 export const APPLY_STEPS = [
+  { id: "classify", label: "申請分類", short: "分類" },
+  { id: "confirm-class", label: "確認文件類別", short: "確認類別" },
   { id: "applicant", label: "申請人資料", short: "申請人" },
   { id: "company", label: "公司資料", short: "公司" },
   { id: "people", label: "董事及股東", short: "董事股東" },
-  { id: "company-docs", label: "公司文件", short: "公司文件" },
-  { id: "personal-docs", label: "個人文件", short: "個人文件" },
-  { id: "business-proof", label: "業務證明", short: "業務證明" },
+  { id: "documents", label: "上載文件", short: "文件" },
+  { id: "interview", label: "面簽準備", short: "面簽" },
   { id: "regions", label: "業務地區及交易", short: "地區交易" },
   { id: "review", label: "檢查及提交", short: "提交" },
 ] as const;
 
 export type ApplyStepId = (typeof APPLY_STEPS)[number]["id"];
+
+export function emptyRelatedCompany(): BizRelatedCompany {
+  return { name: "", location: "", relation: "", notes: "" };
+}
+
+export function emptyProofMeta(): BizBusinessProofMeta {
+  return {
+    docType: "",
+    counterparty: "",
+    tradeDate: "",
+    amount: "",
+    currency: "HKD",
+    description: "",
+    countries: [],
+    invoiceNo: "",
+  };
+}
+
+export { emptyClassification };

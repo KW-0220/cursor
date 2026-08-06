@@ -56,12 +56,12 @@ export function FileUploadCard({
             <span
               className={cn(
                 "rounded-md px-2 py-0.5 text-[11px] font-medium",
-                slot.required
+                slot.required !== false
                   ? "bg-[color:var(--biz-gold-100)] text-[color:var(--biz-gold-800)]"
                   : "bg-[color:var(--biz-surface-2)] text-[color:var(--biz-muted)]",
               )}
             >
-              {slot.required ? "必須" : "選填"}
+              {slot.required !== false ? "必須" : "選填"}
             </span>
           </div>
           <p className="mt-1 text-sm text-[color:var(--biz-muted)]">{slot.purpose}</p>

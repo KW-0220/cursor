@@ -2,6 +2,7 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { computeCompleteness } from "@/lib/bizdoc/completeness";
+import { normalizeApplication } from "@/lib/bizdoc/normalize";
 import type { BizApplication } from "@/lib/bizdoc/types";
 
 function db(): SupabaseClient {
@@ -52,7 +53,7 @@ export function appToRow(app: BizApplication): Omit<
 
 export function rowToApp(row: BizApplicationRow): BizApplication {
   const payload = row.payload;
-  return {
+  return normalizeApplication({
     ...payload,
     id: row.id,
     status: (row.status as BizApplication["status"]) || payload.status,
@@ -61,7 +62,7 @@ export function rowToApp(row: BizApplicationRow): BizApplication {
     createdAt: row.created_at || payload.createdAt,
     updatedAt: row.updated_at || payload.updatedAt,
     submittedAt: row.submitted_at ?? payload.submittedAt,
-  };
+  });
 }
 
 export async function listBizApplicationsFromDb(): Promise<BizApplication[]> {

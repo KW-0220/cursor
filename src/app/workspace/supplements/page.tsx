@@ -68,10 +68,13 @@ export default function SupplementsPage() {
             </div>
           ))}
 
-          {slots.map((slotId) => (
+          {slots.map((slotId) => {
+            const slot = getDocSlot(slotId);
+            if (!slot) return null;
+            return (
             <FileUploadCard
               key={slotId}
-              slot={getDocSlot(slotId)}
+              slot={{ ...slot, required: true }}
               files={app.files.filter((f) => f.slotId === slotId)}
               onUpload={(file) => {
                 const next = addMockUpload(app, slotId, {
@@ -82,7 +85,8 @@ export default function SupplementsPage() {
                 update(() => next);
               }}
             />
-          ))}
+            );
+          })}
         </div>
       )}
     </main>

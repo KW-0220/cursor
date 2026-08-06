@@ -13,10 +13,22 @@ import { Button } from "@/components/ui/button";
 import { Field, Select, Textarea } from "@/components/ui/field";
 import {
   canConfirmDocsComplete,
+  buildDocProgress,
   formatDateTime,
+  getResolvedPlans,
   maskIdNumber,
 } from "@/lib/bizdoc/completeness";
 import { BIZ_DOC_SLOTS } from "@/lib/bizdoc/documents";
+import {
+  DOC_CATEGORY_LABEL,
+  DOC_CATEGORY_SHORT,
+  COMPANY_AGE_LABEL,
+  RELATED_COMPANY_LABEL,
+  SHAREHOLDER_IDENTITY_LABEL,
+  classificationSummary,
+  effectiveCategory,
+  type DocCategoryId,
+} from "@/lib/bizdoc/classification";
 import {
   DOC_ISSUE_REASONS,
   type BizApplication,
@@ -24,11 +36,12 @@ import {
 
 const TABS = [
   "概覽",
+  "申請分類",
   "客戶資料",
   "董事股東",
-  "公司文件",
-  "業務證明",
+  "文件審核",
   "補件",
+  "面簽準備",
   "WhatsApp",
   "內部備註",
   "操作記錄",
@@ -59,6 +72,8 @@ export default function BizAdminDetailPage() {
   const [note, setNote] = useState("");
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [overrideCat, setOverrideCat] = useState<string>("6");
+  const [overrideReason, setOverrideReason] = useState("");
 
   const reload = useCallback(async () => {
     setLoading(true);
@@ -103,6 +118,9 @@ export default function BizAdminDetailPage() {
   }
 
   const canComplete = canConfirmDocsComplete(app);
+  const docProgress = buildDocProgress(app);
+  const plans = getResolvedPlans(app);
+  const effCat = effectiveCategory(app.classification);
 
   return (
     <div className="space-y-5">
@@ -221,6 +239,13 @@ export default function BizAdminDetailPage() {
         {tab === "概覽" && (
           <div className="space-y-4">
             <BizProgressBar value={app.completeness} />
+            <p className="text-sm text-[color:var(--biz-forest-800)]">
+              申請類別：{classificationSummary(app.classification)}
+            </p>
+            <p className="text-xs text-[color:var(--biz-muted)]">
+              文件 {docProgress.requiredDone}／{docProgress.requiredTotal} · 面簽待帶備{" "}
+              {docProgress.interviewNeeded}
+            </p>
             <div className="grid gap-3 sm:grid-cols-3">
               <Stat label="已上載文件" value={String(app.files.length)} />
               <Stat
@@ -240,6 +265,172 @@ export default function BizAdminDetailPage() {
               負責人：{app.assignee || "未指派"} · 最近更新{" "}
               {formatDateTime(app.updatedAt)}
             </p>
+          </div>
+        )}
+
+        {tab === "申請分類" && (
+          <div className="space-y-5 text-sm">
+            <dl className="grid gap-3 sm:grid-cols-2">
+              <Item
+                label="主要股東身份"
+                value={
+                  app.classification.shareholderIdentity
+                    ? SHAREHOLDER_IDENTITY_LABEL[
+                        app.classification.shareholderIdentity
+                      ]
+                    : "—"
+                }
+              />
+              <Item
+                label="公司成立年期"
+                value={
+                  app.classification.companyAge
+                    ? COMPANY_AGE_LABEL[app.classification.companyAge]
+                    : "—"
+                }
+              />
+              <Item
+                label="關聯公司"
+                value={
+                  app.classification.hasRelatedCompany
+                    ? RELATED_COMPANY_LABEL[
+                        app.classification.hasRelatedCompany
+                      ]
+                    : "—"
+                }
+              />
+              <Item
+                label="系統配對類別"
+                value={
+                  app.classification.systemCategory
+                    ? DOC_CATEGORY_SHORT[app.classification.systemCategory]
+                    : "—"
+                }
+              />
+              <Item
+                label="生效類別"
+                value={effCat ? DOC_CATEGORY_LABEL[effCat] : "—"}
+              />
+              <Item
+                label="客戶已確認"
+                value={app.classification.clientConfirmed ? "是" : "否"}
+              />
+            </dl>
+            {app.classification.overrideCategory && (
+              <p className="rounded-xl bg-[color:var(--biz-gold-100)]/50 px-3 py-2 text-xs">
+                已人手調整：{app.classification.previousCategory} →{" "}
+                {app.classification.overrideCategory}（
+                {app.classification.overrideBy} ·{" "}
+                {app.classification.overrideReason}）
+              </p>
+            )}
+            {app.relatedCompany?.name && (
+              <div className="rounded-xl border border-[color:var(--biz-border)] p-3">
+                <p className="font-medium">關聯公司</p>
+                <p className="mt-1 text-[color:var(--biz-muted)]">
+                  {app.relatedCompany.name} · {app.relatedCompany.location} ·{" "}
+                  {app.relatedCompany.relation}
+                </p>
+              </div>
+            )}
+            <div className="rounded-xl border border-[color:var(--biz-border)] p-4">
+              <h4 className="font-semibold">修改申請類別</h4>
+              <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                <Field label="新類別">
+                  <Select
+                    value={overrideCat}
+                    onChange={(e) => setOverrideCat(e.target.value)}
+                  >
+                    {(
+                      [1, 2, 3, 4, 5, 6, "3r", "6r"] as DocCategoryId[]
+                    ).map((id) => (
+                      <option key={String(id)} value={String(id)}>
+                        {DOC_CATEGORY_SHORT[id]}
+                      </option>
+                    ))}
+                  </Select>
+                </Field>
+                <div className="sm:col-span-2">
+                  <Field label="修改原因（必填）">
+                    <Textarea
+                      value={overrideReason}
+                      onChange={(e) => setOverrideReason(e.target.value)}
+                    />
+                  </Field>
+                </div>
+              </div>
+              <Button
+                size="sm"
+                className="mt-3"
+                onClick={() => {
+                  void (async () => {
+                    if (!overrideReason.trim()) {
+                      setMessage("請填寫修改原因");
+                      return;
+                    }
+                    const catRaw = overrideCat;
+                    const category = (
+                      ["3r", "6r"].includes(catRaw)
+                        ? catRaw
+                        : Number(catRaw)
+                    ) as DocCategoryId;
+                    try {
+                      const next = await postAction({
+                        action: "override_category",
+                        id: app.id,
+                        category,
+                        reason: overrideReason,
+                        actor: app.assignee || "審核員",
+                      });
+                      setApp(next);
+                      setOverrideReason("");
+                      setMessage("已更新申請類別");
+                    } catch (e) {
+                      setMessage(e instanceof Error ? e.message : "失敗");
+                    }
+                  })();
+                }}
+              >
+                儲存類別調整
+              </Button>
+            </div>
+            <div className="rounded-xl border border-[color:var(--biz-border)] p-4">
+              <h4 className="font-semibold">文件要求控制</h4>
+              <ul className="mt-3 space-y-2">
+                {plans.map((p) => (
+                  <li
+                    key={p.slot.id}
+                    className="flex flex-wrap items-center justify-between gap-2 border-b border-[color:var(--biz-border)] py-2"
+                  >
+                    <span>
+                      {p.slot.name}{" "}
+                      <span className="text-xs text-[color:var(--biz-muted)]">
+                        （目前：{p.requirement}）
+                      </span>
+                    </span>
+                    <Select
+                      className="max-w-[8rem]"
+                      value={app.slotOverrides?.[p.slot.id] || p.requirement}
+                      onChange={(e) => {
+                        void (async () => {
+                          const next = await postAction({
+                            action: "set_slot_requirement",
+                            id: app.id,
+                            slotId: p.slot.id,
+                            requirement: e.target.value,
+                          });
+                          setApp(next);
+                        })();
+                      }}
+                    >
+                      <option value="required">必須</option>
+                      <option value="optional">選填</option>
+                      <option value="na">不適用</option>
+                    </Select>
+                  </li>
+                ))}
+              </ul>
+            </div>
           </div>
         )}
 
@@ -290,67 +481,58 @@ export default function BizAdminDetailPage() {
           </div>
         )}
 
-        {(tab === "公司文件" || tab === "業務證明") && (
+        {tab === "文件審核" && (
           <div className="space-y-4">
-            {app.files
-              .filter((f) => {
-                const slot = BIZ_DOC_SLOTS.find((s) => s.id === f.slotId);
-                if (!slot) return false;
-                if (tab === "公司文件")
-                  return ["company", "identity", "address"].includes(
-                    slot.category,
-                  );
-                return ["business_proof", "business_alt"].includes(
-                  slot.category,
-                );
-              })
-              .map((f) => {
-                const slot = BIZ_DOC_SLOTS.find((s) => s.id === f.slotId);
-                return (
-                  <div
-                    key={f.id}
-                    className="rounded-xl border border-[color:var(--biz-border)] p-4"
-                  >
-                    <div className="flex flex-wrap items-start justify-between gap-2">
-                      <div>
-                        <p className="font-medium">{f.originalName}</p>
-                        <p className="text-xs text-[color:var(--biz-muted)]">
-                          {slot?.name} · v{f.version} ·{" "}
-                          {formatDateTime(f.uploadedAt)}
-                        </p>
-                      </div>
-                      <BizDocBadge status={f.status} />
+            {app.files.length === 0 && (
+              <p className="text-sm text-[color:var(--biz-muted)]">尚未有上載文件</p>
+            )}
+            {app.files.map((f) => {
+              const slot = BIZ_DOC_SLOTS.find((s) => s.id === f.slotId);
+              return (
+                <div
+                  key={f.id}
+                  className="rounded-xl border border-[color:var(--biz-border)] p-4"
+                >
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <div>
+                      <p className="font-medium">{f.originalName}</p>
+                      <p className="text-xs text-[color:var(--biz-muted)]">
+                        {slot?.name || f.slotId} · 群組 {slot?.group} · v
+                        {f.version} · {formatDateTime(f.uploadedAt)}
+                      </p>
                     </div>
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => {
-                          void (async () => {
-                            const next = await postAction({
-                              action: "set_file_status",
-                              id: app.id,
-                              fileId: f.id,
-                              status: "approved",
-                            });
-                            setApp(next);
-                            setMessage(`已標示通過：${f.originalName}`);
-                          })();
-                        }}
-                      >
-                        標示已通過
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => setSelectedFile(f.id)}
-                      >
-                        標示需要補件
-                      </Button>
-                    </div>
+                    <BizDocBadge status={f.status} />
                   </div>
-                );
-              })}
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => {
+                        void (async () => {
+                          const next = await postAction({
+                            action: "set_file_status",
+                            id: app.id,
+                            fileId: f.id,
+                            status: "approved",
+                          });
+                          setApp(next);
+                          setMessage(`已標示通過：${f.originalName}`);
+                        })();
+                      }}
+                    >
+                      標示已通過
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => setSelectedFile(f.id)}
+                    >
+                      標示需要補件
+                    </Button>
+                  </div>
+                </div>
+              );
+            })}
 
             {selectedFile && (
               <div className="rounded-xl border border-[color:var(--biz-gold-600)]/40 bg-[color:var(--biz-gold-100)]/30 p-4">
@@ -413,6 +595,20 @@ export default function BizAdminDetailPage() {
               </div>
             )}
           </div>
+        )}
+
+        {tab === "面簽準備" && (
+          <ul className="space-y-2 text-sm">
+            {Object.entries(app.interviewChecklist || {}).map(([k, v]) => (
+              <li
+                key={k}
+                className="flex justify-between border-b border-[color:var(--biz-border)] py-2"
+              >
+                <span>{k}</span>
+                <span className="text-[color:var(--biz-muted)]">{v}</span>
+              </li>
+            ))}
+          </ul>
         )}
 
         {tab === "補件" && (

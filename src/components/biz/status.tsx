@@ -24,6 +24,7 @@ const statusTone: Record<BizApplicationStatus, string> = {
   needs_supplement: "bg-[color:var(--biz-gold-100)] text-[color:var(--biz-gold-800)]",
   supplement_review: "bg-[color:var(--biz-forest-100)] text-[color:var(--biz-forest-800)]",
   docs_complete: "bg-success-100 text-success-600",
+  interview_prep: "bg-[color:var(--biz-forest-100)] text-[color:var(--biz-forest-800)]",
   next_stage: "bg-[color:var(--biz-forest-100)] text-[color:var(--biz-forest-800)]",
   sent_to_institution: "bg-[color:var(--biz-forest-100)] text-[color:var(--biz-forest-800)]",
   institution_processing: "bg-[color:var(--biz-forest-100)] text-[color:var(--biz-forest-800)]",

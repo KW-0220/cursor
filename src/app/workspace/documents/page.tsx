@@ -60,7 +60,7 @@ export default function DocumentsCenterPage() {
             按狀態查看已上載文件。已通過文件不可刪除。
           </p>
         </div>
-        <Link href="/workspace/apply/company-docs">
+        <Link href="/workspace/apply/documents">
           <Button variant="outline">前往上載</Button>
         </Link>
       </div>
@@ -68,7 +68,7 @@ export default function DocumentsCenterPage() {
       {app.files.length === 0 ? (
         <div className="mt-10 rounded-2xl border border-dashed border-[color:var(--biz-border)] px-6 py-16 text-center">
           <p className="text-sm text-[color:var(--biz-muted)]">沒有已上載文件</p>
-          <Link href="/workspace/apply/company-docs" className="mt-4 inline-block">
+          <Link href="/workspace/apply/documents" className="mt-4 inline-block">
             <Button>開始上載</Button>
           </Link>
         </div>
