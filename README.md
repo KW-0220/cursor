@@ -1,3 +1,27 @@
+# SME LoanFlow + 開戶文件通
+
+本 repo 現包含兩條產品線：
+
+1. **開戶文件通**（公司成立及商業戶口文件管理）— 主首頁 `/`
+2. **SME LoanFlow**（中小企貸款智能申請）— `/onboarding`、`/app`、`/apply`、`/admin`
+
+## 開戶文件通（MVP）
+
+| 區域 | URL |
+| --- | --- |
+| 行銷首頁 | `/` |
+| 服務／文件清單 | `/services` |
+| 客戶工作台 | `/workspace` |
+| 八步申請 | `/workspace/apply/*` |
+| 進度／補件／文件中心 | `/workspace/progress` · `/workspace/supplements` · `/workspace/documents` |
+| 後台審核 | `/biz-admin` · `/biz-admin/[id]` |
+
+詳見 [`docs/BIZ_ACCOUNT_BRIEF.md`](docs/BIZ_ACCOUNT_BRIEF.md)、[`docs/BIZ_ACCOUNT_SITEMAP.md`](docs/BIZ_ACCOUNT_SITEMAP.md)。
+
+MVP 客戶／後台申請資料暫存 **localStorage**（示範種子 `BA-2026-10482`）；正式環境將接 Supabase／Object Storage／WhatsApp provider。
+
+---
+
 # SME LoanFlow
 
 香港中小企貸款智能申請（MVP 原型）  
