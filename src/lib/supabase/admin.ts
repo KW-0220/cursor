@@ -66,6 +66,45 @@ export async function ensureSupabaseAdminUser(opts?: {
   return data.user;
 }
 
+/** 開戶文件通後台帳（app_metadata.role=biz_admin）— 與 SME admin 分離 */
+export async function ensureSupabaseBizAdminUser(opts?: {
+  email?: string;
+  password?: string;
+  nameZh?: string;
+}) {
+  const email = (opts?.email || "admin@hkbank.com").trim().toLowerCase();
+  const password = opts?.password || "HkBank2026!";
+  const nameZh = opts?.nameZh || "開戶文件審核員";
+  const admin = createAdminClient();
+
+  const listed = await admin.auth.admin.listUsers({ page: 1, perPage: 200 });
+  if (listed.error) throw listed.error;
+  const existing = listed.data.users.find(
+    (u) => u.email?.toLowerCase() === email,
+  );
+
+  if (existing) {
+    const { data, error } = await admin.auth.admin.updateUserById(existing.id, {
+      password,
+      email_confirm: true,
+      app_metadata: { ...existing.app_metadata, role: "biz_admin" },
+      user_metadata: { ...existing.user_metadata, nameZh },
+    });
+    if (error) throw error;
+    return data.user;
+  }
+
+  const { data, error } = await admin.auth.admin.createUser({
+    email,
+    password,
+    email_confirm: true,
+    app_metadata: { role: "biz_admin" },
+    user_metadata: { nameZh },
+  });
+  if (error) throw error;
+  return data.user;
+}
+
 /** 刪除 Supabase Auth 非管理員用戶，逼重新註冊；保留 admin@sme.com */
 export async function clearSupabaseApplicantUsers(opts?: {
   keepEmail?: string;
@@ -82,7 +121,7 @@ export async function clearSupabaseApplicantUsers(opts?: {
     for (const u of users) {
       const email = u.email?.toLowerCase() ?? "";
       const role = u.app_metadata?.role;
-      if (email === keep || role === "admin") continue;
+      if (email === keep || role === "admin" || role === "biz_admin") continue;
       const { error } = await admin.auth.admin.deleteUser(u.id);
       if (error) throw error;
       removed += 1;
@@ -97,7 +136,7 @@ export async function clearSupabaseApplicantUsers(opts?: {
 /** 按電郵刪除單一申請人 Auth 帳戶（管理員／admin email 略過） */
 export async function deleteSupabaseUserByEmail(email: string) {
   const key = email.trim().toLowerCase();
-  if (!key || key === "admin@sme.com") {
+  if (!key || key === "admin@sme.com" || key === "admin@hkbank.com") {
     return { removed: false, skipped: true as const };
   }
   const admin = createAdminClient();
@@ -109,7 +148,10 @@ export async function deleteSupabaseUserByEmail(email: string) {
     if (!users.length) break;
     const hit = users.find((u) => (u.email?.toLowerCase() ?? "") === key);
     if (hit) {
-      if (hit.app_metadata?.role === "admin") {
+      if (
+        hit.app_metadata?.role === "admin" ||
+        hit.app_metadata?.role === "biz_admin"
+      ) {
         return { removed: false, skipped: true as const };
       }
       const { error } = await admin.auth.admin.deleteUser(hit.id);

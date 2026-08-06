@@ -1,3 +1,29 @@
+# SME LoanFlow + 開戶文件通
+
+本 repo 現包含兩條產品線：
+
+1. **開戶文件通**（公司成立及商業戶口文件管理）— 主首頁 `/`
+2. **SME LoanFlow**（中小企貸款智能申請）— `/onboarding`、`/app`、`/apply`、`/admin`
+
+## 開戶文件通（MVP）
+
+| 區域 | URL |
+| --- | --- |
+| 行銷首頁 | `/` |
+| 服務／文件清單 | `/services` |
+| 客戶工作台 | `/workspace` |
+| 八步申請 | `/workspace/apply/*` |
+| 進度／補件／文件中心 | `/workspace/progress` · `/workspace/supplements` · `/workspace/documents` |
+| 後台登入 | `/biz-admin/login`（`admin@hkbank.com`／角色 `biz_admin`） |
+| 後台總覽／申請 | `/biz-admin` · `/biz-admin/applications` · `/biz-admin/applications/[id]` |
+| 補件／WhatsApp／審計 | `/biz-admin/supplements` · `/biz-admin/whatsapp` · `/biz-admin/audit` |
+
+詳見 [`docs/BIZ_ACCOUNT_BRIEF.md`](docs/BIZ_ACCOUNT_BRIEF.md)、[`docs/BIZ_ACCOUNT_SITEMAP.md`](docs/BIZ_ACCOUNT_SITEMAP.md)。
+
+MVP 客戶草稿暫存 **localStorage**，提交／儲存會同步至 Supabase `biz_applications`；**獨立後台** `/biz-admin` 讀寫 Supabase（需 `biz_admin`，與 SME `/admin` 完全分離）。
+
+---
+
 # SME LoanFlow
 
 香港中小企貸款智能申請（MVP 原型）  
@@ -7,7 +33,9 @@
 > 後台 `/admin` 維持原有設計與操作；本次只擴充客戶端網頁可用性，不重整後台。
 ## 永久公開試用（Vercel）
 
-**正式網址：** https://sme-loanflow.vercel.app
+**正式網址：** https://hk-bank-account.vercel.app
+
+> Vercel project：`hk-bank-account`（已接 GitHub `KW-0220/cursor`）
 
 ### AI 資料收集／預審流程（第一階段修正）
 

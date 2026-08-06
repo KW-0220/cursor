@@ -1,4 +1,4 @@
-import { Noto_Sans_TC, Geist_Mono } from "next/font/google";
+import { Noto_Sans_TC, Geist_Mono, Cormorant_Garamond } from "next/font/google";
 import type { Metadata } from "next";
 import "./globals.css";
 
@@ -13,10 +13,16 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
+const cormorant = Cormorant_Garamond({
+  variable: "--font-biz-display",
+  subsets: ["latin"],
+  weight: ["500", "600", "700"],
+});
+
 export const metadata: Metadata = {
-  title: "SME LoanFlow｜中小企貸款智能申請",
+  title: "開戶文件通｜公司成立及商業戶口文件管理",
   description:
-    "協助香港中小企以數碼方式完成貸款資料提交、文件檢查及初步資格評估。",
+    "按步驟提交公司、董事及業務資料，可中途儲存，並透過 WhatsApp 掌握文件處理進度。",
 };
 
 export default function RootLayout({
@@ -27,7 +33,7 @@ export default function RootLayout({
   return (
     <html
       lang="zh-Hant"
-      className={`${notoSansTC.variable} ${geistMono.variable} h-full antialiased`}
+      className={`${notoSansTC.variable} ${geistMono.variable} ${cormorant.variable} h-full antialiased`}
     >
       <body className="min-h-full font-sans text-text-primary">{children}</body>
     </html>

@@ -31,15 +31,18 @@ export async function POST(req: NextRequest) {
     const user = await verifyLogin(parsed.data, vault);
     const token = await createSessionToken(user);
     const isAdmin = user.role === "admin" || isAdminEmail(user.email);
+    const product = (body as { product?: string }).product;
     const res = NextResponse.json({
       ok: true,
       user,
       storage: getAuthStorageMode(),
       next: isAdmin
         ? "/admin"
-        : user.profileCompleted
-          ? "/app"
-          : "/register/identity",
+        : product === "bizdoc"
+          ? "/workspace/apply/classify"
+          : user.profileCompleted
+            ? "/app"
+            : "/register/identity",
     });
     res.headers.append("Set-Cookie", sessionCookie(token));
     try {
