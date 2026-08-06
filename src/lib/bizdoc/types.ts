@@ -225,6 +225,9 @@ export interface BizWhatsAppMessage {
   sentAt: string;
   status: WhatsAppSendStatus;
   failReason?: string;
+  recipientRole?: "customer" | "reviewer";
+  providerMessageId?: string;
+  provider?: string;
 }
 
 export interface BizTimelineEvent {

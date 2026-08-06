@@ -930,11 +930,17 @@ export default function BizAdminDetailPage() {
               >
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <span className="text-xs text-[color:var(--biz-muted)]">
-                    {w.type} · {formatDateTime(w.sentAt)} · {w.phone}
+                    {w.type}
+                    {w.recipientRole ? ` · ${w.recipientRole}` : ""} ·{" "}
+                    {formatDateTime(w.sentAt)} · {w.phone}
+                    {w.provider ? ` · ${w.provider}` : ""}
                   </span>
                   <WhatsAppBadge status={w.status} />
                 </div>
                 <p className="mt-2">{w.content}</p>
+                {w.failReason && (
+                  <p className="mt-1 text-xs text-danger-600">{w.failReason}</p>
+                )}
               </li>
             ))}
           </ul>

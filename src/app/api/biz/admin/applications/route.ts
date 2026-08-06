@@ -8,9 +8,14 @@ import {
   listBizApplicationsFromDb,
   upsertBizApplicationToDb,
 } from "@/lib/bizdoc/supabase";
+import {
+  mergeWhatsAppStatus,
+  notifyBizWhatsApp,
+} from "@/lib/bizdoc/notify";
 import { requireBizAdminContext } from "@/lib/supabase/context";
 
 export const runtime = "nodejs";
+export const maxDuration = 60;
 
 async function gate(req: NextRequest) {
   return requireBizAdminContext(req);
@@ -214,7 +219,8 @@ export async function POST(req: NextRequest) {
 
     if (body.action === "request_supplement") {
       const file = existing.files.find((f) => f.id === body.fileId);
-      next = {
+      const detail = `${body.issueType} — ${body.issueReason}`;
+      const draft: BizApplication = {
         ...existing,
         status: "needs_supplement",
         files: existing.files.map((f) =>
@@ -236,18 +242,6 @@ export async function POST(req: NextRequest) {
             at: now,
             description: `${file?.originalName || "文件"}：${body.issueType}`,
             clientAction: "查看補件要求",
-            whatsappStatus: "sent",
-          },
-        ],
-        whatsapp: [
-          ...existing.whatsapp,
-          {
-            id: `w-sup-${now}`,
-            type: "supplement",
-            content: `你的申請（${existing.id}｜${existing.company.nameZh || "未命名公司"}）有部分資料或文件需要補充或重新上載。請登入申請平台查看詳細要求。`,
-            phone: existing.applicant.whatsapp,
-            sentAt: now,
-            status: "sent",
           },
         ],
         auditLog: [
@@ -256,10 +250,23 @@ export async function POST(req: NextRequest) {
             id: `a-sup-${now}`,
             actor: existing.assignee || actorEmail,
             action: "request_supplement",
-            detail: `${file?.originalName}: ${body.issueType} — ${body.issueReason}`,
+            detail: `${file?.originalName}: ${detail}`,
             at: now,
           },
         ],
+      };
+      const wa = await notifyBizWhatsApp({
+        app: draft,
+        event: "supplement",
+        supplementDetail: detail,
+      });
+      const waStatus = mergeWhatsAppStatus(wa);
+      next = {
+        ...draft,
+        timeline: draft.timeline.map((t) =>
+          t.id === `t-sup-${now}` ? { ...t, whatsappStatus: waStatus } : t,
+        ),
+        whatsapp: [...existing.whatsapp, ...wa],
       };
     }
 
@@ -271,7 +278,7 @@ export async function POST(req: NextRequest) {
         );
       }
       const actor = body.actor || existing.assignee || actorEmail;
-      next = {
+      const draft: BizApplication = {
         ...existing,
         status: "docs_complete",
         timeline: [
@@ -282,18 +289,6 @@ export async function POST(req: NextRequest) {
             label: "文件已收齊",
             at: now,
             description: "所有初步所需文件已確認收齊。",
-            whatsappStatus: "sent",
-          },
-        ],
-        whatsapp: [
-          ...existing.whatsapp,
-          {
-            id: `w-done-${now}`,
-            type: "docs_complete",
-            content: `你的申請（${existing.id}｜${existing.company.nameZh || "未命名公司"}）所需文件已完成初步檢查並確認收齊。團隊將進入下一階段處理；文件收齊不代表商業戶口已獲批。`,
-            phone: existing.applicant.whatsapp,
-            sentAt: now,
-            status: "sent",
           },
         ],
         auditLog: [
@@ -306,6 +301,18 @@ export async function POST(req: NextRequest) {
             at: now,
           },
         ],
+      };
+      const wa = await notifyBizWhatsApp({
+        app: draft,
+        event: "docs_complete",
+      });
+      const waStatus = mergeWhatsAppStatus(wa);
+      next = {
+        ...draft,
+        timeline: draft.timeline.map((t) =>
+          t.id === `t-done-${now}` ? { ...t, whatsappStatus: waStatus } : t,
+        ),
+        whatsapp: [...existing.whatsapp, ...wa],
       };
     }
 

@@ -47,10 +47,7 @@ export default function SupplementsPage() {
       });
       update((prev) => ({
         ...prev,
-        status:
-          prev.status === "needs_supplement"
-            ? "supplement_review"
-            : prev.status,
+        status: "supplement_review",
         files: [
           ...prev.files.filter(
             (f) => f.slotId !== slotId || f.status === "approved",
@@ -62,7 +59,31 @@ export default function SupplementsPage() {
           },
         ],
       }));
+      // 強制寫入並通知審核員
+      const nextApp = {
+        ...app,
+        status: "supplement_review" as const,
+        updatedAt: new Date().toISOString(),
+        files: [
+          ...app.files.filter(
+            (f) => f.slotId !== slotId || f.status === "approved",
+          ),
+          {
+            ...uploaded,
+            status: "reuploaded" as const,
+            version: uploaded.version,
+          },
+        ],
+      };
       saveNow();
+      void fetch("/api/biz/applications", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          application: nextApp,
+          notifyEvents: ["reviewer_resubmit"],
+        }),
+      }).catch(() => null);
     } catch (e) {
       setError(e instanceof Error ? e.message : "上載失敗");
     } finally {

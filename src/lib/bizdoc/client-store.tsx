@@ -336,7 +336,10 @@ export function BizdocProvider({ children }: { children: React.ReactNode }) {
       void fetch("/api/biz/applications", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ application: memoryApp }),
+        body: JSON.stringify({
+          application: memoryApp,
+          notifyEvents: ["submitted"],
+        }),
       }).catch(() => null);
       return { ok: true as const };
     } catch (e) {
