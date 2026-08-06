@@ -18,6 +18,13 @@ import { DOC_GROUP_LABEL } from "@/lib/bizdoc/classification";
 export default function ConfirmClassPage() {
   const router = useRouter();
   const { app, update, saveNow } = useBizdoc();
+  if (!app.id) {
+    return (
+      <div className="flex flex-1 items-center justify-center p-8 text-sm text-[color:var(--biz-muted)]">
+        載入申請資料……
+      </div>
+    );
+  }
   const c = app.classification;
   const cat = effectiveCategory(c);
   const ready =

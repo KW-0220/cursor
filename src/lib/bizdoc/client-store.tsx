@@ -38,18 +38,201 @@ function emit() {
   listeners.forEach((l) => l());
 }
 
-const EMPTY_APP = createEmptyApplication({ id: "" });
+function safeEmptyApp(): BizApplication {
+  try {
+    return createEmptyApplication({ id: "" });
+  } catch {
+    return {
+      id: "",
+      createdAt: "",
+      updatedAt: "",
+      status: "draft",
+      completeness: 0,
+      applicant: {
+        name: "",
+        relation: "",
+        email: "",
+        phone: "",
+        whatsapp: "",
+        bestContactTime: "",
+        preferredLanguage: "zh-Hant",
+        authorized: false,
+      },
+      company: {
+        nameZh: "",
+        nameEn: "",
+        crNumber: "",
+        brNumber: "",
+        foundedAt: "",
+        companyType: "",
+        registeredAddress: "",
+        businessAddress: "",
+        phone: "",
+        email: "",
+        website: "",
+        nature: "",
+        products: "",
+        incomeSource: "",
+        monthlyTurnover: "",
+        yearlyTurnover: "",
+        employees: "",
+        hasOtherBankAccount: null,
+        appliedBefore: null,
+        rejectedBefore: null,
+      },
+      accountNeeds: {
+        hkd: true,
+        cny: false,
+        usd: false,
+        otherFx: false,
+        internetBanking: true,
+        debitCard: false,
+        remittance: true,
+        firstDeposit: "",
+        monthlyVolume: "",
+        preferredBank: "",
+        expectedDate: "",
+        purpose: "",
+      },
+      directors: [],
+      shareholders: [],
+      ubos: [],
+      classification: {
+        shareholderIdentity: null,
+        companyAge: null,
+        hasRelatedCompany: null,
+        systemCategory: null,
+        clientConfirmed: false,
+        overrideCategory: null,
+      },
+      relatedCompany: { name: "", location: "", relation: "", notes: "" },
+      slotOverrides: {},
+      interviewChecklist: {},
+      extraDocRequests: [],
+      nar1Option: null,
+      tradingStatus: null,
+      businessRegion: {
+        operatingCountries: [],
+        customerCountries: [],
+        supplierCountries: [],
+        receiveCountries: [],
+        payCountries: [],
+        crossBorder: null,
+        mainCurrencies: [],
+        monthlyReceiveCount: "",
+        monthlyPayCount: "",
+        monthlyReceiveAmount: "",
+        monthlyPayAmount: "",
+        maxSingleAmount: "",
+        cashTransactions: null,
+        onlineSales: null,
+        thirdPartyPayment: null,
+      },
+      businessSet1: {
+        docType: "",
+        counterparty: "",
+        tradeDate: "",
+        amount: "",
+        currency: "HKD",
+        description: "",
+        countries: [],
+      },
+      businessSet2: {
+        docType: "",
+        counterparty: "",
+        tradeDate: "",
+        amount: "",
+        currency: "HKD",
+        description: "",
+        countries: [],
+      },
+      hkBusinessProofs: [
+        {
+          docType: "",
+          counterparty: "",
+          tradeDate: "",
+          amount: "",
+          currency: "HKD",
+          description: "",
+          countries: [],
+        },
+        {
+          docType: "",
+          counterparty: "",
+          tradeDate: "",
+          amount: "",
+          currency: "HKD",
+          description: "",
+          countries: [],
+        },
+        {
+          docType: "",
+          counterparty: "",
+          tradeDate: "",
+          amount: "",
+          currency: "HKD",
+          description: "",
+          countries: [],
+        },
+      ],
+      relatedInvoices: [
+        {
+          docType: "",
+          counterparty: "",
+          tradeDate: "",
+          amount: "",
+          currency: "HKD",
+          description: "",
+          countries: [],
+        },
+        {
+          docType: "",
+          counterparty: "",
+          tradeDate: "",
+          amount: "",
+          currency: "HKD",
+          description: "",
+          countries: [],
+        },
+        {
+          docType: "",
+          counterparty: "",
+          tradeDate: "",
+          amount: "",
+          currency: "HKD",
+          description: "",
+          countries: [],
+        },
+      ],
+      files: [],
+      consents: {
+        privacy: false,
+        terms: false,
+        dataUse: false,
+        whatsapp: false,
+        electronic: false,
+        thirdParty: false,
+        bankTransfer: false,
+        truthfulness: false,
+      },
+      timeline: [],
+      whatsapp: [],
+      internalNotes: [],
+      auditLog: [],
+    };
+  }
+}
 
 function getSnapshot(): BizApplication {
   if (typeof window === "undefined") {
-    return memoryApp ?? EMPTY_APP;
+    return memoryApp ?? safeEmptyApp();
   }
   if (!memoryApp) memoryApp = loadClientApplication();
   return memoryApp;
 }
 
 function getServerSnapshot(): BizApplication {
-  return EMPTY_APP;
+  return safeEmptyApp();
 }
 
 function subscribe(cb: () => void) {

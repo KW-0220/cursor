@@ -130,17 +130,8 @@ export function resolveDocCategory(
   return "6r";
 }
 
-export function effectiveCategory(c: BizClassification): DocCategoryId | null {
-  return c.overrideCategory ?? c.systemCategory;
-}
-
-export function classificationSummary(c: BizClassification): string {
-  const cat = effectiveCategory(c);
-  if (!cat) return "尚未完成分類";
-  return DOC_CATEGORY_SHORT[cat];
-}
-
-export function isClassificationComplete(c: BizClassification): boolean {
+export function isClassificationComplete(c: BizClassification | null | undefined): boolean {
+  if (!c) return false;
   return Boolean(
     c.shareholderIdentity &&
       c.companyAge &&
@@ -148,4 +139,19 @@ export function isClassificationComplete(c: BizClassification): boolean {
       c.systemCategory &&
       c.clientConfirmed,
   );
+}
+
+export function effectiveCategory(
+  c: BizClassification | null | undefined,
+): DocCategoryId | null {
+  if (!c) return null;
+  return c.overrideCategory ?? c.systemCategory;
+}
+
+export function classificationSummary(
+  c: BizClassification | null | undefined,
+): string {
+  const cat = effectiveCategory(c);
+  if (!cat) return "尚未完成分類";
+  return DOC_CATEGORY_SHORT[cat];
 }

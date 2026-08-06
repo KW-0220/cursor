@@ -43,7 +43,14 @@ function ChoiceCard({
 
 export default function ClassifyPage() {
   const { app, update, saveNow } = useBizdoc();
-  const c = app.classification;
+  const c = app.classification ?? {
+    shareholderIdentity: null,
+    companyAge: null,
+    hasRelatedCompany: null,
+    systemCategory: null,
+    clientConfirmed: false,
+    overrideCategory: null,
+  };
 
   function setIdentity(v: ShareholderIdentity) {
     update((prev) => {
@@ -99,7 +106,15 @@ export default function ClassifyPage() {
     });
   }
 
-  const inferred = inferCompanyAgeBand(app.company.foundedAt);
+  const inferred = inferCompanyAgeBand(app.company?.foundedAt ?? "");
+
+  if (!app.id) {
+    return (
+      <div className="flex flex-1 items-center justify-center p-8 text-sm text-[color:var(--biz-muted)]">
+        載入申請資料……
+      </div>
+    );
+  }
 
   return (
     <ApplyWizardShell stepId="classify">
