@@ -31,10 +31,9 @@ MVP 客戶草稿暫存 **localStorage**，提交／儲存會同步至 Supabase `
 > 後台 `/admin` 維持原有設計與操作；本次只擴充客戶端網頁可用性，不重整後台。
 ## 永久公開試用（Vercel）
 
-**正式網址：** https://bank-account-self.vercel.app
+**正式網址：** https://hk-bank-account.vercel.app
 
-> Vercel project：`bank-account`（已接 GitHub `KW-0220/cursor`）  
-> 注意：`bank-account.vercel.app` 已被其他專案佔用，因此 production alias 為 `bank-account-self.vercel.app`。
+> Vercel project：`hk-bank-account`（已接 GitHub `KW-0220/cursor`）
 
 ### AI 資料收集／預審流程（第一階段修正）
 
