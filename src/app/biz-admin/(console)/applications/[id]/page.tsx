@@ -791,75 +791,98 @@ export default function BizAdminDetailPage() {
                     <Button
                       size="sm"
                       variant="outline"
-                      onClick={() => setSelectedFile(f.id)}
+                      onClick={() => {
+                        setSelectedFile((prev) =>
+                          prev === f.id ? "" : f.id,
+                        );
+                        setIssueReason("");
+                        setMessage(null);
+                      }}
                     >
-                      標示需要補件
+                      {selectedFile === f.id ? "取消補件" : "標示需要補件"}
                     </Button>
                   </div>
+
+                  {selectedFile === f.id && (
+                    <div className="mt-4 rounded-xl border border-[color:var(--biz-gold-600)]/40 bg-[color:var(--biz-gold-100)]/40 p-4">
+                      <h4 className="text-sm font-semibold">
+                        發出補件要求 · {f.originalName}
+                      </h4>
+                      <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                        <Field label="問題原因">
+                          <Select
+                            value={issueType}
+                            onChange={(e) => setIssueType(e.target.value)}
+                          >
+                            {DOC_ISSUE_REASONS.map((r) => (
+                              <option key={r} value={r}>
+                                {r}
+                              </option>
+                            ))}
+                          </Select>
+                        </Field>
+                        <div className="sm:col-span-2">
+                          <Field label="補件說明（客戶可見）" required>
+                            <Textarea
+                              value={issueReason}
+                              placeholder="例如：請重新拍攝，確保四角完整、文字清晰"
+                              onChange={(e) => setIssueReason(e.target.value)}
+                            />
+                          </Field>
+                        </div>
+                      </div>
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        <Button
+                          size="sm"
+                          onClick={() => {
+                            void (async () => {
+                              if (!issueReason.trim()) {
+                                setMessage("請填寫補件說明");
+                                return;
+                              }
+                              try {
+                                const next = await postAction({
+                                  action: "request_supplement",
+                                  id: app.id,
+                                  fileId: f.id,
+                                  issueType,
+                                  issueReason: issueReason.trim(),
+                                });
+                                setApp(next);
+                                setSelectedFile("");
+                                setIssueReason("");
+                                setMessage(
+                                  `已發出補件要求：${f.originalName}`,
+                                );
+                                setTab("補件");
+                              } catch (e) {
+                                setMessage(
+                                  e instanceof Error
+                                    ? e.message
+                                    : "發出補件失敗",
+                                );
+                              }
+                            })();
+                          }}
+                        >
+                          確認補件並通知客戶
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => {
+                            setSelectedFile("");
+                            setIssueReason("");
+                          }}
+                        >
+                          取消
+                        </Button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               );
             })}
-
-            {selectedFile && (
-              <div className="rounded-xl border border-[color:var(--biz-gold-600)]/40 bg-[color:var(--biz-gold-100)]/30 p-4">
-                <h4 className="text-sm font-semibold">發出補件要求</h4>
-                <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                  <Field label="問題原因">
-                    <Select
-                      value={issueType}
-                      onChange={(e) => setIssueType(e.target.value)}
-                    >
-                      {DOC_ISSUE_REASONS.map((r) => (
-                        <option key={r} value={r}>
-                          {r}
-                        </option>
-                      ))}
-                    </Select>
-                  </Field>
-                  <div className="sm:col-span-2">
-                    <Field label="補件說明（客戶可見）">
-                      <Textarea
-                        value={issueReason}
-                        onChange={(e) => setIssueReason(e.target.value)}
-                      />
-                    </Field>
-                  </div>
-                </div>
-                <div className="mt-3 flex gap-2">
-                  <Button
-                    size="sm"
-                    onClick={() => {
-                      void (async () => {
-                        if (!issueReason.trim()) {
-                          setMessage("請填寫補件說明");
-                          return;
-                        }
-                        const next = await postAction({
-                          action: "request_supplement",
-                          id: app.id,
-                          fileId: selectedFile,
-                          issueType,
-                          issueReason,
-                        });
-                        setApp(next);
-                        setSelectedFile("");
-                        setIssueReason("");
-                        setMessage("已發出補件要求並寫入 Supabase");
-                      })();
-                    }}
-                  >
-                    發送 WhatsApp 補件通知
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={() => setSelectedFile("")}
-                  >
-                    取消
-                  </Button>
-                </div>
-              </div>
-            )}
           </div>
         )}
 
