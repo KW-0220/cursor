@@ -31,7 +31,9 @@ MVP 客戶草稿暫存 **localStorage**，提交／儲存會同步至 Supabase `
 > 後台 `/admin` 維持原有設計與操作；本次只擴充客戶端網頁可用性，不重整後台。
 ## 永久公開試用（Vercel）
 
-**正式網址：** https://sme-loanflow.vercel.app
+**正式網址：** https://bank-account.vercel.app
+
+> 若仍見 `sme-loanflow.vercel.app`：到 Vercel Dashboard → Project Settings → General → 將 Project Name 改為 `bank-account`（`*.vercel.app` 跟 project name）。
 
 ### AI 資料收集／預審流程（第一階段修正）
 
