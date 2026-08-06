@@ -435,49 +435,226 @@ export default function BizAdminDetailPage() {
         )}
 
         {tab === "客戶資料" && (
-          <dl className="grid gap-3 text-sm sm:grid-cols-2">
-            <Item label="聯絡人" value={app.applicant.name} />
-            <Item label="關係" value={app.applicant.relation} />
-            <Item label="電郵" value={app.applicant.email} />
-            <Item label="電話" value={app.applicant.phone} />
-            <Item label="WhatsApp" value={app.applicant.whatsapp} />
-            <Item label="公司中文" value={app.company.nameZh} />
-            <Item label="公司英文" value={app.company.nameEn} />
-            <Item label="BR" value={app.company.brNumber} />
-            <Item label="CR" value={app.company.crNumber} />
-            <Item label="業務性質" value={app.company.nature} />
-          </dl>
+          <div className="space-y-6 text-sm">
+            <section>
+              <h3 className="mb-2 font-semibold">申請人</h3>
+              <div className="overflow-x-auto rounded-xl border border-[color:var(--biz-border)]">
+                <table className="w-full min-w-[640px] text-left">
+                  <thead className="bg-[color:var(--biz-surface-2)] text-xs text-[color:var(--biz-muted)]">
+                    <tr>
+                      <th className="px-3 py-2 font-medium">欄位</th>
+                      <th className="px-3 py-2 font-medium">內容</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(
+                      [
+                        ["姓名", app.applicant.name],
+                        ["與公司關係", app.applicant.relation],
+                        ["電郵", app.applicant.email],
+                        ["電話", app.applicant.phone],
+                        ["WhatsApp", app.applicant.whatsapp],
+                        ["最佳聯絡時間", app.applicant.bestContactTime],
+                        [
+                          "首選語言",
+                          app.applicant.preferredLanguage === "en"
+                            ? "English"
+                            : "繁體中文",
+                        ],
+                        [
+                          "已獲授權",
+                          app.applicant.authorized ? "是" : "否",
+                        ],
+                      ] as const
+                    ).map(([label, value]) => (
+                      <tr
+                        key={label}
+                        className="border-t border-[color:var(--biz-border)]"
+                      >
+                        <td className="w-40 px-3 py-2 text-[color:var(--biz-muted)]">
+                          {label}
+                        </td>
+                        <td className="px-3 py-2">{value || "—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+
+            <section>
+              <h3 className="mb-2 font-semibold">公司資料</h3>
+              <div className="overflow-x-auto rounded-xl border border-[color:var(--biz-border)]">
+                <table className="w-full min-w-[640px] text-left">
+                  <thead className="bg-[color:var(--biz-surface-2)] text-xs text-[color:var(--biz-muted)]">
+                    <tr>
+                      <th className="px-3 py-2 font-medium">欄位</th>
+                      <th className="px-3 py-2 font-medium">內容</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(
+                      [
+                        ["中文名稱", app.company.nameZh],
+                        ["英文名稱", app.company.nameEn],
+                        ["公司類型", app.company.companyType],
+                        ["成立日期", app.company.foundedAt],
+                        ["CR", app.company.crNumber],
+                        ["BR", app.company.brNumber],
+                        ["註冊地址", app.company.registeredAddress],
+                        ["營業地址", app.company.businessAddress],
+                        ["電話", app.company.phone],
+                        ["電郵", app.company.email],
+                        ["網站", app.company.website],
+                        ["業務性質", app.company.nature],
+                        ["產品／服務", app.company.products],
+                        ["收入來源", app.company.incomeSource],
+                        ["每月營業額", app.company.monthlyTurnover],
+                        ["每年營業額", app.company.yearlyTurnover],
+                        ["員工人數", app.company.employees],
+                      ] as const
+                    ).map(([label, value]) => (
+                      <tr
+                        key={label}
+                        className="border-t border-[color:var(--biz-border)]"
+                      >
+                        <td className="w-40 px-3 py-2 text-[color:var(--biz-muted)]">
+                          {label}
+                        </td>
+                        <td className="px-3 py-2">{value || "—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          </div>
         )}
 
         {tab === "董事股東" && (
           <div className="space-y-6 text-sm">
-            <div>
-              <h3 className="font-semibold">董事</h3>
-              <ul className="mt-2 space-y-2">
-                {app.directors.map((d) => (
-                  <li
-                    key={d.id}
-                    className="rounded-xl border border-[color:var(--biz-border)] px-3 py-2"
-                  >
-                    {d.nameZh || d.nameEn} · {d.idType}{" "}
-                    {maskIdNumber(d.idNumber)} · {d.residenceCountry}
-                  </li>
-                ))}
-              </ul>
-            </div>
-            <div>
-              <h3 className="font-semibold">股東</h3>
-              <ul className="mt-2 space-y-2">
-                {app.shareholders.map((s) => (
-                  <li
-                    key={s.id}
-                    className="rounded-xl border border-[color:var(--biz-border)] px-3 py-2"
-                  >
-                    {s.name}（{s.type}）· {s.sharePercent}%
-                  </li>
-                ))}
-              </ul>
-            </div>
+            <section>
+              <h3 className="mb-2 font-semibold">董事</h3>
+              {app.directors.length === 0 ? (
+                <p className="text-[color:var(--biz-muted)]">尚未填寫</p>
+              ) : (
+                <div className="overflow-x-auto rounded-xl border border-[color:var(--biz-border)]">
+                  <table className="w-full min-w-[900px] text-left">
+                    <thead className="bg-[color:var(--biz-surface-2)] text-xs text-[color:var(--biz-muted)]">
+                      <tr>
+                        <th className="px-3 py-2 font-medium">中文名</th>
+                        <th className="px-3 py-2 font-medium">英文名</th>
+                        <th className="px-3 py-2 font-medium">證件</th>
+                        <th className="px-3 py-2 font-medium">證件號碼</th>
+                        <th className="px-3 py-2 font-medium">國籍</th>
+                        <th className="px-3 py-2 font-medium">出生日期</th>
+                        <th className="px-3 py-2 font-medium">居住地</th>
+                        <th className="px-3 py-2 font-medium">電話</th>
+                        <th className="px-3 py-2 font-medium">電郵</th>
+                        <th className="px-3 py-2 font-medium">持股%</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {app.directors.map((d) => (
+                        <tr
+                          key={d.id}
+                          className="border-t border-[color:var(--biz-border)]"
+                        >
+                          <td className="px-3 py-2">{d.nameZh || "—"}</td>
+                          <td className="px-3 py-2">{d.nameEn || "—"}</td>
+                          <td className="px-3 py-2">{d.idType}</td>
+                          <td className="px-3 py-2">
+                            {maskIdNumber(d.idNumber)}
+                          </td>
+                          <td className="px-3 py-2">{d.nationality || "—"}</td>
+                          <td className="px-3 py-2">{d.dateOfBirth || "—"}</td>
+                          <td className="px-3 py-2">
+                            {d.residenceCountry || "—"}
+                          </td>
+                          <td className="px-3 py-2">{d.phone || "—"}</td>
+                          <td className="px-3 py-2">{d.email || "—"}</td>
+                          <td className="px-3 py-2">{d.sharePercent || "—"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </section>
+            <section>
+              <h3 className="mb-2 font-semibold">股東</h3>
+              {app.shareholders.length === 0 ? (
+                <p className="text-[color:var(--biz-muted)]">尚未填寫</p>
+              ) : (
+                <div className="overflow-x-auto rounded-xl border border-[color:var(--biz-border)]">
+                  <table className="w-full min-w-[520px] text-left">
+                    <thead className="bg-[color:var(--biz-surface-2)] text-xs text-[color:var(--biz-muted)]">
+                      <tr>
+                        <th className="px-3 py-2 font-medium">名稱</th>
+                        <th className="px-3 py-2 font-medium">類型</th>
+                        <th className="px-3 py-2 font-medium">持股%</th>
+                        <th className="px-3 py-2 font-medium">是否董事</th>
+                        <th className="px-3 py-2 font-medium">是否 UBO</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {app.shareholders.map((s) => (
+                        <tr
+                          key={s.id}
+                          className="border-t border-[color:var(--biz-border)]"
+                        >
+                          <td className="px-3 py-2">{s.name || "—"}</td>
+                          <td className="px-3 py-2">{s.type}</td>
+                          <td className="px-3 py-2">{s.sharePercent || "—"}</td>
+                          <td className="px-3 py-2">
+                            {s.isDirector ? "是" : "否"}
+                          </td>
+                          <td className="px-3 py-2">{s.isUbo ? "是" : "否"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </section>
+            <section>
+              <h3 className="mb-2 font-semibold">最終受益人（UBO）</h3>
+              {app.ubos.length === 0 ? (
+                <p className="text-[color:var(--biz-muted)]">尚未填寫</p>
+              ) : (
+                <div className="overflow-x-auto rounded-xl border border-[color:var(--biz-border)]">
+                  <table className="w-full min-w-[640px] text-left">
+                    <thead className="bg-[color:var(--biz-surface-2)] text-xs text-[color:var(--biz-muted)]">
+                      <tr>
+                        <th className="px-3 py-2 font-medium">名稱</th>
+                        <th className="px-3 py-2 font-medium">國籍</th>
+                        <th className="px-3 py-2 font-medium">證件</th>
+                        <th className="px-3 py-2 font-medium">證件號碼</th>
+                        <th className="px-3 py-2 font-medium">持股%</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {app.ubos.map((u) => (
+                        <tr
+                          key={u.id}
+                          className="border-t border-[color:var(--biz-border)]"
+                        >
+                          <td className="px-3 py-2">{u.name || "—"}</td>
+                          <td className="px-3 py-2">{u.nationality || "—"}</td>
+                          <td className="px-3 py-2">{u.idType}</td>
+                          <td className="px-3 py-2">
+                            {maskIdNumber(u.idNumber)}
+                          </td>
+                          <td className="px-3 py-2">
+                            {u.ownershipPercent || "—"}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </section>
           </div>
         )}
 

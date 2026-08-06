@@ -7,8 +7,12 @@ import {
 import { emptyRelatedCompany, type BizApplication, type BizApplicationStatus, type BizDocStatus, type BizUploadedFile, type WhatsAppSendStatus } from "./types";
 import { normalizeApplication } from "./normalize";
 
-const STORAGE_KEY = "bizdoc.application.v1";
-const ADMIN_KEY = "bizdoc.admin.applications.v1";
+/** v2：不再自動灌入示範資料，新客戶從空白表單開始 */
+const STORAGE_KEY = "bizdoc.application.v2";
+const ADMIN_KEY = "bizdoc.admin.applications.v2";
+const LEGACY_STORAGE_KEY = "bizdoc.application.v1";
+const LEGACY_ADMIN_KEY = "bizdoc.admin.applications.v1";
+const DEMO_APP_IDS = new Set(["BA-2026-10482", "BA-2026-11003"]);
 
 function now() {
   return new Date().toISOString();
@@ -344,14 +348,44 @@ function writeLocal(key: string, value: unknown) {
   localStorage.setItem(key, JSON.stringify(value));
 }
 
+function isDemoApplication(app: BizApplication): boolean {
+  if (DEMO_APP_IDS.has(app.id)) return true;
+  if (app.applicant?.name === "陳雅婷" && app.company?.nameZh === "智航貿易有限公司") {
+    return true;
+  }
+  if (app.applicant?.name === "王俊傑" && app.company?.nameZh === "創啟顧問有限公司") {
+    return true;
+  }
+  return false;
+}
+
 export function loadClientApplication(): BizApplication {
   const existing = readLocal<BizApplication>(STORAGE_KEY);
-  if (existing) {
+  if (existing && !isDemoApplication(existing)) {
     return normalizeApplication(existing);
   }
-  const seeded = seedDemo();
-  writeLocal(STORAGE_KEY, seeded);
-  return seeded;
+
+  // 舊版 localStorage 若是真實客戶資料則遷移；示範資料則丟棄
+  const legacy = readLocal<BizApplication>(LEGACY_STORAGE_KEY);
+  if (legacy && !isDemoApplication(legacy)) {
+    const migrated = normalizeApplication(legacy);
+    writeLocal(STORAGE_KEY, migrated);
+    try {
+      localStorage.removeItem(LEGACY_STORAGE_KEY);
+    } catch {
+      /* ignore */
+    }
+    return migrated;
+  }
+
+  const fresh = createEmptyApplication();
+  writeLocal(STORAGE_KEY, fresh);
+  try {
+    localStorage.removeItem(LEGACY_STORAGE_KEY);
+  } catch {
+    /* ignore */
+  }
+  return fresh;
 }
 
 export function saveClientApplication(app: BizApplication): BizApplication {
@@ -441,11 +475,30 @@ function upsertAdminCopy(app: BizApplication) {
 
 export function listAdminApplications(): BizApplication[] {
   const list = readLocal<BizApplication[]>(ADMIN_KEY);
-  if (list && list.length > 0) return list.map(normalizeApplication);
-  const seeded = [seedDemo(), createDraftSecondary()];
-  writeLocal(ADMIN_KEY, seeded);
-  writeLocal(STORAGE_KEY, seeded[0]);
-  return seeded;
+  if (list) {
+    const cleaned = list
+      .map(normalizeApplication)
+      .filter((a) => !isDemoApplication(a));
+    if (cleaned.length !== list.length) writeLocal(ADMIN_KEY, cleaned);
+    return cleaned;
+  }
+
+  const legacy = readLocal<BizApplication[]>(LEGACY_ADMIN_KEY);
+  if (legacy) {
+    const cleaned = legacy
+      .map(normalizeApplication)
+      .filter((a) => !isDemoApplication(a));
+    writeLocal(ADMIN_KEY, cleaned);
+    try {
+      localStorage.removeItem(LEGACY_ADMIN_KEY);
+    } catch {
+      /* ignore */
+    }
+    return cleaned;
+  }
+
+  writeLocal(ADMIN_KEY, []);
+  return [];
 }
 
 export function createDraftSecondary(): BizApplication {

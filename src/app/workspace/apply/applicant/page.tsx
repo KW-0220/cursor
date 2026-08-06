@@ -25,6 +25,8 @@ export default function ApplicantStepPage() {
           <Field label="申請人姓名" required>
             <Input
               value={a.name}
+              placeholder="請輸入姓名"
+              autoComplete="name"
               onChange={(e) =>
                 update((p) => ({
                   ...p,
@@ -55,6 +57,8 @@ export default function ApplicantStepPage() {
             <Input
               type="email"
               value={a.email}
+              placeholder="name@example.com"
+              autoComplete="email"
               onChange={(e) =>
                 update((p) => ({
                   ...p,
@@ -66,6 +70,8 @@ export default function ApplicantStepPage() {
           <Field label="電話" required>
             <Input
               value={a.phone}
+              placeholder="+852XXXXXXXX"
+              autoComplete="tel"
               onChange={(e) =>
                 update((p) => ({
                   ...p,
@@ -81,6 +87,8 @@ export default function ApplicantStepPage() {
           >
             <Input
               value={a.whatsapp}
+              placeholder="+852XXXXXXXX"
+              autoComplete="tel"
               onChange={(e) =>
                 update((p) => ({
                   ...p,
@@ -92,6 +100,7 @@ export default function ApplicantStepPage() {
           <Field label="最佳聯絡時間">
             <Input
               value={a.bestContactTime}
+              placeholder="例如：工作日 10:00–18:00"
               onChange={(e) =>
                 update((p) => ({
                   ...p,
@@ -105,13 +114,15 @@ export default function ApplicantStepPage() {
           </Field>
           <Field label="首選語言">
             <Select
-              value={a.preferredLanguage}
+              value={a.preferredLanguage || ""}
               onChange={(e) =>
                 update((p) => ({
                   ...p,
                   applicant: {
                     ...p.applicant,
-                    preferredLanguage: e.target.value as "zh-Hant" | "en",
+                    preferredLanguage: (e.target.value || "zh-Hant") as
+                      | "zh-Hant"
+                      | "en",
                   },
                 }))
               }

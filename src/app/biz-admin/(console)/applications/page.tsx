@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { BizStatusBadge, WhatsAppBadge } from "@/components/biz/status";
+import { BizStatusBadge } from "@/components/biz/status";
 import { formatDateTime } from "@/lib/bizdoc/completeness";
 import type { BizApplication, BizApplicationStatus } from "@/lib/bizdoc/types";
 import { BIZ_STATUS_LABEL } from "@/lib/bizdoc/types";
@@ -15,7 +15,6 @@ export default function BizAdminListPage() {
   const [error, setError] = useState<string | null>(null);
   const [q, setQ] = useState("");
   const [status, setStatus] = useState<"" | BizApplicationStatus>("");
-  const [busy, setBusy] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -40,25 +39,6 @@ export default function BizAdminListPage() {
     void load();
   }, [load]);
 
-  async function seedDemo() {
-    setBusy(true);
-    setError(null);
-    try {
-      const res = await fetch("/api/biz/admin/applications", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "seed_demo" }),
-      });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.message || json.error || "種子失敗");
-      setApps(json.applications || []);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setBusy(false);
-    }
-  }
-
   const filtered = useMemo(() => {
     return apps.filter((a) => {
       if (status && a.status !== status) return false;
@@ -66,9 +46,14 @@ export default function BizAdminListPage() {
       const hay = [
         a.id,
         a.applicant.name,
-        a.company.nameZh,
+        a.applicant.relation,
         a.applicant.email,
+        a.applicant.phone,
         a.applicant.whatsapp,
+        a.company.nameZh,
+        a.company.nameEn,
+        a.company.brNumber,
+        a.company.crNumber,
       ]
         .join(" ")
         .toLowerCase();
@@ -96,9 +81,6 @@ export default function BizAdminListPage() {
         <div className="flex flex-wrap gap-2">
           <Button size="sm" variant="outline" onClick={() => void load()}>
             重新整理
-          </Button>
-          <Button size="sm" disabled={busy} onClick={() => void seedDemo()}>
-            {apps.length ? "重新寫入示範資料" : "寫入示範資料"}
           </Button>
         </div>
       </div>
@@ -130,14 +112,14 @@ export default function BizAdminListPage() {
             ))}
             {apps.length === 0 && (
               <p className="text-sm text-[color:var(--biz-muted)]">
-                尚未有申請。請按「寫入示範資料」或由客戶端提交。
+                尚未有申請。客戶於前台填寫並儲存／提交後會出現於此。
               </p>
             )}
           </div>
 
           <div className="flex flex-wrap gap-3">
             <Input
-              placeholder="搜尋編號／姓名／公司／電郵／WhatsApp"
+              placeholder="搜尋編號／姓名／公司／電郵／WhatsApp／BR／CR"
               value={q}
               onChange={(e) => setQ(e.target.value)}
               className="max-w-md"
@@ -159,16 +141,20 @@ export default function BizAdminListPage() {
           </div>
 
           <div className="hidden overflow-x-auto rounded-2xl border border-[color:var(--biz-border)] bg-white md:block">
-            <table className="w-full min-w-[960px] text-left text-sm">
+            <table className="w-full min-w-[1280px] text-left text-sm">
               <thead className="border-b border-[color:var(--biz-border)] bg-[color:var(--biz-surface-2)] text-xs text-[color:var(--biz-muted)]">
                 <tr>
                   <th className="px-3 py-3 font-medium">申請編號</th>
-                  <th className="px-3 py-3 font-medium">客戶／公司</th>
+                  <th className="px-3 py-3 font-medium">申請人</th>
+                  <th className="px-3 py-3 font-medium">關係</th>
+                  <th className="px-3 py-3 font-medium">電郵</th>
+                  <th className="px-3 py-3 font-medium">電話</th>
+                  <th className="px-3 py-3 font-medium">WhatsApp</th>
+                  <th className="px-3 py-3 font-medium">公司</th>
                   <th className="px-3 py-3 font-medium">完成度</th>
                   <th className="px-3 py-3 font-medium">狀態</th>
                   <th className="px-3 py-3 font-medium">補件</th>
                   <th className="px-3 py-3 font-medium">負責人</th>
-                  <th className="px-3 py-3 font-medium">WhatsApp</th>
                   <th className="px-3 py-3 font-medium">更新</th>
                   <th className="px-3 py-3 font-medium" />
                 </tr>
@@ -186,17 +172,25 @@ export default function BizAdminListPage() {
                         "inconsistent",
                       ].includes(f.status),
                   ).length;
-                  const wa = a.whatsapp[a.whatsapp.length - 1];
                   return (
                     <tr
                       key={a.id}
                       className="border-b border-[color:var(--biz-border)] last:border-0"
                     >
                       <td className="px-3 py-3 font-medium tabular">{a.id}</td>
+                      <td className="px-3 py-3">{a.applicant.name || "—"}</td>
+                      <td className="px-3 py-3">{a.applicant.relation || "—"}</td>
+                      <td className="px-3 py-3">{a.applicant.email || "—"}</td>
+                      <td className="px-3 py-3 tabular">
+                        {a.applicant.phone || "—"}
+                      </td>
+                      <td className="px-3 py-3 tabular">
+                        {a.applicant.whatsapp || "—"}
+                      </td>
                       <td className="px-3 py-3">
-                        <p>{a.applicant.name || "—"}</p>
+                        <p>{a.company.nameZh || "—"}</p>
                         <p className="text-xs text-[color:var(--biz-muted)]">
-                          {a.company.nameZh || "—"}
+                          {a.company.nameEn || "—"}
                         </p>
                       </td>
                       <td className="px-3 py-3 tabular">{a.completeness}%</td>
@@ -205,9 +199,6 @@ export default function BizAdminListPage() {
                       </td>
                       <td className="px-3 py-3 tabular">{supplements}</td>
                       <td className="px-3 py-3">{a.assignee || "—"}</td>
-                      <td className="px-3 py-3">
-                        {wa ? <WhatsAppBadge status={wa.status} /> : "—"}
-                      </td>
                       <td className="px-3 py-3 text-xs text-[color:var(--biz-muted)]">
                         {formatDateTime(a.updatedAt)}
                       </td>
