@@ -2,10 +2,11 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { BIZ_ADMIN_EMAIL } from "@/lib/auth-public";
 import { Button } from "@/components/ui/button";
 import { Field, Input } from "@/components/ui/field";
+import { createClient } from "@/lib/supabase/client";
 
 export default function BizAdminLoginPage() {
   const router = useRouter();
@@ -15,6 +16,26 @@ export default function BizAdminLoginPage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [hint, setHint] = useState<string | null>(null);
+
+  // 已是 biz_admin 直接進後台；若係 SME admin session 則清掉，避免混淆
+  useEffect(() => {
+    void (async () => {
+      try {
+        const supabase = createClient();
+        const { data } = await supabase.auth.getUser();
+        const role = data.user?.app_metadata?.role;
+        if (role === "biz_admin") {
+          router.replace("/biz-admin");
+          return;
+        }
+        if (role === "admin") {
+          await supabase.auth.signOut();
+        }
+      } catch {
+        /* ignore */
+      }
+    })();
+  }, [router]);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -33,8 +54,10 @@ export default function BizAdminLoginPage() {
         return;
       }
 
-      const { createClient } = await import("@/lib/supabase/client");
       const supabase = createClient();
+      // 清掉可能殘留嘅 SME admin session
+      await supabase.auth.signOut().catch(() => null);
+
       const { error: signErr } = await supabase.auth.signInWithPassword({
         email: email.trim().toLowerCase(),
         password,
