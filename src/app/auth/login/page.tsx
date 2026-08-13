@@ -11,6 +11,8 @@ type Mode = "email" | "admin";
 type Intent = "register" | "login";
 
 const ADMIN_EMAIL_PREFILL = "admin@sme.com";
+const DEMO_APPLICANT_EMAIL = "test@test.com";
+const DEMO_APPLICANT_PASSWORD = "100200300";
 
 function PasswordField({
   label,
@@ -302,6 +304,13 @@ export default function LoginPage() {
           </div>
         ) : (
           <div className="space-y-4">
+            {intent === "login" && (
+              <StateBanner
+                tone="info"
+                title="示範申請人"
+                description={`請用「電郵帳戶 → 登入」（唔好撳管理員）。帳密：${DEMO_APPLICANT_EMAIL} / ${DEMO_APPLICANT_PASSWORD}`}
+              />
+            )}
             {intent === "register" && (
               <Field label="中文姓名" required>
                 <Input
@@ -317,7 +326,7 @@ export default function LoginPage() {
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder="you@company.com"
+                placeholder={DEMO_APPLICANT_EMAIL}
                 autoComplete="email"
               />
             </Field>

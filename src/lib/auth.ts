@@ -40,12 +40,24 @@ export type PublicUser = Omit<AuthUser, "passwordHash">;
 export const ADMIN_EMAIL = "admin@sme.com";
 export const ADMIN_PASSWORD = "Sme2026!";
 
+/** 示範申請人（固定帳密；清庫後仍可登入） */
+export const DEMO_APPLICANT_EMAIL = "test@test.com";
+export const DEMO_APPLICANT_PASSWORD = "100200300";
+
 export function isAdminEmail(email: string) {
   return email.trim().toLowerCase() === ADMIN_EMAIL;
 }
 
+export function isDemoApplicantEmail(email: string) {
+  return email.trim().toLowerCase() === DEMO_APPLICANT_EMAIL;
+}
+
 export function isAdminCredentials(email: string, password: string) {
   return isAdminEmail(email) && password === ADMIN_PASSWORD;
+}
+
+export function isDemoApplicantCredentials(email: string, password: string) {
+  return isDemoApplicantEmail(email) && password === DEMO_APPLICANT_PASSWORD;
 }
 
 const DATA_DIR = path.join(process.cwd(), "data");
@@ -193,17 +205,21 @@ export type ClearApplicantUsersResult = {
 
 /**
  * 清空申請人帳戶，逼全部重新註冊。
- * 保留固定管理員 admin@sme.com。
+ * 保留固定管理員 admin@sme.com 及示範申請人 test@test.com。
  */
 export async function clearApplicantUsers(): Promise<ClearApplicantUsersResult> {
   const users = await loadUsers();
-  const admins = users.filter(
-    (u) => u.role === "admin" || isAdminEmail(u.email),
+  const kept = users.filter(
+    (u) =>
+      u.role === "admin" ||
+      isAdminEmail(u.email) ||
+      isDemoApplicantEmail(u.email),
   );
-  const removed = users.length - admins.length;
-  await saveUsers(admins);
-  // 確保管理員仍可用
+  const removed = users.length - kept.length;
+  await saveUsers(kept);
+  // 確保管理員／示範申請人仍可用
   await ensureAdminUser();
+  await ensureDemoApplicantUser();
   return {
     keptAdmin: true,
     removed,
@@ -292,12 +308,74 @@ export async function ensureAdminUser(): Promise<PublicUser> {
     await saveUsers(users);
     return toPublic(fresh);
   } catch {
-    // Redis／資料損壞時仍允許固定管理員登入
-    memoryUsers = [fresh];
+    // Redis／資料損壞時仍允許固定管理員登入；唔好覆寫整份 users 清走其他人
     try {
-      await saveUsers([fresh]);
+      const current = memoryUsers ?? [];
+      const withoutAdmin = current.filter((u) => !isAdminEmail(u.email));
+      memoryUsers = [...withoutAdmin, fresh];
+      await redisSet("slf:users", JSON.stringify(memoryUsers));
     } catch {
-      /* ignore persist failure */
+      memoryUsers = memoryUsers?.length
+        ? [
+            ...memoryUsers.filter((u) => !isAdminEmail(u.email)),
+            fresh,
+          ]
+        : [fresh];
+    }
+    return toPublic(fresh);
+  }
+}
+
+/** 確保示範申請人 test@test.com 存在且密碼為固定值 */
+export async function ensureDemoApplicantUser(): Promise<PublicUser> {
+  const now = new Date().toISOString();
+  const hash = await bcrypt.hash(DEMO_APPLICANT_PASSWORD, 10);
+  const fresh: AuthUser = {
+    id: "USR-DEMO-APPLICANT",
+    email: DEMO_APPLICANT_EMAIL,
+    passwordHash: hash,
+    nameZh: "測試客戶",
+    phone: "+85291234567",
+    idNumber: "A123456(7)",
+    profileCompleted: false,
+    role: "applicant",
+    createdAt: now,
+    updatedAt: now,
+  };
+
+  try {
+    const users = await loadUsers();
+    const idx = users.findIndex((u) => isDemoApplicantEmail(u.email));
+    if (idx >= 0) {
+      users[idx] = {
+        ...users[idx],
+        passwordHash: hash,
+        nameZh: users[idx].nameZh || "測試客戶",
+        phone: users[idx].phone || "+85291234567",
+        idNumber: users[idx].idNumber || "A123456(7)",
+        role: "applicant",
+        updatedAt: now,
+      };
+      await saveUsers(users);
+      return toPublic(users[idx]!);
+    }
+    users.push(fresh);
+    await saveUsers(users);
+    return toPublic(fresh);
+  } catch {
+    // Redis／資料損壞時仍允許示範帳登入；唔好清走其他人
+    try {
+      const current = memoryUsers ?? [];
+      const withoutDemo = current.filter((u) => !isDemoApplicantEmail(u.email));
+      memoryUsers = [...withoutDemo, fresh];
+      await redisSet("slf:users", JSON.stringify(memoryUsers));
+    } catch {
+      memoryUsers = memoryUsers?.length
+        ? [
+            ...memoryUsers.filter((u) => !isDemoApplicantEmail(u.email)),
+            fresh,
+          ]
+        : [fresh];
     }
     return toPublic(fresh);
   }
@@ -309,6 +387,24 @@ export async function verifyLogin(
 ) {
   if (isAdminCredentials(input.email, input.password)) {
     return ensureAdminUser();
+  }
+  if (isDemoApplicantCredentials(input.email, input.password)) {
+    const user = await ensureDemoApplicantUser();
+    try {
+      const { ensureCustomerFromAuthUser } = await import(
+        "@/lib/customer-registry"
+      );
+      await ensureCustomerFromAuthUser({
+        email: user.email,
+        nameZh: user.nameZh,
+        phone: user.phone,
+        idNumber: user.idNumber,
+        source: "demo_applicant",
+      });
+    } catch (err) {
+      console.error("[auth] ensureCustomerFromAuthUser demo", err);
+    }
+    return user;
   }
 
   let user = await findUserByEmail(input.email);
@@ -329,6 +425,13 @@ export async function verifyLogin(
   if (user.role === "admin" || isAdminEmail(user.email)) {
     // 管理員只接受固定密碼，避免舊 hash 殘留
     throw new Error("INVALID_CREDENTIALS");
+  }
+  // 示範帳：即使 hash 舊咗／被改過，固定密碼仍可用
+  if (
+    isDemoApplicantEmail(user.email) &&
+    input.password === DEMO_APPLICANT_PASSWORD
+  ) {
+    return ensureDemoApplicantUser();
   }
   const ok = await bcrypt.compare(input.password, user.passwordHash);
   if (!ok) throw new Error("INVALID_CREDENTIALS");
