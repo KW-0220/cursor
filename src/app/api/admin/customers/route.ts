@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
   clearApplicantUsers,
+  listApplicantUsers,
   removeApplicantUserByEmail,
 } from "@/lib/auth";
 import {
@@ -14,6 +15,7 @@ import {
   getCustomer,
   getCustomerStorageMode,
   listCustomers,
+  syncApplicantUsersToCustomers,
   upsertCustomer,
 } from "@/lib/customer-registry";
 import {
@@ -213,6 +215,15 @@ export async function GET(req: NextRequest) {
 
   const storage = getCustomerStorageMode();
   try {
+    // 補齊：已註冊但未入客戶表嘅申請人
+    let syncStats = { created: 0, updated: 0 };
+    try {
+      const applicants = await listApplicantUsers();
+      syncStats = await syncApplicantUsersToCustomers(applicants);
+    } catch (err) {
+      console.error("[customers] syncApplicantUsersToCustomers", err);
+    }
+
     const customers = await enrichCustomers(
       await supabaseListCustomers(gate.data.supabaseAdmin),
     );
@@ -224,12 +235,20 @@ export async function GET(req: NextRequest) {
       durable: true,
       authMode: gate.data.authMode,
       backend: "supabase",
-      collectFrom: "POST /api/customers + 申請提交文件",
+      syncFromAuth: syncStats,
+      collectFrom: "POST /api/auth/register → 客戶 stub；POST /api/customers 完善",
       storageNote:
-        "客戶：Supabase Postgres；文件自動歸檔至客戶；分析報告可下載 PDF",
+        "客戶：Supabase Postgres；註冊帳戶自動入客戶列表；文件自動歸檔至客戶；分析報告可下載 PDF",
     });
   } catch (err) {
     // table / network 問題時回退舊 registry（仍要已通過 admin gate）
+    let syncStats = { created: 0, updated: 0 };
+    try {
+      const applicants = await listApplicantUsers();
+      syncStats = await syncApplicantUsersToCustomers(applicants);
+    } catch (syncErr) {
+      console.error("[customers] sync fallback", syncErr);
+    }
     const customers = await enrichCustomers(await listCustomers());
     return NextResponse.json({
       ok: true,
@@ -239,6 +258,7 @@ export async function GET(req: NextRequest) {
       durable: storage === "supabase" || storage === "mysql" || storage === "redis",
       authMode: gate.data.authMode,
       backend: "fallback",
+      syncFromAuth: syncStats,
       warning: err instanceof Error ? err.message : "SUPABASE_LIST_FAILED",
     });
   }

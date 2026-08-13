@@ -10,6 +10,7 @@ import {
   registerUser,
   sessionCookie,
 } from "@/lib/auth";
+import { ensureCustomerFromAuthUser } from "@/lib/customer-registry";
 
 export const runtime = "nodejs";
 
@@ -39,6 +40,20 @@ export async function POST(req: NextRequest) {
 
     const vault = await readVaultFromCookieHeader(req.headers.get("cookie"));
     const user = await registerUser(parsed.data, vault);
+
+    // 註冊即入客戶登記資料庫（後台可見）
+    try {
+      await ensureCustomerFromAuthUser({
+        email: user.email,
+        nameZh: user.nameZh,
+        phone: user.phone,
+        idNumber: user.idNumber,
+        source: "auth_register",
+      });
+    } catch (err) {
+      console.error("[register] ensureCustomerFromAuthUser", err);
+    }
+
     const token = await createSessionToken(user);
     const res = NextResponse.json({
       ok: true,

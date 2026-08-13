@@ -9,6 +9,7 @@ import {
   updateUserContact,
   type PublicUser,
 } from "@/lib/auth";
+import { ensureCustomerFromAuthUser } from "@/lib/customer-registry";
 import {
   getTwilioAuth,
   toE164,
@@ -100,6 +101,18 @@ export async function POST(req: NextRequest) {
       phone: e164,
       idNumber: parsed.data.idNumber,
     });
+  }
+
+  try {
+    await ensureCustomerFromAuthUser({
+      email: user.email,
+      nameZh: user.nameZh,
+      phone: user.phone,
+      idNumber: user.idNumber,
+      source: "auth_otp",
+    });
+  } catch (err) {
+    console.error("[otp/verify] ensureCustomerFromAuthUser", err);
   }
 
   const full = await findUserByEmail(user.email);

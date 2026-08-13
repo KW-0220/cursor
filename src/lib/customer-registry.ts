@@ -376,21 +376,44 @@ export async function upsertCustomer(input: CustomerRegistrationInput) {
   }
   const records = await ensureLoaded();
   const now = new Date().toISOString();
+  const emailKey = input.email.trim().toLowerCase();
 
-  // 以電郵 + BR 號碼視為同一客戶
+  // 以電郵為主鍵對齊（註冊 stub → 完善公司資料唔會重複建檔）
   const existingIdx = records.findIndex(
     (r) =>
       (input.id && r.id === input.id) ||
-      (r.email.toLowerCase() === input.email.toLowerCase() &&
+      r.email.toLowerCase() === emailKey ||
+      (r.email.toLowerCase() === emailKey &&
         r.brNumber === input.brNumber),
   );
 
   if (existingIdx >= 0) {
+    const prev = records[existingIdx]!;
     const updated: CustomerRegistrationRecord = {
-      ...records[existingIdx],
+      ...prev,
       ...input,
-      id: records[existingIdx].id,
-      createdAt: records[existingIdx].createdAt,
+      id: prev.id,
+      email: emailKey,
+      // 保留已完善公司欄，避免 stub 覆寫正式資料（僅當新值仍係 pending）
+      companyNameZh:
+        isPendingCompanyValue(input.companyNameZh) &&
+        !isPendingCompanyValue(prev.companyNameZh)
+          ? prev.companyNameZh
+          : input.companyNameZh,
+      companyNameEn:
+        isPendingCompanyValue(input.companyNameEn) &&
+        !isPendingCompanyValue(prev.companyNameEn)
+          ? prev.companyNameEn
+          : input.companyNameEn,
+      brNumber:
+        isPendingBr(input.brNumber) && !isPendingBr(prev.brNumber)
+          ? prev.brNumber
+          : input.brNumber,
+      crNumber:
+        isPendingBr(input.crNumber) && !isPendingBr(prev.crNumber)
+          ? prev.crNumber
+          : input.crNumber,
+      createdAt: prev.createdAt,
       updatedAt: now,
     };
     records[existingIdx] = updated;
@@ -401,6 +424,7 @@ export async function upsertCustomer(input: CustomerRegistrationInput) {
   const created: CustomerRegistrationRecord = {
     ...input,
     id: input.id || nextId(records),
+    email: emailKey,
     website: input.website ?? null,
     notes: input.notes ?? null,
     source: input.source ?? "register",
@@ -410,6 +434,122 @@ export async function upsertCustomer(input: CustomerRegistrationInput) {
   records.push(created);
   await persist(records);
   return created;
+}
+
+function isPendingCompanyValue(v: string | null | undefined) {
+  const s = String(v ?? "").trim();
+  return (
+    !s ||
+    s === "（註冊後待完善）" ||
+    s === "(Pending)" ||
+    s === "待完善"
+  );
+}
+
+function isPendingBr(v: string | null | undefined) {
+  const s = String(v ?? "").trim().toUpperCase();
+  return !s || s === "PENDING" || s.startsWith("PENDING-");
+}
+
+/**
+ * 註冊帳號即寫入客戶登記（stub）；完成公司資料時會以電郵覆寫完善。
+ * 確保後台 /admin/customers 可見所有已註冊申請人。
+ */
+export async function ensureCustomerFromAuthUser(input: {
+  email: string;
+  nameZh?: string | null;
+  phone?: string | null;
+  idNumber?: string | null;
+  source?: string;
+}): Promise<CustomerRegistrationRecord> {
+  const email = input.email.trim().toLowerCase();
+  const existing = await getCustomerByEmail(email);
+  const name = (input.nameZh || "").trim() || email.split("@")[0] || "申請人";
+  const phone = (input.phone || "").trim() || "待完善";
+  const idNumber = (input.idNumber || "").trim() || "PENDING";
+
+  if (existing) {
+    // 只補空欄，唔覆蓋已完善公司資料
+    return upsertCustomer({
+      id: existing.id,
+      applicantNameZh: existing.applicantNameZh || name,
+      applicantNameEn: existing.applicantNameEn || name,
+      idNumber:
+        isPendingBr(existing.idNumber) && idNumber !== "PENDING"
+          ? idNumber
+          : existing.idNumber,
+      phone:
+        existing.phone === "待完善" && phone !== "待完善"
+          ? phone
+          : existing.phone,
+      email,
+      title: existing.title || "待完善",
+      relation: existing.relation || "其他",
+      companyNameZh: existing.companyNameZh,
+      companyNameEn: existing.companyNameEn,
+      brNumber: existing.brNumber,
+      crNumber: existing.crNumber,
+      foundedAt: existing.foundedAt,
+      companyType: existing.companyType,
+      industry: existing.industry,
+      address: existing.address,
+      employees: existing.employees,
+      website: existing.website,
+      contactPerson: existing.contactPerson || name,
+      source: existing.source || input.source || "auth_register",
+      notes: existing.notes,
+    });
+  }
+
+  return upsertCustomer({
+    applicantNameZh: name,
+    applicantNameEn: name,
+    idNumber,
+    phone,
+    email,
+    title: "待完善",
+    relation: "其他",
+    companyNameZh: "（註冊後待完善）",
+    companyNameEn: "(Pending)",
+    brNumber: "PENDING",
+    crNumber: "PENDING",
+    foundedAt: new Date().toISOString().slice(0, 10),
+    companyType: "待完善",
+    industry: "待完善",
+    address: "待完善",
+    employees: 0,
+    website: null,
+    contactPerson: name,
+    source: input.source || "auth_register",
+    notes: "由帳戶註冊自動建立；待完善公司資料",
+  });
+}
+
+/** 將尚未入客戶表嘅申請人帳戶同步到客戶登記 */
+export async function syncApplicantUsersToCustomers(
+  applicants: Array<{
+    email: string;
+    nameZh?: string | null;
+    phone?: string | null;
+    idNumber?: string | null;
+  }>,
+): Promise<{ created: number; updated: number }> {
+  let created = 0;
+  let updated = 0;
+  for (const u of applicants) {
+    if (!u.email?.trim()) continue;
+    const before = await getCustomerByEmail(u.email);
+    await ensureCustomerFromAuthUser({
+      email: u.email,
+      nameZh: u.nameZh,
+      phone: u.phone,
+      idNumber: u.idNumber,
+      source: "auth_sync",
+    });
+    if (before) updated += 1;
+    else created += 1;
+  }
+  return { created, updated };
 }
 
 export const CUSTOMER_EXCEL_COLUMNS: {

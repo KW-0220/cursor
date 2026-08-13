@@ -129,16 +129,23 @@ export async function supabaseUpsertCustomer(
 ) {
   const db = client ?? createAdminClient();
   const now = new Date().toISOString();
+  const emailKey = input.email.trim().toLowerCase();
 
   let existingId: string | null = input.id ?? null;
   if (!existingId) {
-    const { data: byEmailBr } = await db
-      .from("customers")
-      .select("id, created_at")
-      .eq("email", input.email.trim().toLowerCase())
-      .eq("br_number", input.brNumber)
-      .maybeSingle();
-    if (byEmailBr?.id) existingId = byEmailBr.id;
+    // 先以電郵對齊（註冊 stub／完善資料同一客戶）
+    const byEmail = await supabaseFindCustomerByEmail(emailKey, db);
+    if (byEmail?.id) {
+      existingId = byEmail.id;
+    } else {
+      const { data: byEmailBr } = await db
+        .from("customers")
+        .select("id, created_at")
+        .eq("email", emailKey)
+        .eq("br_number", input.brNumber)
+        .maybeSingle();
+      if (byEmailBr?.id) existingId = byEmailBr.id;
+    }
   }
 
   const id =
@@ -146,22 +153,55 @@ export async function supabaseUpsertCustomer(
     `CUS-${new Date().getFullYear()}-${String(Date.now()).slice(-6)}`;
 
   let createdAt = now;
+  let prevRow: CustomerRegistrationRecord | null = null;
   if (existingId) {
     const { data: prev } = await db
       .from("customers")
-      .select("created_at")
+      .select("*")
       .eq("id", existingId)
       .maybeSingle();
-    if (prev?.created_at) createdAt = prev.created_at;
+    if (prev) {
+      prevRow = rowToCustomer(prev as CustomerRow);
+      if (prevRow.createdAt) createdAt = prevRow.createdAt;
+    }
   }
 
-  const row = customerToRow({
+  const merged: CustomerRegistrationInput = {
     ...input,
+    email: emailKey,
+    companyNameZh:
+      isPendingCompany(input.companyNameZh) &&
+      prevRow &&
+      !isPendingCompany(prevRow.companyNameZh)
+        ? prevRow.companyNameZh
+        : input.companyNameZh,
+    companyNameEn:
+      isPendingCompany(input.companyNameEn) &&
+      prevRow &&
+      !isPendingCompany(prevRow.companyNameEn)
+        ? prevRow.companyNameEn
+        : input.companyNameEn,
+    brNumber:
+      isPendingCode(input.brNumber) &&
+      prevRow &&
+      !isPendingCode(prevRow.brNumber)
+        ? prevRow.brNumber
+        : input.brNumber,
+    crNumber:
+      isPendingCode(input.crNumber) &&
+      prevRow &&
+      !isPendingCode(prevRow.crNumber)
+        ? prevRow.crNumber
+        : input.crNumber,
+  };
+
+  const row = customerToRow({
+    ...merged,
     id,
-    email: input.email.trim().toLowerCase(),
-    website: input.website ?? null,
-    notes: input.notes ?? null,
-    source: input.source ?? "register",
+    email: emailKey,
+    website: merged.website ?? null,
+    notes: merged.notes ?? null,
+    source: merged.source ?? "register",
     createdAt,
     updatedAt: now,
   });
@@ -173,6 +213,21 @@ export async function supabaseUpsertCustomer(
     .single();
   if (error) throw error;
   return rowToCustomer(data as CustomerRow);
+}
+
+function isPendingCompany(v: string | null | undefined) {
+  const s = String(v ?? "").trim();
+  return (
+    !s ||
+    s === "（註冊後待完善）" ||
+    s === "(Pending)" ||
+    s === "待完善"
+  );
+}
+
+function isPendingCode(v: string | null | undefined) {
+  const s = String(v ?? "").trim().toUpperCase();
+  return !s || s === "PENDING" || s.startsWith("PENDING-");
 }
 
 export async function supabaseCustomersReady(client?: SupabaseClient) {

@@ -176,6 +176,15 @@ export async function findUserByEmail(email: string) {
   return users.find((u) => u.email.toLowerCase() === key) ?? null;
 }
 
+/** 申請人帳戶（排除管理員）— 用於後台客戶列表對齊 */
+export async function listApplicantUsers(): Promise<PublicUser[]> {
+  const users = await loadUsers();
+  return users
+    .filter((u) => u.role !== "admin" && !isAdminEmail(u.email))
+    .map(toPublic)
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+}
+
 export type ClearApplicantUsersResult = {
   keptAdmin: boolean;
   removed: number;

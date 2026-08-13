@@ -104,6 +104,16 @@ export async function mysqlFindCustomerByEmailBr(
   return rows[0] ? rowToCustomer(rows[0]) : null;
 }
 
+export async function mysqlFindCustomerByEmail(
+  email: string,
+): Promise<CustomerRegistrationRecord | null> {
+  const rows = await mysqlQuery<CustomerRow[]>(
+    `SELECT * FROM customers WHERE email = ? ORDER BY updated_at DESC LIMIT 1`,
+    [email.trim().toLowerCase()],
+  );
+  return rows[0] ? rowToCustomer(rows[0]) : null;
+}
+
 export async function mysqlCountCustomers(): Promise<number> {
   const rows = await mysqlQuery<(RowDataPacket & { c: number })[]>(
     `SELECT COUNT(*) AS c FROM customers`,
@@ -123,6 +133,7 @@ export async function mysqlUpsertCustomer(
   const existingById = input.id ? await mysqlGetCustomer(input.id) : null;
   const existing =
     existingById ||
+    (await mysqlFindCustomerByEmail(email)) ||
     (await mysqlFindCustomerByEmailBr(email, input.brNumber));
 
   if (existing) {
