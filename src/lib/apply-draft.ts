@@ -4,6 +4,12 @@
  */
 
 import type { ApplyDocsState, UploadedMeta } from "@/components/app/apply-documents-upload";
+import type {
+  MortgageDocsState,
+  MortgageUploadedFile,
+} from "@/components/app/mortgage-documents-upload";
+import { emptyMortgageDocs } from "@/components/app/mortgage-documents-upload";
+import type { MortgageCalcInput, MortgageKind } from "@/lib/mortgage";
 import type { LoanType } from "@/lib/types";
 
 const DRAFT_VERSION = 1 as const;
@@ -42,6 +48,11 @@ export type ApplyDraftV1 = {
     companyOther: FileMeta[];
     bank: Record<string, FileMeta | null>;
   };
+  /** 按揭草稿（可選，不影響 v1 相容） */
+  mortgageKind?: MortgageKind | null;
+  isShellCompany?: boolean;
+  mortgageCalc?: MortgageCalcInput | null;
+  mortgageDocsMeta?: Record<string, FileMeta | null>;
 };
 
 function lsKey(userKey: string) {
@@ -49,6 +60,11 @@ function lsKey(userKey: string) {
 }
 
 function toMeta(f: UploadedMeta | null): FileMeta | null {
+  if (!f) return null;
+  return { name: f.name, size: f.size, type: f.type };
+}
+
+function toMortgageMeta(f: MortgageUploadedFile | null | undefined): FileMeta | null {
   if (!f) return null;
   return { name: f.name, size: f.size, type: f.type };
 }
@@ -70,9 +86,13 @@ export function buildApplyDraft(input: {
   consents: Record<string, boolean>;
   bankMonths: string[];
   docs: ApplyDocsState;
+  mortgageKind?: MortgageKind | null;
+  isShellCompany?: boolean;
+  mortgageCalc?: MortgageCalcInput | null;
+  mortgageDocs?: MortgageDocsState | null;
 }): ApplyDraftV1 {
-  const { docs, bankMonths } = input;
-  return {
+  const { docs, bankMonths, mortgageDocs } = input;
+  const draft: ApplyDraftV1 = {
     version: DRAFT_VERSION,
     savedAt: new Date().toISOString(),
     step: input.step,
@@ -100,6 +120,26 @@ export function buildApplyDraft(input: {
       ),
     },
   };
+
+  if (input.mortgageKind !== undefined) {
+    draft.mortgageKind = input.mortgageKind;
+  }
+  if (input.isShellCompany !== undefined) {
+    draft.isShellCompany = input.isShellCompany;
+  }
+  if (input.mortgageCalc !== undefined) {
+    draft.mortgageCalc = input.mortgageCalc;
+  }
+  if (mortgageDocs) {
+    draft.mortgageDocsMeta = Object.fromEntries(
+      Object.entries(mortgageDocs).map(([id, st]) => [
+        id,
+        toMortgageMeta(st?.file ?? null),
+      ]),
+    );
+  }
+
+  return draft;
 }
 
 export function loadApplyDraft(userKey: string): ApplyDraftV1 | null {
@@ -215,6 +255,21 @@ export async function saveApplyFiles(
   await Promise.all(jobs);
 }
 
+/** 把按揭 docs 內 File 寫入 IndexedDB */
+export async function saveMortgageFiles(
+  userKey: string,
+  docs: MortgageDocsState,
+) {
+  if (typeof indexedDB === "undefined") return;
+  const jobs: Promise<void>[] = [];
+  for (const [id, st] of Object.entries(docs)) {
+    if (st?.file?.file) {
+      jobs.push(idbPut(fileKey(userKey, `mortgage:${id}`), st.file.file));
+    }
+  }
+  await Promise.all(jobs);
+}
+
 async function blobToUploaded(
   meta: FileMeta | null | undefined,
   blob: Blob | null,
@@ -229,6 +284,24 @@ async function blobToUploaded(
     size: meta.size || file.size,
     type: meta.type || file.type,
     file,
+  };
+}
+
+async function blobToMortgageUploaded(
+  meta: FileMeta | null | undefined,
+  blob: Blob | null,
+): Promise<MortgageUploadedFile | null> {
+  if (!meta || !blob) return null;
+  const file = new File([blob], meta.name, {
+    type: meta.type || blob.type || "application/octet-stream",
+    lastModified: Date.now(),
+  });
+  return {
+    name: meta.name,
+    size: meta.size || file.size,
+    type: meta.type || file.type,
+    file,
+    uploadedAt: new Date().toISOString(),
   };
 }
 
@@ -284,14 +357,41 @@ export async function restoreApplyDocs(
   return { br, audited, identity, companyOther, bank };
 }
 
+/** 由草稿 meta + IndexedDB 還原 MortgageDocsState */
+export async function restoreMortgageDocs(
+  userKey: string,
+  draft: ApplyDraftV1,
+  kind: MortgageKind,
+  includeShellCompany: boolean,
+): Promise<MortgageDocsState> {
+  const next = emptyMortgageDocs(kind, includeShellCompany);
+  const meta = draft.mortgageDocsMeta ?? {};
+  for (const id of Object.keys(next)) {
+    const m = meta[id];
+    if (!m) continue;
+    const blob = await idbGet(fileKey(userKey, `mortgage:${id}`)).catch(
+      () => null,
+    );
+    const file = await blobToMortgageUploaded(m, blob);
+    if (file) {
+      next[id as keyof MortgageDocsState] = { file, skip: null };
+    }
+  }
+  return next;
+}
+
 export async function persistApplyDraft(
   userKey: string,
   draft: ApplyDraftV1,
   docs: ApplyDocsState,
   bankMonths: string[],
+  mortgageDocs?: MortgageDocsState | null,
 ) {
   saveApplyDraftLocal(userKey, draft);
   await saveApplyFiles(userKey, docs, bankMonths);
+  if (mortgageDocs) {
+    await saveMortgageFiles(userKey, mortgageDocs);
+  }
 }
 
 export function formatDraftSavedAt(iso: string) {
