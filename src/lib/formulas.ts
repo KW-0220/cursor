@@ -14,6 +14,8 @@
  *   （權威來源：Audited Financial Statements；D&A 多數喺 Cash Flow／Notes）
  * - 年化債務供款 Total Debt payments = Σ(月供 × 12)
  * - 覆蓋規則：EBITDA > Total Debt payments（硬規則；同時可算 DSCR = EBITDA ÷ Total Debt payments）
+ * - 按揭每月供款 = P × r × (1+r)^n ÷ ((1+r)^n − 1)（P=本金，r=月利率，n=總月數）
+ * - DSR 供款比率 = (現有每月總債務供款 + 新按揭每月供款) ÷ 每月總收入
  * - YoY = (本期 − 上期) ÷ 上期
  * - 平均每月營業額 = Σ月入賬 ÷ 月數
  * - 佔比 = 部分 ÷ 總額 × 100
@@ -35,6 +37,10 @@ export const FORMULA_DEFINITIONS = {
   annualDebtService: "Total Debt payments（年化）= Σ(每月供款 × 12)",
   ebitdaDebtCover: "硬規則：EBITDA > Total Debt payments",
   dscr: "DSCR = EBITDA ÷ Total Debt payments",
+  mortgageMonthlyPayment:
+    "新申請按揭每月供款 = P × r × (1+r)^n ÷ ((1+r)^n − 1)；r＝年息÷12，n＝年期×12",
+  debtServicingRatio:
+    "DSR = (Total monthly debts repayment + New mortgage loan repayment amount) ÷ Total monthly income",
   yoy: "按年變動 YoY = (本期 − 上期) ÷ 上期",
   avgMonthlyTurnover: "平均每月營業額 = Σ月入賬總額 ÷ 月數",
   sharePct: "佔比% = 部分金額 ÷ 總額 × 100",
@@ -246,6 +252,56 @@ export function dscr(
   if (ebitdaHkd == null || annualDebtServiceHkd == null) return null;
   if (annualDebtServiceHkd <= 0) return null;
   return ebitdaHkd / annualDebtServiceHkd;
+}
+
+/**
+ * 標準本金攤還按揭每月供款（amortization）
+ * P × r × (1+r)^n ÷ ((1+r)^n − 1)
+ * - annualRatePct：例如 3.0 代表 3%
+ * - tenureYears：還款年期
+ */
+export function mortgageMonthlyPayment(
+  principalHkd: number | null | undefined,
+  annualRatePct: number | null | undefined,
+  tenureYears: number | null | undefined,
+): number | null {
+  if (
+    principalHkd == null ||
+    annualRatePct == null ||
+    tenureYears == null ||
+    !Number.isFinite(principalHkd) ||
+    !Number.isFinite(annualRatePct) ||
+    !Number.isFinite(tenureYears)
+  ) {
+    return null;
+  }
+  if (principalHkd <= 0 || tenureYears <= 0) return null;
+  const n = Math.round(tenureYears * 12);
+  if (n <= 0) return null;
+  const r = annualRatePct / 100 / 12;
+  if (r === 0) return principalHkd / n;
+  const factor = Math.pow(1 + r, n);
+  return (principalHkd * r * factor) / (factor - 1);
+}
+
+/**
+ * DSR／供款比率（按揭產品）=
+ * (現有每月總債務供款 + 新申請按揭每月供款) ÷ 每月總收入
+ */
+export function debtServicingRatio(
+  existingMonthlyDebtsHkd: number | null | undefined,
+  newMortgageMonthlyHkd: number | null | undefined,
+  totalMonthlyIncomeHkd: number | null | undefined,
+): number | null {
+  if (
+    existingMonthlyDebtsHkd == null ||
+    newMortgageMonthlyHkd == null ||
+    totalMonthlyIncomeHkd == null
+  ) {
+    return null;
+  }
+  if (totalMonthlyIncomeHkd <= 0) return null;
+  return (existingMonthlyDebtsHkd + newMortgageMonthlyHkd) / totalMonthlyIncomeHkd;
 }
 
 export function yoyChange(

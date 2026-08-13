@@ -37,7 +37,7 @@ export type CustomerReportInput = {
     failureReason?: string | null;
     amount: number;
     purpose: string;
-    loanType: "secured" | "unsecured" | null;
+    loanType: "secured" | "unsecured" | "personal_mortgage" | "company_mortgage" | null;
     aiAnalysis?: ApplicationAiAnalysis | null;
     updatedAt: string;
     createdAt: string;
@@ -101,7 +101,7 @@ export function buildCustomerReportHtml(
     ${row("狀態", clientAppStatusLabel(status))}
     ${row("金額", money(a.amount))}
     ${row("用途", a.purpose)}
-    ${row("貸款類型", a.loanType === "secured" ? "有抵押" : a.loanType === "unsecured" ? "無抵押" : "—")}
+    ${row("貸款類型", a.loanType === "secured" ? "有抵押" : a.loanType === "unsecured" ? "無抵押" : a.loanType === "personal_mortgage" ? "個人按揭" : a.loanType === "company_mortgage" ? "公司按揭" : "—")}
     ${row("拒絕原因", a.failureReason || ai?.decisionReason || "—")}
     ${row("AI 摘要", ai?.summary || "—")}
     ${row("銀行還款能力", ai?.bank?.overall || "—")}

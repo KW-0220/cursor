@@ -10,7 +10,7 @@ import {
 
 export type StoredApplication = {
   id: string;
-  loanType: "secured" | "unsecured" | null;
+  loanType: "secured" | "unsecured" | "personal_mortgage" | "company_mortgage" | null;
   amount: number;
   purpose: string;
   status: ClientAppStatus | string;

@@ -34,7 +34,7 @@ import { cn, formatDateTime, formatHKD } from "@/lib/utils";
 
 type AppRow = {
   id: string;
-  loanType: "secured" | "unsecured" | null;
+  loanType: "secured" | "unsecured" | "personal_mortgage" | "company_mortgage" | null;
   amount: number;
   purpose: string;
   status: string;

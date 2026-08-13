@@ -23,7 +23,12 @@ export type ApplicationDocumentRef = {
 
 export type ApplicationRecord = {
   id: string;
-  loanType: "secured" | "unsecured" | null;
+  loanType:
+    | "secured"
+    | "unsecured"
+    | "personal_mortgage"
+    | "company_mortgage"
+    | null;
   amount: number;
   purpose: string;
   status: ClientAppStatus;
@@ -38,6 +43,9 @@ export type ApplicationRecord = {
   documents?: ApplicationDocumentRef[];
   /** 提交時持久化的文件 AI 分析＋批核決定 */
   aiAnalysis?: ApplicationAiAnalysis | null;
+  mortgageKind?: "new_buy" | "refinance" | null;
+  isShellCompany?: boolean | null;
+  mortgageCalc?: Record<string, unknown> | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -246,7 +254,12 @@ export async function ensureApplicationForDocuments(
 export async function upsertApplication(
   input: Partial<ApplicationRecord> & {
     id: string;
-    loanType: "secured" | "unsecured" | null;
+    loanType:
+      | "secured"
+      | "unsecured"
+      | "personal_mortgage"
+      | "company_mortgage"
+      | null;
     amount: number;
     purpose: string;
   },
@@ -300,6 +313,18 @@ export async function upsertApplication(
         input.aiAnalysis !== undefined
           ? input.aiAnalysis
           : prev.aiAnalysis ?? null,
+      mortgageKind:
+        input.mortgageKind !== undefined
+          ? input.mortgageKind
+          : prev.mortgageKind ?? null,
+      isShellCompany:
+        input.isShellCompany !== undefined
+          ? input.isShellCompany
+          : prev.isShellCompany ?? null,
+      mortgageCalc:
+        input.mortgageCalc !== undefined
+          ? input.mortgageCalc
+          : prev.mortgageCalc ?? null,
       updatedAt: now,
     };
     records[idx] = updated;
@@ -321,6 +346,9 @@ export async function upsertApplication(
     phone: input.phone ?? null,
     documents: input.documents ?? [],
     aiAnalysis: input.aiAnalysis ?? null,
+    mortgageKind: input.mortgageKind ?? null,
+    isShellCompany: input.isShellCompany ?? null,
+    mortgageCalc: input.mortgageCalc ?? null,
     status,
     failureReason: status === "rejected" ? failureReason : null,
     createdAt: input.createdAt || now,

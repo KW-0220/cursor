@@ -89,7 +89,13 @@ export default function ApplicationsPage() {
                       <p className="mt-1 font-semibold text-navy-900">
                         {app.loanType === "secured"
                           ? "有抵押貸款"
-                          : "無抵押貸款"}
+                          : app.loanType === "unsecured"
+                            ? "無抵押貸款"
+                            : app.loanType === "personal_mortgage"
+                              ? "個人按揭"
+                              : app.loanType === "company_mortgage"
+                                ? "公司按揭"
+                                : "貸款申請"}
                       </p>
                       <p className="mt-1 text-sm text-text-secondary">
                         <span className="tabular">

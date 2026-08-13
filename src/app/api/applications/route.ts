@@ -17,7 +17,9 @@ export const runtime = "nodejs";
 
 const upsertSchema = z.object({
   id: z.string().min(1),
-  loanType: z.enum(["secured", "unsecured"]).nullable(),
+  loanType: z
+    .enum(["secured", "unsecured", "personal_mortgage", "company_mortgage"])
+    .nullable(),
   amount: z.number().nonnegative(),
   purpose: z.string().min(1),
   docsPct: z.number().optional(),
@@ -30,6 +32,9 @@ const upsertSchema = z.object({
   email: z.string().nullable().optional(),
   phone: z.string().nullable().optional(),
   aiAnalysis: z.unknown().nullable().optional(),
+  mortgageKind: z.enum(["new_buy", "refinance"]).nullable().optional(),
+  isShellCompany: z.boolean().nullable().optional(),
+  mortgageCalc: z.record(z.string(), z.unknown()).nullable().optional(),
 });
 
 const patchSchema = z.object({

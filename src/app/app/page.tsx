@@ -56,6 +56,11 @@ export default function HomePage() {
         {[
           { href: "/app/ai", label: "AI 財務助理", icon: Bot },
           {
+            href: "/app/mortgage-calculator",
+            label: "按揭計算／DSR",
+            icon: Bot,
+          },
+          {
             href: "/apply/documents",
             label: "資料收集：BR／NAR1／月結單／身份",
             icon: Bot,

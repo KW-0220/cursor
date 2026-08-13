@@ -131,6 +131,8 @@ export function DocumentAnalyzeForm({
             >
               <option value="unsecured">無抵押</option>
               <option value="secured">有抵押</option>
+              <option value="personal_mortgage">個人按揭</option>
+              <option value="company_mortgage">公司按揭</option>
             </Select>
           </Field>
           <Field label="申請金額 HKD">

@@ -64,7 +64,7 @@ type CustomerApp = {
   failureReason?: string | null;
   amount: number;
   purpose: string;
-  loanType: "secured" | "unsecured" | null;
+  loanType: "secured" | "unsecured" | "personal_mortgage" | "company_mortgage" | null;
   aiAnalysis?: ApplicationAiAnalysis | null;
   updatedAt: string;
   createdAt: string;

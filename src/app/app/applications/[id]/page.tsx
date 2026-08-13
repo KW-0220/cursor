@@ -43,7 +43,7 @@ export default function ApplicationDetailPage() {
         const remote = data?.application as
           | {
               id: string;
-              loanType: "secured" | "unsecured" | null;
+              loanType: "secured" | "unsecured" | "personal_mortgage" | "company_mortgage" | null;
               amount: number;
               purpose: string;
               status: string;
@@ -133,7 +133,15 @@ export default function ApplicationDetailPage() {
           <div className="flex items-start justify-between gap-3">
             <div>
               <p className="font-semibold text-navy-900">
-                {app.loanType === "secured" ? "有抵押貸款" : "無抵押貸款"}
+                {app.loanType === "secured"
+                  ? "有抵押貸款"
+                  : app.loanType === "unsecured"
+                    ? "無抵押貸款"
+                    : app.loanType === "personal_mortgage"
+                      ? "個人按揭"
+                      : app.loanType === "company_mortgage"
+                        ? "公司按揭"
+                        : "貸款申請"}
               </p>
               <p className="mt-1 text-sm text-text-secondary">
                 <span className="tabular">{formatHKD(app.amount)}</span>

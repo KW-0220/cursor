@@ -15,6 +15,7 @@ export type DocumentKind =
   | "identity"
   | "company_other"
   | "bank"
+  | "mortgage"
   | "other";
 
 export type StoredDocument = {
@@ -385,6 +386,7 @@ export function documentKindLabel(kind: DocumentKind | string) {
     identity: "身份證明",
     company_other: "公司其他文件",
     bank: "銀行月結單",
+    mortgage: "按揭文件",
     other: "其他",
   };
   return map[kind] || kind;

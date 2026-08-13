@@ -17,7 +17,7 @@ import { cn, formatDateTime, formatHKD } from "@/lib/utils";
 
 type AdminApp = {
   id: string;
-  loanType: "secured" | "unsecured" | null;
+  loanType: "secured" | "unsecured" | "personal_mortgage" | "company_mortgage" | null;
   amount: number;
   purpose: string;
   status: string;
@@ -85,6 +85,8 @@ export default function AdminDashboardPage() {
       const status = normalizeClientAppStatus(app.status);
       if (filter === "有抵押") return app.loanType === "secured";
       if (filter === "無抵押") return app.loanType === "unsecured";
+      if (filter === "個人按揭") return app.loanType === "personal_mortgage";
+      if (filter === "公司按揭") return app.loanType === "company_mortgage";
       if (filter === "需要補件") return (app.docsPct ?? 0) < 100;
       if (filter === "審批中") return status === "under_review";
       if (filter === "已批核") return status === "approved";
@@ -280,6 +282,8 @@ export default function AdminDashboardPage() {
             "全部",
             "有抵押",
             "無抵押",
+            "個人按揭",
+            "公司按揭",
             "需要補件",
             "審批中",
             "已批核",
@@ -361,7 +365,11 @@ export default function AdminDashboardPage() {
                       ? "有抵押"
                       : app.loanType === "unsecured"
                         ? "無抵押"
-                        : "—"}
+                        : app.loanType === "personal_mortgage"
+                          ? "個人按揭"
+                          : app.loanType === "company_mortgage"
+                            ? "公司按揭"
+                            : "—"}
                   </td>
                   <td className="px-4 py-3 tabular">
                     {formatHKD(app.amount)}

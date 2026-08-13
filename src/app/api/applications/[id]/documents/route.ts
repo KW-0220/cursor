@@ -29,6 +29,7 @@ const KIND_SET = new Set<DocumentKind>([
   "identity",
   "company_other",
   "bank",
+  "mortgage",
   "other",
 ]);
 

@@ -13,7 +13,9 @@
 │   ├── /notifications
 │   ├── /ai                      # AI 助理／需求分析
 │   └── /account
-├── /apply                       # 申請 Wizard（有抵押／無抵押分流）
+├── /apply                       # 申請 Wizard（有抵押／無抵押／個人按揭／公司按揭）
+│   └── （按揭：種類 → 計算／DSR → 獨立文件卡片）
+├── /app/mortgage-calculator     # 獨立按揭計算工具
 └── /admin
     ├── /                        # 案件總覽 KPI + 列表
     ├── /customers               # 客戶登記資料庫（表格）
@@ -50,7 +52,8 @@
 | P05 Company | `/register/company` |
 | P06 Dashboard | `/app` |
 | P07 AI 需求分析 | `/app/ai` |
-| P08–P17 Apply | `/apply`（step 0–7） |
+| P08–P17 Apply | `/apply`（商業 8 步；按揭 9 步含種類／計算／文件） |
+| M05 按揭計算 | `/app/mortgage-calculator` · 申請流程內嵌 |
 | N01–N07 債務／聲明／初批 | `/apply/debts` → `declarations` → `confirm` → `analyzing` → `result` |
 | KYC／BR／NAR1／月結單預審 | `/apply/kyc-docs` → `company-docs` → `statements` → `prescreen`（舊流） |
 | **必須文件 hub（修正）** | `/apply/documents` → br / nar1 / bank-statements / identity / supplements / cross-check |

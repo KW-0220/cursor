@@ -12,7 +12,7 @@ export type ApplicationAiReportInput = {
     failureReason?: string | null;
     amount: number;
     purpose: string;
-    loanType: "secured" | "unsecured" | null;
+    loanType: "secured" | "unsecured" | "personal_mortgage" | "company_mortgage" | null;
     companyNameZh?: string | null;
     applicantNameZh?: string | null;
     email?: string | null;
@@ -247,7 +247,7 @@ ${ebitdaSection}
     ${row("電郵", a.email || "—")}
     ${row("電話", a.phone || "—")}
     ${row("客戶編號", a.customerId || "—")}
-    ${row("貸款類型", a.loanType === "secured" ? "有抵押" : a.loanType === "unsecured" ? "無抵押" : "—")}
+    ${row("貸款類型", a.loanType === "secured" ? "有抵押" : a.loanType === "unsecured" ? "無抵押" : a.loanType === "personal_mortgage" ? "個人按揭" : a.loanType === "company_mortgage" ? "公司按揭" : "—")}
     ${row("金額", money(a.amount))}
     ${row("用途", a.purpose)}
     ${row("拒絕原因", a.failureReason || "—")}

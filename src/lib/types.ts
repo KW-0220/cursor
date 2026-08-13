@@ -1,4 +1,8 @@
-export type LoanType = "secured" | "unsecured";
+export type LoanType =
+  | "secured"
+  | "unsecured"
+  | "personal_mortgage"
+  | "company_mortgage";
 
 export type ApplicationStatus =
   | "Draft"

@@ -688,7 +688,7 @@ export default function ApplyWizardPage() {
         {/* Mortgage step 1: Kind */}
         {step === 1 && isMortgage && (
           <>
-            <SectionHeader title="選擇按揭種類" />
+            <SectionHeader title="選擇按揭申請種類" />
             {MORTGAGE_KIND_OPTIONS.map((card) => (
               <button
                 key={card.kind}
