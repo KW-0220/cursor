@@ -40,9 +40,23 @@ import {
   toAuditedExtract,
 } from "@/lib/audited-report-extract";
 import { toIdentityExtract } from "@/lib/identity-extract";
+import {
+  isMortgageLoanType,
+  LOAN_TYPE_OPTIONS,
+  MORTGAGE_KIND_OPTIONS,
+  MORTGAGE_SECTION_LABEL,
+  mortgageAiAnalyzeSlots,
+  type MortgageAiSlot,
+  type MortgageKind,
+} from "@/lib/mortgage";
 import { cn, formatDateTime } from "@/lib/utils";
 
-type AdminDocKind = "br" | "bank" | "audited" | "identity";
+type AdminDocKind = "br" | "bank" | "audited" | "identity" | "financial";
+type AnalyzeLoanMode =
+  | "secured"
+  | "unsecured"
+  | "personal_mortgage"
+  | "company_mortgage";
 type PersonRole = "董事" | "股東" | "個人擔保人";
 
 type AnalyzePayload = Record<string, unknown> & {
@@ -227,6 +241,15 @@ export function AiAnalyzeWorkspace({
     Array<{ id: string; companyNameZh: string; brNumber: string }>
   >([]);
   const [personRole, setPersonRole] = useState<PersonRole>("董事");
+  const [analyzeLoanMode, setAnalyzeLoanMode] =
+    useState<AnalyzeLoanMode>("secured");
+  const [mortgageKindFilter, setMortgageKindFilter] = useState<
+    MortgageKind | ""
+  >("");
+  const [includeShellCompany, setIncludeShellCompany] = useState(false);
+  const mortgageSlotInputRefs = useRef<
+    Record<string, HTMLInputElement | null>
+  >({});
   const [monthlyDebtPayments, setMonthlyDebtPayments] = useState("");
   const [gearingThreshold, setGearingThreshold] = useState("4");
   const [pasteText, setPasteText] = useState("");
@@ -257,6 +280,22 @@ export function AiAnalyzeWorkspace({
     hint?: string;
     ping?: { ok?: boolean; detail?: string; latencyMs?: number };
   } | null>(null);
+
+  const isMortgageMode = isMortgageLoanType(analyzeLoanMode);
+  const mortgageSlots = useMemo(() => {
+    if (!isMortgageMode) return [] as MortgageAiSlot[];
+    return mortgageAiAnalyzeSlots({
+      loanType: analyzeLoanMode as "personal_mortgage" | "company_mortgage",
+      kind: mortgageKindFilter || null,
+      includeShellCompany:
+        analyzeLoanMode === "company_mortgage" && includeShellCompany,
+    });
+  }, [
+    isMortgageMode,
+    analyzeLoanMode,
+    mortgageKindFilter,
+    includeShellCompany,
+  ]);
 
   const monthlyDebtNum = useMemo(() => {
     const n = Number(monthlyDebtPayments.replace(/,/g, "").trim());
@@ -434,6 +473,7 @@ export function AiAnalyzeWorkspace({
       statementMonth?: string | null;
       personRole?: PersonRole | null;
       pdfOnly?: boolean;
+      label?: string;
     },
   ) {
     const existing = new Set(queue.map((q) => q.fingerprint));
@@ -494,11 +534,12 @@ export function AiAnalyzeWorkspace({
         file,
         pastedText: "",
         label:
-          opts.docKind === "bank"
+          opts.label ||
+          (opts.docKind === "bank"
             ? `${file.name}（${opts.statementMonth}）`
             : opts.docKind === "identity"
               ? `${file.name}（${opts.personRole || "身份證明"}）`
-              : file.name,
+              : file.name),
         docKind: opts.docKind,
         statementMonth: opts.statementMonth ?? null,
         personRole: opts.personRole ?? null,
@@ -566,6 +607,22 @@ export function AiAnalyzeWorkspace({
     });
     pushAccepted(accepted, dupNames, `身份證明（${personRole}）`);
     if (identityInputRef.current) identityInputRef.current.value = "";
+  }
+
+  function addMortgageSlotFile(slot: MortgageAiSlot, list: FileList | null) {
+    const files = Array.from(list ?? []).filter((f) => f.size > 0);
+    if (!files.length) return;
+    const pdfOnly = slot.analyzeKind === "bank" || slot.analyzeKind === "audited";
+    const { accepted, dupNames } = collectAccepted(files.slice(0, 1), {
+      docKind: slot.analyzeKind,
+      pdfOnly,
+      label: `${slot.title} · ${files[0]!.name}`,
+      personRole:
+        slot.analyzeKind === "identity" ? "個人擔保人" : null,
+    });
+    pushAccepted(accepted, dupNames, slot.title);
+    const el = mortgageSlotInputRefs.current[slot.id];
+    if (el) el.value = "";
   }
 
   function addPasteJob() {
@@ -1023,8 +1080,56 @@ export function AiAnalyzeWorkspace({
           <Card className="space-y-3">
             <SectionHeader
               title="AI 文件分析（按類別分開上載）"
-              subtitle="每類文件獨立上載區＋獨立分析要求；禁止重覆檔案"
+              subtitle="先選申請貸款類型；每類文件獨立上載區＋獨立分析要求；禁止重覆檔案"
             />
+            <Field label="申請貸款類型（決定分析文件類型）" required>
+              <Select
+                value={analyzeLoanMode}
+                onChange={(e) =>
+                  setAnalyzeLoanMode(e.target.value as AnalyzeLoanMode)
+                }
+              >
+                {LOAN_TYPE_OPTIONS.map((o) => (
+                  <option key={o.type} value={o.type}>
+                    {o.title}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+            {isMortgageMode && (
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Field label="按揭種類（篩選文件清單）">
+                  <Select
+                    value={mortgageKindFilter}
+                    onChange={(e) =>
+                      setMortgageKindFilter(
+                        e.target.value as MortgageKind | "",
+                      )
+                    }
+                  >
+                    <option value="">新買 + 轉按（全部）</option>
+                    {MORTGAGE_KIND_OPTIONS.map((o) => (
+                      <option key={o.kind} value={o.kind}>
+                        {o.title}
+                      </option>
+                    ))}
+                  </Select>
+                </Field>
+                {analyzeLoanMode === "company_mortgage" && (
+                  <label className="flex items-center gap-2 self-end rounded-xl border border-border bg-surface-2 px-3 py-2.5 text-sm">
+                    <input
+                      type="checkbox"
+                      className="size-4 accent-teal-600"
+                      checked={includeShellCompany}
+                      onChange={(e) =>
+                        setIncludeShellCompany(e.target.checked)
+                      }
+                    />
+                    空殼／SPV 額外文件
+                  </label>
+                )}
+              </div>
+            )}
             <Field label="歸檔客戶（上載文件自動歸戶）">
               <Select
                 value={customerId || ""}
@@ -1103,7 +1208,102 @@ export function AiAnalyzeWorkspace({
             </div>
           </Card>
 
-          {/* —— 銀行月結 —— */}
+          {/* —— 按揭文件分析類型 —— */}
+          {isMortgageMode && (
+            <Card className="space-y-4">
+              <SectionHeader
+                title={
+                  analyzeLoanMode === "personal_mortgage"
+                    ? "個人按揭 · AI 分析文件類型"
+                    : "公司按揭 · AI 分析文件類型"
+                }
+                subtitle={`共 ${mortgageSlots.length} 類 · 每份獨立上載／獨立 AI 重點`}
+              />
+              {(["identity", "income", "property", "existing_mortgage", "assets", "company"] as const).map(
+                (section) => {
+                  const items = mortgageSlots.filter(
+                    (s) => s.section === section,
+                  );
+                  if (!items.length) return null;
+                  return (
+                    <div key={section} className="space-y-2">
+                      <h3 className="text-sm font-semibold text-navy-900">
+                        {MORTGAGE_SECTION_LABEL[section]}
+                      </h3>
+                      <div className="grid gap-2 lg:grid-cols-2">
+                        {items.map((slot) => {
+                          const existing = queue.find(
+                            (q) =>
+                              q.label.startsWith(`${slot.title} ·`) &&
+                              q.status !== "error",
+                          );
+                          return (
+                            <div
+                              key={slot.id}
+                              className="rounded-xl border border-border bg-surface-1 p-3"
+                            >
+                              <div className="flex items-start justify-between gap-2">
+                                <div>
+                                  <p className="text-sm font-medium text-navy-900">
+                                    {slot.title}
+                                  </p>
+                                  <p className="mt-1 text-[11px] text-text-muted">
+                                    AI：{slot.aiFocus.join("、")} · 分析類型{" "}
+                                    {slot.analyzeKind}
+                                  </p>
+                                </div>
+                                <span className="shrink-0 text-[11px] text-text-muted">
+                                  {existing
+                                    ? existing.status === "done"
+                                      ? "已分析"
+                                      : existing.status === "running"
+                                        ? "分析中"
+                                        : "已加入"
+                                    : "未上載"}
+                                </span>
+                              </div>
+                              <p className="mt-1 text-xs text-text-secondary">
+                                {slot.description}
+                              </p>
+                              <input
+                                ref={(el) => {
+                                  mortgageSlotInputRefs.current[slot.id] = el;
+                                }}
+                                type="file"
+                                accept={slot.accept}
+                                className="hidden"
+                                onChange={(e) =>
+                                  addMortgageSlotFile(slot, e.target.files)
+                                }
+                              />
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="outline"
+                                className="mt-2"
+                                fullWidth
+                                disabled={Boolean(existing) || running}
+                                onClick={() =>
+                                  mortgageSlotInputRefs.current[slot.id]?.click()
+                                }
+                              >
+                                <FileUp className="mr-1 size-3.5" />
+                                {existing ? "已佔位" : "上載此文件"}
+                              </Button>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                },
+              )}
+            </Card>
+          )}
+
+          {/* —— 商業貸款文件分析 —— */}
+          {!isMortgageMode && (
+            <>
           <Card className="space-y-3">
             <SectionHeader
               title="1. 最近六個月銀行月結單"
@@ -1401,6 +1601,8 @@ export function AiAnalyzeWorkspace({
               </p>
             )}
           </Card>
+            </>
+          )}
 
           {/* 可選：貼上文字 */}
           <Card className="space-y-3">
@@ -1420,6 +1622,7 @@ export function AiAnalyzeWorkspace({
                   <option value="identity">身份證明</option>
                   <option value="br">商業登記證 BR</option>
                   <option value="audited">Audited Report</option>
+                  <option value="financial">按揭／財務其他文件</option>
                 </Select>
               </Field>
               {pasteKind === "bank" && (
@@ -1594,8 +1797,8 @@ export function AiAnalyzeWorkspace({
               </ul>
             )}
             <Disclaimer>
-              各類文件分開上載；銀行只收 PDF；身份證明標註董事／股東／擔保人；Audited
-              顯示 4.1–4.7 指標。AI 不直接決定批出貸款。
+              先選申請貸款類型：商業貸款顯示 BR／月結／Audited／身份；個人／公司按揭顯示對應按揭文件分析類型（含空殼公司額外文件）。AI
+              不直接決定批出貸款。
             </Disclaimer>
           </Card>
         </>

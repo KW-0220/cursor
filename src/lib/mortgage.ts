@@ -512,9 +512,123 @@ export function computeMortgageCalc(
   };
 }
 
+export function mortgageDocTitleById(
+  id: string | null | undefined,
+): string | null {
+  if (!id) return null;
+  const all = [...NEW_BUY_SLOTS, ...REFINANCE_SLOTS, ...SHELL_SLOTS];
+  return all.find((s) => s.id === id)?.title ?? null;
+}
+
+/** 文件管理／補件：依貸款類型列出可選文件類型 */
+export function documentTypesForLoanType(
+  loanType: string | null | undefined,
+): string[] {
+  if (loanType === "personal_mortgage" || loanType === "company_mortgage") {
+    const kindHint =
+      loanType === "company_mortgage"
+        ? ([...NEW_BUY_SLOTS, ...REFINANCE_SLOTS, ...SHELL_SLOTS] as MortgageDocSlotDef[])
+        : ([...NEW_BUY_SLOTS, ...REFINANCE_SLOTS] as MortgageDocSlotDef[]);
+    const titles = [...new Set(kindHint.map((s) => s.title))];
+    return [...titles, "其他"];
+  }
+  if (loanType === "secured") {
+    return [
+      "商業登記證 BR",
+      "審計報告",
+      "銀行結單",
+      "身份證明",
+      "物業證明",
+      "授信信",
+      "抵押品文件",
+      "其他",
+    ];
+  }
+  if (loanType === "unsecured") {
+    return [
+      "商業登記證 BR",
+      "審計報告",
+      "銀行結單",
+      "身份證明",
+      "授信信",
+      "其他",
+    ];
+  }
+  // 未選類型：全部
+  return [
+    "商業登記證 BR",
+    "審計報告",
+    "銀行結單",
+    "身份證明",
+    "物業證明",
+    "授信信",
+    "抵押品文件",
+    ...[...NEW_BUY_SLOTS, ...REFINANCE_SLOTS, ...SHELL_SLOTS].map((s) => s.title),
+    "其他",
+  ].filter((v, i, arr) => arr.indexOf(v) === i);
+}
+
+export type MortgageAiSlot = {
+  id: MortgageDocSlotId;
+  title: string;
+  description: string;
+  aiFocus: string[];
+  /** 對應 /api/analyze-document docKind */
+  analyzeKind: "identity" | "bank" | "br" | "financial" | "audited";
+  accept: string;
+  section: MortgageDocSectionId;
+};
+
+function toAiSlot(def: MortgageDocSlotDef): MortgageAiSlot {
+  let analyzeKind: MortgageAiSlot["analyzeKind"] = "financial";
+  if (def.id === "identity") analyzeKind = "identity";
+  else if (def.id === "shell_br") analyzeKind = "br";
+  else if (
+    def.id === "salary_bank_3m" ||
+    def.id === "mortgage_repayment_bank_3m" ||
+    def.id === "shell_bank_6m" ||
+    def.id === "investment_accounts_3m"
+  ) {
+    analyzeKind = "bank";
+  } else if (def.id === "shell_financials") {
+    analyzeKind = "audited";
+  }
+  return {
+    id: def.id,
+    title: def.title,
+    description: def.description,
+    aiFocus: def.aiFocus,
+    analyzeKind,
+    accept: def.accept,
+    section: def.section,
+  };
+}
+
+/** AI 分析中心：按揭模式下的文件分析類型 */
+export function mortgageAiAnalyzeSlots(input: {
+  loanType: "personal_mortgage" | "company_mortgage";
+  kind?: MortgageKind | null;
+  includeShellCompany?: boolean;
+}): MortgageAiSlot[] {
+  let base: MortgageDocSlotDef[];
+  if (input.kind === "refinance") base = REFINANCE_SLOTS;
+  else if (input.kind === "new_buy") base = NEW_BUY_SLOTS;
+  else {
+    base = [...NEW_BUY_SLOTS, ...REFINANCE_SLOTS].filter(
+      (s, i, arr) => arr.findIndex((x) => x.id === s.id) === i,
+    );
+  }
+  const shell =
+    input.loanType === "company_mortgage" && input.includeShellCompany
+      ? SHELL_SLOTS
+      : [];
+  return [...base, ...shell].map(toAiSlot);
+}
+
 export function dsrToneClasses(tone: MortgageCalcResult["dsrTone"]) {
   if (tone === "green") return "border-border bg-success-100 text-success-600";
   if (tone === "amber") return "border-border bg-warning-100 text-warning-600";
   if (tone === "red") return "border-border bg-danger-100 text-danger-600";
   return "border-border bg-surface-2 text-text-secondary";
 }
+

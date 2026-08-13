@@ -8,6 +8,7 @@ import {
   durableJsonStoreReady,
 } from "@/lib/durable-json-store";
 import { getSupabaseSecretKey, getSupabaseUrl } from "@/lib/supabase/env";
+import { mortgageDocTitleById } from "@/lib/mortgage";
 
 export type DocumentKind =
   | "br"
@@ -390,6 +391,15 @@ export function documentKindLabel(kind: DocumentKind | string) {
     other: "其他",
   };
   return map[kind] || kind;
+}
+
+/** 優先用 slot 顯示按揭文件中文名 */
+export function documentDisplayLabel(kind: string, slot?: string | null) {
+  if (slot?.startsWith("mortgage:")) {
+    const title = mortgageDocTitleById(slot.slice("mortgage:".length));
+    if (title) return title;
+  }
+  return documentKindLabel(kind);
 }
 
 async function removeStorageObject(doc: StoredDocument) {

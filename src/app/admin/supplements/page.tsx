@@ -13,6 +13,11 @@ import {
   buildSupplementEmailSubject,
   buildSupplementEmailText,
 } from "@/lib/supplement-email";
+import {
+  documentTypesForLoanType,
+  LOAN_TYPE_OPTIONS,
+  loanTypeLabel,
+} from "@/lib/mortgage";
 import { formatDateTime } from "@/lib/utils";
 
 const templates = [
@@ -21,17 +26,12 @@ const templates = [
   "公司名稱與申請資料不一致",
   "審計報告未見核數師簽署",
   "銀行結單月份不連續",
+  "按揭文件不齊／不清晰",
+  "臨時買賣合約資料不全",
+  "出糧戶口／糧單月份不連續",
+  "現有按揭供款表／年結缺失",
+  "空殼公司 BR／CI／月結不足",
 ];
-
-const DOC_TYPES = [
-  "銀行結單",
-  "審計報告",
-  "授信信",
-  "物業證明",
-  "身份證明",
-  "商業登記證 BR",
-  "其他",
-] as const;
 
 type NotifyMode = "app_push_email" | "app_push" | "email";
 
@@ -58,6 +58,13 @@ type SupplementItem = {
   createdAt: string;
 };
 
+type AppOption = {
+  id: string;
+  loanType: string | null;
+  companyNameZh?: string | null;
+  applicantNameZh?: string | null;
+};
+
 function channelsFromMode(mode: NotifyMode): Array<"app_push" | "email"> {
   if (mode === "app_push") return ["app_push"];
   if (mode === "email") return ["email"];
@@ -74,7 +81,12 @@ export default function AdminSupplementsPage() {
   const [reasonTemplate, setReasonTemplate] = useState(templates[0]!);
   const [reason, setReason] = useState(templates[0]!);
   const [applicationId, setApplicationId] = useState("");
-  const [documentType, setDocumentType] = useState<string>(DOC_TYPES[0]!);
+  const [loanType, setLoanType] = useState("");
+  const docTypes = useMemo(
+    () => documentTypesForLoanType(loanType || null),
+    [loanType],
+  );
+  const [documentType, setDocumentType] = useState("");
   const [detail, setDetail] = useState("");
   const [dueDate, setDueDate] = useState(defaultDueDate);
   const [required, setRequired] = useState("是");
@@ -86,6 +98,7 @@ export default function AdminSupplementsPage() {
   const [error, setError] = useState<string | null>(null);
   const [flash, setFlash] = useState<string | null>(null);
   const [items, setItems] = useState<SupplementItem[]>([]);
+  const [apps, setApps] = useState<AppOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [resendHealth, setResendHealth] = useState<{
     configured?: boolean;
@@ -93,10 +106,16 @@ export default function AdminSupplementsPage() {
     from?: string;
   } | null>(null);
 
+  useEffect(() => {
+    if (!documentType || !docTypes.includes(documentType)) {
+      setDocumentType(docTypes[0] || "其他");
+    }
+  }, [docTypes, documentType]);
+
   const emailPreview = useMemo(() => {
     const fields = {
       applicationId: applicationId.trim() || "（待填申請編號）",
-      documentType,
+      documentType: documentType || "（待選文件類型）",
       reasonTemplate,
       reason: reason.trim() || reasonTemplate,
       detail,
@@ -122,18 +141,30 @@ export default function AdminSupplementsPage() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [listRes, healthRes] = await Promise.all([
+      const [listRes, healthRes, appsRes] = await Promise.all([
         fetch("/api/admin/supplements?status=open", { cache: "no-store" }),
         fetch("/api/admin/supplements?health=1", { cache: "no-store" }),
+        fetch("/api/applications", { cache: "no-store" }),
       ]);
       const listData = await listRes.json();
       const healthData = await healthRes.json();
+      const appsData = await appsRes.json().catch(() => ({}));
       if (!listRes.ok) {
         throw new Error(listData.message || listData.error || "載入失敗");
       }
       setItems(listData.items ?? []);
       if (healthRes.ok) {
         setResendHealth(healthData.resend ?? null);
+      }
+      if (appsRes.ok) {
+        setApps(
+          ((appsData.applications ?? []) as AppOption[]).map((a) => ({
+            id: a.id,
+            loanType: a.loanType ?? null,
+            companyNameZh: a.companyNameZh ?? null,
+            applicantNameZh: a.applicantNameZh ?? null,
+          })),
+        );
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : "載入失敗");
@@ -147,6 +178,14 @@ export default function AdminSupplementsPage() {
   }, [load]);
 
   const openCount = useMemo(() => items.length, [items]);
+
+  function onApplicationIdChange(nextId: string) {
+    setApplicationId(nextId);
+    const hit = apps.find(
+      (a) => a.id.toLowerCase() === nextId.trim().toLowerCase(),
+    );
+    if (hit?.loanType) setLoanType(hit.loanType);
+  }
 
   async function onSubmit() {
     setError(null);
@@ -202,7 +241,7 @@ export default function AdminSupplementsPage() {
         <div>
           <h1 className="text-2xl font-bold text-navy-900">補件管理</h1>
           <p className="mt-1 text-sm text-text-secondary">
-            每封電郵按選項客製化：申請編號 · 文件類型 · 原因模板 · 補交原因 ·
+            按申請貸款類型調整文件類型 · 申請編號 · 原因模板 · 補交原因 ·
             截止日期
           </p>
         </div>
@@ -250,16 +289,41 @@ export default function AdminSupplementsPage() {
             <Field label="申請編號" required>
               <Input
                 value={applicationId}
-                onChange={(e) => setApplicationId(e.target.value)}
+                onChange={(e) => onApplicationIdChange(e.target.value)}
                 placeholder="例如 SLF-…"
+                list="admin-supplement-app-ids"
               />
+              <datalist id="admin-supplement-app-ids">
+                {apps.map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {loanTypeLabel(a.loanType)}
+                    {a.companyNameZh ? ` · ${a.companyNameZh}` : ""}
+                  </option>
+                ))}
+              </datalist>
+            </Field>
+            <Field
+              label="申請貸款類型"
+              hint="選類型後下方文件類型會更新；填申請編號可自動帶入"
+            >
+              <Select
+                value={loanType}
+                onChange={(e) => setLoanType(e.target.value)}
+              >
+                <option value="">全部／未指定</option>
+                {LOAN_TYPE_OPTIONS.map((o) => (
+                  <option key={o.type} value={o.type}>
+                    {o.title}
+                  </option>
+                ))}
+              </Select>
             </Field>
             <Field label="文件類型" required>
               <Select
                 value={documentType}
                 onChange={(e) => setDocumentType(e.target.value)}
               >
-                {DOC_TYPES.map((t) => (
+                {docTypes.map((t) => (
                   <option key={t} value={t}>
                     {t}
                   </option>
@@ -382,6 +446,9 @@ export default function AdminSupplementsPage() {
               </div>
               <ul className="list-disc space-y-1 pl-5 text-xs text-text-muted">
                 <li>申請編號：{applicationId.trim() || "—"}</li>
+                <li>
+                  申請貸款類型：{loanType ? loanTypeLabel(loanType) : "未指定"}
+                </li>
                 <li>文件類型：{documentType}</li>
                 <li>常用原因模板：{reasonTemplate}</li>
                 <li>補交原因：{reason.trim() || "—"}</li>

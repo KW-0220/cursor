@@ -1,11 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { listApplications } from "@/lib/applications-registry";
 import {
+  documentDisplayLabel,
   documentKindLabel,
   getDocument,
   listDocuments,
   readDocumentBytes,
 } from "@/lib/documents-registry";
+import { loanTypeLabel, mortgageKindLabel } from "@/lib/mortgage";
 import { requireAdminContext } from "@/lib/supabase/context";
 
 export const runtime = "nodejs";
@@ -96,7 +98,7 @@ export async function GET(req: NextRequest) {
       list.push({
         id: d.id,
         kind: d.kind,
-        kindLabel: documentKindLabel(d.kind),
+        kindLabel: documentDisplayLabel(d.kind, d.slot),
         slot: d.slot,
         fileName: d.fileName,
         mimeType: d.mimeType,
@@ -126,7 +128,7 @@ export async function GET(req: NextRequest) {
         list.push({
           id: d.id,
           kind: d.kind,
-          kindLabel: documentKindLabel(d.kind),
+          kindLabel: documentDisplayLabel(d.kind, d.slot),
           slot: d.slot,
           fileName: d.fileName,
           mimeType: mime,
@@ -158,6 +160,11 @@ export async function GET(req: NextRequest) {
           status: app?.status ?? null,
           amount: app?.amount ?? null,
           purpose: app?.purpose ?? null,
+          loanType: app?.loanType ?? null,
+          loanTypeLabel: loanTypeLabel(app?.loanType ?? null),
+          mortgageKind: app?.mortgageKind ?? null,
+          mortgageKindLabel: mortgageKindLabel(app?.mortgageKind ?? null),
+          isShellCompany: app?.isShellCompany ?? null,
           updatedAt: app?.updatedAt ?? documents[0]?.createdAt ?? null,
           documentCount: documents.length,
           documents,

@@ -53,6 +53,11 @@ type AppGroup = {
   status: string | null;
   amount: number | null;
   purpose: string | null;
+  loanType?: string | null;
+  loanTypeLabel?: string | null;
+  mortgageKind?: string | null;
+  mortgageKindLabel?: string | null;
+  isShellCompany?: boolean | null;
   updatedAt: string | null;
   documentCount: number;
   documents: DocRow[];
@@ -168,6 +173,9 @@ export default function AdminDocumentsPage() {
           g.customerId,
           g.purpose,
           g.status,
+          g.loanType,
+          g.loanTypeLabel,
+          g.mortgageKindLabel,
         ]
           .join(" ")
           .toLowerCase()
@@ -212,7 +220,7 @@ export default function AdminDocumentsPage() {
           <Search className="size-4 text-text-muted" />
           <Input
             className="border-0 bg-transparent px-0 shadow-none focus:ring-0"
-            placeholder="搜尋申請編號／公司／檔名／文件類型…"
+            placeholder="搜尋申請編號／貸款類型／公司／檔名／文件類型…"
             value={q}
             onChange={(e) => setQ(e.target.value)}
           />
@@ -257,6 +265,13 @@ export default function AdminDocumentsPage() {
                       <p className="font-mono text-sm font-semibold text-navy-900">
                         {g.applicationId}
                       </p>
+                      <span className="rounded-full bg-navy-900/10 px-2 py-0.5 text-[11px] font-medium text-navy-800">
+                        申請貸款類型：{g.loanTypeLabel || "—"}
+                        {g.mortgageKindLabel && g.mortgageKindLabel !== "—"
+                          ? ` · ${g.mortgageKindLabel}`
+                          : ""}
+                        {g.isShellCompany ? " · 空殼公司" : ""}
+                      </span>
                       {status && (
                         <span
                           className={cn(
@@ -422,7 +437,7 @@ export default function AdminDocumentsPage() {
       )}
 
       <Disclaimer>
-        文件按申請編號歸類；預覽支援 PDF／圖片，其他類型請直接下載完整檔案。
+        文件按申請編號歸類，並顯示申請貸款類型；預覽支援 PDF／圖片，其他類型請直接下載完整檔案。
       </Disclaimer>
     </main>
   );
