@@ -55,11 +55,17 @@ export async function POST(req: NextRequest) {
     }
 
     const token = await createSessionToken(user);
+    const product = (body as { product?: string }).product;
     const res = NextResponse.json({
       ok: true,
       user,
       storage: getAuthStorageMode(),
-      next: user.profileCompleted ? "/app" : "/register/identity",
+      next:
+        product === "bizdoc"
+          ? "/workspace/apply/classify"
+          : user.profileCompleted
+            ? "/app"
+            : "/register/identity",
     });
     res.headers.append("Set-Cookie", sessionCookie(token));
     try {

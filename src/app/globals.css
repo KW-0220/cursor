@@ -187,3 +187,94 @@ body {
     background-position: -200% 0;
   }
 }
+
+/* ── 開戶文件通（方向 A：深墨綠 + 暖金）── */
+:root {
+  --biz-forest-950: #0c1f18;
+  --biz-forest-900: #143528;
+  --biz-forest-800: #1a4634;
+  --biz-forest-700: #215c44;
+  --biz-forest-600: #2a7355;
+  --biz-forest-100: #e4f0ea;
+  --biz-gold-800: #7a5a1e;
+  --biz-gold-600: #b8892d;
+  --biz-gold-500: #d4a84b;
+  --biz-gold-100: #f7efd9;
+  --biz-ink: #1a2a24;
+  --biz-muted: #5f7269;
+  --biz-surface: #ffffff;
+  --biz-surface-2: #eef3f0;
+  --biz-border: #d5e0da;
+  --biz-bg-top: #dce8e2;
+  --biz-bg-mid: #f3f6f4;
+}
+
+.biz-shell-bg {
+  min-height: 100dvh;
+  background:
+    radial-gradient(ellipse 80% 50% at 10% -10%, rgba(212, 168, 75, 0.18), transparent 55%),
+    radial-gradient(ellipse 60% 40% at 90% 0%, rgba(26, 70, 52, 0.12), transparent 50%),
+    linear-gradient(180deg, var(--biz-bg-top) 0%, var(--biz-bg-mid) 35%, #f7f9f8 100%);
+}
+
+.biz-shell {
+  max-width: 1100px;
+  margin-inline: auto;
+  min-height: 100dvh;
+  background: color-mix(in srgb, var(--biz-surface) 92%, transparent);
+  border-inline: 1px solid color-mix(in srgb, var(--biz-border) 70%, transparent);
+  box-shadow: 0 12px 40px rgba(20, 53, 40, 0.06);
+  width: 100%;
+}
+
+@media (max-width: 767px) {
+  .biz-shell {
+    max-width: 100%;
+    border-inline: none;
+    box-shadow: none;
+    background: var(--biz-surface);
+  }
+}
+
+.biz-hero-plane {
+  position: relative;
+  min-height: min(92dvh, 820px);
+  overflow: hidden;
+  background:
+    linear-gradient(115deg, rgba(12, 31, 24, 0.88) 0%, rgba(20, 53, 40, 0.72) 45%, rgba(26, 70, 52, 0.55) 100%),
+    url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.75' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.35'/%3E%3C/svg%3E"),
+    linear-gradient(160deg, #0c1f18, #1a4634 50%, #2a7355);
+  color: #f5f7f6;
+}
+
+.biz-hero-plane::after {
+  content: "";
+  position: absolute;
+  inset: auto 0 0 0;
+  height: 120px;
+  background: linear-gradient(to top, var(--biz-bg-mid), transparent);
+  pointer-events: none;
+}
+
+@keyframes biz-rise {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-biz-rise {
+  animation: biz-rise 0.7s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.animate-biz-rise-delay {
+  animation: biz-rise 0.7s cubic-bezier(0.22, 1, 0.36, 1) 0.12s both;
+}
+
+.animate-biz-rise-delay-2 {
+  animation: biz-rise 0.7s cubic-bezier(0.22, 1, 0.36, 1) 0.24s both;
+}
