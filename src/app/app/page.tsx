@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { Bot, ChevronRight, ShieldCheck } from "lucide-react";
@@ -24,11 +25,22 @@ export default function HomePage() {
   return (
     <main className="px-4 pb-6 pt-5">
       <div className="mb-5 flex items-center justify-between">
-        <div>
-          <p className="text-xs text-text-muted">
-            {name ? `你好，${name}` : "你好"}
-          </p>
-          <h1 className="text-xl font-bold text-navy-900">SME LoanFlow</h1>
+        <div className="flex min-w-0 items-center gap-2.5">
+          <Image
+            src="/brand/sme-clinic-mark.png"
+            alt=""
+            width={40}
+            height={40}
+            className="size-10 shrink-0 rounded-md bg-white"
+          />
+          <div className="min-w-0">
+            <p className="text-xs text-text-muted">
+              {name ? `你好，${name}` : "你好"}
+            </p>
+            <h1 className="truncate text-xl font-bold text-navy-900">
+              SME Clinic
+            </h1>
+          </div>
         </div>
         <Link
           href="/app/notifications"

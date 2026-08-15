@@ -214,7 +214,7 @@ export default function LoginPage() {
 
   return (
     <MobileShell>
-      <PageHeader title="登入／註冊" subtitle="SME LoanFlow" backHref="/" />
+      <PageHeader title="登入／註冊" subtitle="SME Clinic" backHref="/" />
       <main className="flex flex-1 flex-col gap-5 px-4 py-5 pb-28">
         <div className="grid grid-cols-2 rounded-xl bg-surface-2 p-1">
           <button

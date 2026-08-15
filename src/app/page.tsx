@@ -12,12 +12,12 @@ export default function SplashPage() {
             src="/brand/sme-clinic-logo.png"
             alt="SME Clinic 企業妙手診所"
             width={1200}
-            height={479}
+            height={458}
             priority
             className="mx-auto h-auto w-full bg-white"
           />
         </div>
-        <h1 className="sr-only">SME LoanFlow</h1>
+        <h1 className="sr-only">SME Clinic 企業妙手診所</h1>
         <p className="animate-fade-up mt-1 max-w-xs text-sm leading-relaxed text-text-secondary [animation-delay:80ms]">
           中小企融資，由準備文件開始變得更簡單
         </p>
