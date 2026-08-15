@@ -9,12 +9,12 @@ export default function SplashPage() {
       <main className="flex flex-1 flex-col items-center justify-center px-8 py-16 text-center">
         <div className="animate-fade-up mb-8 w-full max-w-[280px]">
           <Image
-            src="/brand/sme-clinic-logo.webp"
+            src="/brand/sme-clinic-logo.png"
             alt="SME Clinic 企業妙手診所"
             width={1200}
-            height={800}
+            height={479}
             priority
-            className="mx-auto h-auto w-full"
+            className="mx-auto h-auto w-full bg-white"
           />
         </div>
         <h1 className="sr-only">SME LoanFlow</h1>

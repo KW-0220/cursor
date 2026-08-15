@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Bot, FileText, Home, UserRound } from "lucide-react";
@@ -47,13 +48,22 @@ export function ClientTopNav() {
   return (
     <header className="sticky top-0 z-30 hidden border-b border-border bg-surface-1/95 backdrop-blur md:block">
       <div className="flex items-center justify-between gap-4 px-6 py-3">
-        <div className="min-w-0">
-          <p className="text-[11px] font-medium uppercase tracking-wide text-text-muted">
-            客戶端網頁版
-          </p>
-          <p className="truncate text-sm font-semibold text-navy-900">
-            SME LoanFlow
-          </p>
+        <div className="flex min-w-0 items-center gap-2.5">
+          <Image
+            src="/brand/sme-clinic-mark.png"
+            alt=""
+            width={36}
+            height={36}
+            className="size-9 shrink-0 rounded-md bg-white"
+          />
+          <div className="min-w-0">
+            <p className="text-[11px] font-medium uppercase tracking-wide text-text-muted">
+              客戶端網頁版
+            </p>
+            <p className="truncate text-sm font-semibold text-navy-900">
+              SME Clinic
+            </p>
+          </div>
         </div>
         <nav aria-label="客戶端主要導覽">
           <ul className="flex flex-wrap items-center gap-1">

@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -85,8 +86,21 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
     <div className="admin-shell flex min-h-dvh">
       <aside className="sticky top-0 hidden h-dvh w-60 shrink-0 flex-col border-r border-border bg-navy-950 text-white lg:flex">
         <div className="border-b border-white/10 px-5 py-5">
-          <p className="text-xs text-white/50">SME LoanFlow</p>
-          <h1 className="mt-1 text-lg font-semibold">內部審批控制台</h1>
+          <div className="flex items-center gap-3">
+            <Image
+              src="/brand/sme-clinic-mark.png"
+              alt=""
+              width={40}
+              height={40}
+              className="size-10 shrink-0 rounded-md bg-white"
+            />
+            <div className="min-w-0">
+              <p className="text-xs text-white/50">SME Clinic</p>
+              <h1 className="mt-0.5 text-lg font-semibold leading-tight">
+                內部審批控制台
+              </h1>
+            </div>
+          </div>
         </div>
         <nav className="flex-1 space-y-1 overflow-y-auto p-3">
           {nav.map(({ href, label, icon: Icon }) => {
