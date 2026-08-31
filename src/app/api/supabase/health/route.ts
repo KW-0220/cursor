@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { supabaseArchiveReady } from "@/lib/supabase/analysis-archive";
+import { supabaseApplicationsReady } from "@/lib/supabase/applications";
 import { supabaseCustomersReady } from "@/lib/supabase/customers";
+import { supabaseDocumentsReady } from "@/lib/supabase/documents-meta";
 import {
   getSupabaseJwksUrl,
   getSupabasePublishableKey,
@@ -10,10 +13,12 @@ import {
   isSupabaseConfigured,
 } from "@/lib/supabase/env";
 import { createClient } from "@/lib/supabase/server";
+import { supabaseSupplementsReady } from "@/lib/supabase/supplements";
+import { supabaseUsersReady } from "@/lib/supabase/users";
 
 export const runtime = "nodejs";
 
-/** 確認 env + publishable／secret／customers table／@supabase/server */
+/** 確認 env + publishable／secret／core tables／@supabase/server */
 export async function GET() {
   const url = getSupabaseUrl();
   const publishable = getSupabasePublishableKey();
@@ -26,6 +31,11 @@ export async function GET() {
   let adminOk = false;
   let jwksOk = false;
   let customersOk = false;
+  let usersOk = false;
+  let applicationsOk = false;
+  let documentsOk = false;
+  let supplementsOk = false;
+  let archiveOk = false;
   let detail: string | null = null;
 
   try {
@@ -44,6 +54,11 @@ export async function GET() {
       adminOk = !error;
       if (error && !detail) detail = error.message;
       customersOk = await supabaseCustomersReady(admin);
+      usersOk = await supabaseUsersReady(admin);
+      applicationsOk = await supabaseApplicationsReady(admin);
+      documentsOk = await supabaseDocumentsReady(admin);
+      supplementsOk = await supabaseSupplementsReady(admin);
+      archiveOk = await supabaseArchiveReady(admin);
     } catch (err) {
       if (!detail) detail = err instanceof Error ? err.message : "ADMIN_FAIL";
     }
@@ -59,8 +74,16 @@ export async function GET() {
     if (!detail) detail = err instanceof Error ? err.message : "JWKS_FAIL";
   }
 
+  const coreTables =
+    customersOk &&
+    usersOk &&
+    applicationsOk &&
+    documentsOk &&
+    supplementsOk &&
+    archiveOk;
+
   return NextResponse.json({
-    ok: configured && authOk && adminOk && jwksOk && customersOk,
+    ok: configured && authOk && adminOk && jwksOk && coreTables,
     configured,
     adminConfigured,
     adminConnected: true,
@@ -73,6 +96,14 @@ export async function GET() {
     adminOk,
     jwksOk,
     customersTable: customersOk,
+    tables: {
+      customers: customersOk,
+      users: usersOk,
+      applications: applicationsOk,
+      documents: documentsOk,
+      supplements: supplementsOk,
+      analysisArchive: archiveOk,
+    },
     detail,
   });
 }

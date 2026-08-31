@@ -9,15 +9,16 @@ export async function GET() {
   const storage = getAuthStorageMode();
   const onVercel = Boolean(process.env.VERCEL);
   const sms = twilioConfigured();
+  const durable = storage === "supabase" || storage === "redis";
   return NextResponse.json({
     ok: true,
     storage,
-    durable: storage === "redis",
+    durable,
     onVercel,
     twilio: sms,
     warning:
-      storage !== "redis" && onVercel
-        ? "尚未接 Redis／KV：同瀏覽器可註冊／登入（加密備援 cookie）；跨裝置或清 cookie 後建議設定 UPSTASH_REDIS_REST_* 與 AUTH_SECRET。"
+      !durable && onVercel
+        ? "尚未接 Supabase／Redis：同瀏覽器可註冊／登入（加密備援 cookie）；建議設定 SUPABASE_SECRET_KEY 或 UPSTASH_REDIS_REST_*。"
         : null,
   });
 }

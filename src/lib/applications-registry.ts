@@ -11,6 +11,12 @@ import {
   durableJsonSet,
   durableJsonStoreReady,
 } from "@/lib/durable-json-store";
+import {
+  supabaseApplicationsReady,
+  supabaseListApplications,
+  supabaseReplaceApplications,
+} from "@/lib/supabase/applications";
+import { supabasePgCoreReady } from "@/lib/supabase/pg-core";
 
 export type ApplicationDocumentRef = {
   id: string;
@@ -114,8 +120,54 @@ function parseList(raw: unknown): ApplicationRecord[] {
   return [];
 }
 
+async function loadLegacyApplications(): Promise<ApplicationRecord[]> {
+  if (durableJsonStoreReady()) {
+    const fromDurable = await durableJsonGet<unknown>(DURABLE_PATH);
+    if (fromDurable != null) return parseList(fromDurable);
+  }
+  if (redisConfigured()) {
+    try {
+      const fromRedis = await redisGet(REDIS_KEY);
+      if (fromRedis != null && fromRedis !== "") return parseList(fromRedis);
+    } catch {
+      /* fall through */
+    }
+  }
+  try {
+    await fs.mkdir(DATA_DIR, { recursive: true });
+    const raw = await fs.readFile(DATA_FILE, "utf8");
+    return parseList(raw);
+  } catch {
+    return [];
+  }
+}
+
 async function ensureLoaded(): Promise<ApplicationRecord[]> {
-  // Supabase Storage：每次重讀，避免 Vercel 多 instance memory 不同步
+  // 1) Postgres 為權威來源
+  if (supabasePgCoreReady()) {
+    try {
+      if (await supabaseApplicationsReady()) {
+        const fromPg = await supabaseListApplications();
+        if (fromPg.length > 0) {
+          memoryStore = fromPg;
+          return memoryStore;
+        }
+        // 空表：一次性由 Storage／Redis 灌入
+        const legacy = await loadLegacyApplications();
+        if (legacy.length > 0) {
+          await supabaseReplaceApplications(legacy);
+          memoryStore = legacy;
+          return memoryStore;
+        }
+        memoryStore = [];
+        return memoryStore;
+      }
+    } catch (err) {
+      console.error("[applications] supabase load failed, fallback", err);
+    }
+  }
+
+  // 2) Supabase Storage JSON／Redis／檔案
   if (durableJsonStoreReady()) {
     const fromDurable = await durableJsonGet<unknown>(DURABLE_PATH);
     if (fromDurable != null) {
@@ -124,29 +176,19 @@ async function ensureLoaded(): Promise<ApplicationRecord[]> {
     }
   }
   if (memoryStore) return memoryStore;
-  if (redisConfigured()) {
-    try {
-      const fromRedis = await redisGet(REDIS_KEY);
-      if (fromRedis != null && fromRedis !== "") {
-        memoryStore = parseList(fromRedis);
-        return memoryStore;
-      }
-    } catch {
-      /* fall through */
-    }
-  }
-  try {
-    await fs.mkdir(DATA_DIR, { recursive: true });
-    const raw = await fs.readFile(DATA_FILE, "utf8");
-    memoryStore = parseList(raw);
-  } catch {
-    memoryStore = [];
-  }
+  memoryStore = await loadLegacyApplications();
   return memoryStore;
 }
 
 async function persist(records: ApplicationRecord[]) {
   memoryStore = records;
+  if (supabasePgCoreReady()) {
+    try {
+      await supabaseReplaceApplications(records);
+    } catch (err) {
+      console.error("[applications] supabase persist failed", err);
+    }
+  }
   if (durableJsonStoreReady()) {
     await durableJsonSet(DURABLE_PATH, records);
   }

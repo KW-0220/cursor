@@ -5,6 +5,7 @@ import path from "path";
 import bcrypt from "bcryptjs";
 import { EncryptJWT, SignJWT, jwtDecrypt, jwtVerify } from "jose";
 import { z } from "zod";
+import { supabasePgCoreReady } from "@/lib/supabase/pg-core";
 
 export const RegisterSchema = z.object({
   email: z.string().email("請輸入有效電郵"),
@@ -137,31 +138,72 @@ function parseUserList(raw: unknown): AuthUser[] {
   return [];
 }
 
-async function loadUsers(): Promise<AuthUser[]> {
-  if (memoryUsers) return memoryUsers;
-
+async function loadLegacyUsers(): Promise<AuthUser[]> {
   try {
     const fromRedis = await redisGet("slf:users");
     if (fromRedis != null && fromRedis !== "") {
-      memoryUsers = parseUserList(fromRedis);
-      return memoryUsers;
+      return parseUserList(fromRedis);
     }
   } catch {
-    // fall through
+    /* fall through */
   }
-
   try {
     await fs.mkdir(DATA_DIR, { recursive: true });
     const raw = await fs.readFile(DATA_FILE, "utf8");
-    memoryUsers = parseUserList(raw);
+    return parseUserList(raw);
   } catch {
-    memoryUsers = [];
+    return [];
   }
+}
+
+async function loadUsers(): Promise<AuthUser[]> {
+  // Postgres 為權威來源（跨 Vercel instance 永久保存）
+  try {
+    const { supabasePgCoreReady } = await import("@/lib/supabase/pg-core");
+    if (supabasePgCoreReady()) {
+      const {
+        supabaseListUsers,
+        supabaseReplaceUsers,
+        supabaseUsersReady,
+      } = await import("@/lib/supabase/users");
+      if (await supabaseUsersReady()) {
+        const fromPg = await supabaseListUsers();
+        if (fromPg.length > 0) {
+          memoryUsers = fromPg;
+          return memoryUsers;
+        }
+        const legacy = memoryUsers?.length
+          ? memoryUsers
+          : await loadLegacyUsers();
+        if (legacy.length > 0) {
+          await supabaseReplaceUsers(legacy);
+          memoryUsers = legacy;
+          return memoryUsers;
+        }
+        memoryUsers = [];
+        return memoryUsers;
+      }
+    }
+  } catch (err) {
+    console.error("[auth] supabase load failed, fallback", err);
+  }
+
+  if (memoryUsers) return memoryUsers;
+  memoryUsers = await loadLegacyUsers();
   return memoryUsers;
 }
 
 async function saveUsers(users: AuthUser[]) {
   memoryUsers = users;
+  try {
+    const { supabasePgCoreReady } = await import("@/lib/supabase/pg-core");
+    if (supabasePgCoreReady()) {
+      const { supabaseReplaceUsers } = await import("@/lib/supabase/users");
+      await supabaseReplaceUsers(users);
+    }
+  } catch (err) {
+    console.error("[auth] supabase persist failed", err);
+  }
   await redisSet("slf:users", JSON.stringify(users));
   try {
     await fs.mkdir(DATA_DIR, { recursive: true });
@@ -172,6 +214,7 @@ async function saveUsers(users: AuthUser[]) {
 }
 
 export function getAuthStorageMode() {
+  if (supabasePgCoreReady()) return "supabase" as const;
   if (
     (process.env.UPSTASH_REDIS_REST_URL &&
       process.env.UPSTASH_REDIS_REST_TOKEN) ||

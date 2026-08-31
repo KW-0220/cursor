@@ -6,6 +6,12 @@ import {
   durableJsonSet,
   durableJsonStoreReady,
 } from "@/lib/durable-json-store";
+import {
+  supabaseArchiveReady,
+  supabaseListArchivedAnalyses,
+  supabaseReplaceArchivedAnalyses,
+} from "@/lib/supabase/analysis-archive";
+import { supabasePgCoreReady } from "@/lib/supabase/pg-core";
 
 export type ArchivedAnalysisRecord = {
   id: string;
@@ -47,7 +53,42 @@ function parseList(raw: unknown): ArchivedAnalysisRecord[] {
   return [];
 }
 
+async function loadLegacyArchive(): Promise<ArchivedAnalysisRecord[]> {
+  if (durableJsonStoreReady()) {
+    const fromDurable = await durableJsonGet<unknown>(DURABLE_PATH);
+    if (fromDurable != null) return parseList(fromDurable);
+  }
+  try {
+    await fs.mkdir(DATA_DIR, { recursive: true });
+    const raw = await fs.readFile(DATA_FILE, "utf8");
+    return parseList(raw);
+  } catch {
+    return [];
+  }
+}
+
 async function ensureLoaded(): Promise<ArchivedAnalysisRecord[]> {
+  if (supabasePgCoreReady()) {
+    try {
+      if (await supabaseArchiveReady()) {
+        const fromPg = await supabaseListArchivedAnalyses();
+        if (fromPg.length > 0) {
+          memoryStore = fromPg;
+          return memoryStore;
+        }
+        const legacy = await loadLegacyArchive();
+        if (legacy.length > 0) {
+          await supabaseReplaceArchivedAnalyses(legacy);
+          memoryStore = legacy;
+          return memoryStore;
+        }
+        memoryStore = [];
+        return memoryStore;
+      }
+    } catch (err) {
+      console.error("[analysis-archive] supabase load failed, fallback", err);
+    }
+  }
   if (durableJsonStoreReady()) {
     const fromDurable = await durableJsonGet<unknown>(DURABLE_PATH);
     if (fromDurable != null) {
@@ -56,18 +97,19 @@ async function ensureLoaded(): Promise<ArchivedAnalysisRecord[]> {
     }
   }
   if (memoryStore) return memoryStore;
-  try {
-    await fs.mkdir(DATA_DIR, { recursive: true });
-    const raw = await fs.readFile(DATA_FILE, "utf8");
-    memoryStore = parseList(raw);
-  } catch {
-    memoryStore = [];
-  }
+  memoryStore = await loadLegacyArchive();
   return memoryStore;
 }
 
 async function persist(records: ArchivedAnalysisRecord[]) {
   memoryStore = records;
+  if (supabasePgCoreReady()) {
+    try {
+      await supabaseReplaceArchivedAnalyses(records);
+    } catch (err) {
+      console.error("[analysis-archive] supabase persist failed", err);
+    }
+  }
   if (durableJsonStoreReady()) {
     await durableJsonSet(DURABLE_PATH, records);
   }

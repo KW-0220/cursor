@@ -6,6 +6,12 @@ import {
   durableJsonSet,
   durableJsonStoreReady,
 } from "@/lib/durable-json-store";
+import { supabasePgCoreReady } from "@/lib/supabase/pg-core";
+import {
+  supabaseReplaceSupplements,
+  supabaseListSupplements,
+  supabaseSupplementsReady,
+} from "@/lib/supabase/supplements";
 
 export type SupplementNotifyChannel = "app_push" | "email";
 
@@ -58,7 +64,42 @@ function parseList(raw: unknown): SupplementRecord[] {
   return [];
 }
 
+async function loadLegacySupplements(): Promise<SupplementRecord[]> {
+  if (durableJsonStoreReady()) {
+    const fromDurable = await durableJsonGet<unknown>(DURABLE_PATH);
+    if (fromDurable != null) return parseList(fromDurable);
+  }
+  try {
+    await fs.mkdir(DATA_DIR, { recursive: true });
+    const raw = await fs.readFile(DATA_FILE, "utf8");
+    return parseList(raw);
+  } catch {
+    return [];
+  }
+}
+
 async function ensureLoaded(): Promise<SupplementRecord[]> {
+  if (supabasePgCoreReady()) {
+    try {
+      if (await supabaseSupplementsReady()) {
+        const fromPg = await supabaseListSupplements();
+        if (fromPg.length > 0) {
+          memoryStore = fromPg;
+          return memoryStore;
+        }
+        const legacy = await loadLegacySupplements();
+        if (legacy.length > 0) {
+          await supabaseReplaceSupplements(legacy);
+          memoryStore = legacy;
+          return memoryStore;
+        }
+        memoryStore = [];
+        return memoryStore;
+      }
+    } catch (err) {
+      console.error("[supplements] supabase load failed, fallback", err);
+    }
+  }
   if (durableJsonStoreReady()) {
     const fromDurable = await durableJsonGet<unknown>(DURABLE_PATH);
     if (fromDurable != null) {
@@ -67,18 +108,19 @@ async function ensureLoaded(): Promise<SupplementRecord[]> {
     }
   }
   if (memoryStore) return memoryStore;
-  try {
-    await fs.mkdir(DATA_DIR, { recursive: true });
-    const raw = await fs.readFile(DATA_FILE, "utf8");
-    memoryStore = parseList(raw);
-  } catch {
-    memoryStore = [];
-  }
+  memoryStore = await loadLegacySupplements();
   return memoryStore;
 }
 
 async function persist(records: SupplementRecord[]) {
   memoryStore = records;
+  if (supabasePgCoreReady()) {
+    try {
+      await supabaseReplaceSupplements(records);
+    } catch (err) {
+      console.error("[supplements] supabase persist failed", err);
+    }
+  }
   if (durableJsonStoreReady()) {
     await durableJsonSet(DURABLE_PATH, records);
   }

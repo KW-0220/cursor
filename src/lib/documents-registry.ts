@@ -8,6 +8,12 @@ import {
   durableJsonStoreReady,
 } from "@/lib/durable-json-store";
 import { getSupabaseSecretKey, getSupabaseUrl } from "@/lib/supabase/env";
+import {
+  supabaseDocumentsReady,
+  supabaseListDocuments,
+  supabaseReplaceDocuments,
+} from "@/lib/supabase/documents-meta";
+import { supabasePgCoreReady } from "@/lib/supabase/pg-core";
 import { mortgageDocTitleById } from "@/lib/mortgage";
 
 export type DocumentKind =
@@ -100,7 +106,50 @@ function parseList(raw: unknown): StoredDocument[] {
   return [];
 }
 
+async function loadLegacyDocuments(): Promise<StoredDocument[]> {
+  if (durableJsonStoreReady()) {
+    const fromDurable = await durableJsonGet<unknown>(DURABLE_PATH);
+    if (fromDurable != null) return parseList(fromDurable);
+  }
+  if (redisConfigured()) {
+    try {
+      const fromRedis = await redisGet(REDIS_KEY);
+      if (fromRedis != null && fromRedis !== "") return parseList(fromRedis);
+    } catch {
+      /* fall through */
+    }
+  }
+  try {
+    await fs.mkdir(DATA_DIR, { recursive: true });
+    const raw = await fs.readFile(META_FILE, "utf8");
+    return parseList(raw);
+  } catch {
+    return [];
+  }
+}
+
 async function ensureLoaded(): Promise<StoredDocument[]> {
+  if (supabasePgCoreReady()) {
+    try {
+      if (await supabaseDocumentsReady()) {
+        const fromPg = await supabaseListDocuments();
+        if (fromPg.length > 0) {
+          memoryStore = fromPg;
+          return memoryStore;
+        }
+        const legacy = await loadLegacyDocuments();
+        if (legacy.length > 0) {
+          await supabaseReplaceDocuments(legacy);
+          memoryStore = legacy;
+          return memoryStore;
+        }
+        memoryStore = [];
+        return memoryStore;
+      }
+    } catch (err) {
+      console.error("[documents] supabase load failed, fallback", err);
+    }
+  }
   if (durableJsonStoreReady()) {
     const fromDurable = await durableJsonGet<unknown>(DURABLE_PATH);
     if (fromDurable != null) {
@@ -109,29 +158,19 @@ async function ensureLoaded(): Promise<StoredDocument[]> {
     }
   }
   if (memoryStore) return memoryStore;
-  if (redisConfigured()) {
-    try {
-      const fromRedis = await redisGet(REDIS_KEY);
-      if (fromRedis != null && fromRedis !== "") {
-        memoryStore = parseList(fromRedis);
-        return memoryStore;
-      }
-    } catch {
-      /* fall through */
-    }
-  }
-  try {
-    await fs.mkdir(DATA_DIR, { recursive: true });
-    const raw = await fs.readFile(META_FILE, "utf8");
-    memoryStore = parseList(raw);
-  } catch {
-    memoryStore = [];
-  }
+  memoryStore = await loadLegacyDocuments();
   return memoryStore;
 }
 
 async function persist(records: StoredDocument[]) {
   memoryStore = records;
+  if (supabasePgCoreReady()) {
+    try {
+      await supabaseReplaceDocuments(records);
+    } catch (err) {
+      console.error("[documents] supabase persist failed", err);
+    }
+  }
   if (durableJsonStoreReady()) {
     await durableJsonSet(DURABLE_PATH, records);
   }
