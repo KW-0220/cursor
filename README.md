@@ -115,6 +115,17 @@ curl -X POST http://localhost:3000/api/analyze-document \
 - [`docs/DESIGN_SYSTEM.md`](docs/DESIGN_SYSTEM.md)
 - [`docs/BRIEF_REVIEW.md`](docs/BRIEF_REVIEW.md)
 
+## Claude Code
+
+Issue／PR 留言 `@claude` 會觸發 GitHub Action（`.github/workflows/claude.yml`）。接駁要做兩件事（需 repo admin）：
+
+1. 安裝 [Claude GitHub App](https://github.com/apps/claude) 到本 repo
+2. 在 **Settings → Secrets and variables → Actions** 加其中一個 secret：
+   - `ANTHROPIC_API_KEY`（API key）
+   - 或 `CLAUDE_CODE_OAUTH_TOKEN`（Pro／Max：本機跑 `claude setup-token`）
+
+專案指令見 `CLAUDE.md`。MCP：`.mcp.json`（Claude Code）／`.cursor/mcp.json`（Cursor）。
+
 ## Stack
 
 - Next.js 16 + TypeScript + Tailwind 4
