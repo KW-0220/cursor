@@ -78,8 +78,22 @@ npm run dev:public   # Terminal 2 → 網址會變而且會過期
 | Docs | `POST /api/analyze-document`（alias：`/api/documents/analyze`） |
 | RAG | `POST /api/rag/search` · `POST /api/rag/upsert`（接口已預留，現為 stub） |
 | CRM | `POST /api/crm/leads` · `POST /api/crm/applications/sync`（接口已預留，現為 stub） |
+| Agent 只讀 | `GET /api/agent/*`（`AGENT_API_KEY`；Claude Code 查後台用） |
 | MySQL | `users`／`customers`（設 `MYSQL_*` 或 `DATABASE_URL`）；狀態見 `GET /api/auth/status` |
 | 合規 | 客戶端不顯示「必定批核／拒絕」；內部可看綠／黃／紅燈 |
+
+### Claude Code／Agent 只讀 API
+
+```bash
+# Vercel 設 key（production + preview）
+npx vercel env add AGENT_API_KEY production
+
+# 查詢
+curl -sS 'https://sme-loanflow.vercel.app/api/agent/overview' \
+  -H "Authorization: Bearer $AGENT_API_KEY"
+```
+
+說明：`GET /api/agent`（唔使 key）。資料端點一律 Bearer／`X-Agent-Api-Key`，只讀。
 
 ```bash
 # curl 範例（貼文字）
