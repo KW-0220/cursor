@@ -28,8 +28,6 @@ export default function CompanyPage() {
   const [identity, setIdentity] = useState<IdentityDraft | null>(null);
   const [companyNameZh, setCompanyNameZh] = useState("");
   const [companyNameEn, setCompanyNameEn] = useState("");
-  const [brNumber, setBrNumber] = useState("");
-  const [crNumber, setCrNumber] = useState("");
   const [foundedAt, setFoundedAt] = useState("");
   const [companyType, setCompanyType] = useState("有限公司");
   const [industry, setIndustry] = useState("");
@@ -71,8 +69,6 @@ export default function CompanyPage() {
       if (
         !companyNameZh.trim() ||
         !companyNameEn.trim() ||
-        !brNumber.trim() ||
-        !crNumber.trim() ||
         !foundedAt ||
         !industry.trim() ||
         !address.trim() ||
@@ -91,8 +87,9 @@ export default function CompanyPage() {
           ...identity,
           companyNameZh: companyNameZh.trim(),
           companyNameEn: companyNameEn.trim(),
-          brNumber: brNumber.trim(),
-          crNumber: crNumber.trim(),
+          // 註冊頁唔再收集；申請上載 BR／NAR1 時再補
+          brNumber: "PENDING",
+          crNumber: "PENDING",
           foundedAt,
           companyType,
           industry: industry.trim(),
@@ -185,20 +182,6 @@ export default function CompanyPage() {
             value={companyNameEn}
             onChange={(e) => setCompanyNameEn(e.target.value)}
             placeholder="e.g. SmartCreate Technology Ltd."
-          />
-        </Field>
-        <Field label="商業登記號碼" required>
-          <Input
-            value={brNumber}
-            onChange={(e) => setBrNumber(e.target.value)}
-            placeholder="8 位數字"
-          />
-        </Field>
-        <Field label="公司註冊編號" required>
-          <Input
-            value={crNumber}
-            onChange={(e) => setCrNumber(e.target.value)}
-            placeholder="CR 編號"
           />
         </Field>
         <Field label="公司成立日期" required>
