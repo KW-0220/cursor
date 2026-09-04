@@ -32,7 +32,6 @@ export default function CompanyPage() {
   const [companyType, setCompanyType] = useState("有限公司");
   const [industry, setIndustry] = useState("");
   const [address, setAddress] = useState("");
-  const [employees, setEmployees] = useState<number | "">("");
   const [website, setWebsite] = useState("");
   const [contactPerson, setContactPerson] = useState("");
   const [saving, setSaving] = useState(false);
@@ -72,7 +71,6 @@ export default function CompanyPage() {
         !foundedAt ||
         !industry.trim() ||
         !address.trim() ||
-        employees === "" ||
         !contactPerson.trim()
       ) {
         setError("請填妥所有必填公司資料欄位。");
@@ -87,14 +85,14 @@ export default function CompanyPage() {
           ...identity,
           companyNameZh: companyNameZh.trim(),
           companyNameEn: companyNameEn.trim(),
-          // 註冊頁唔再收集；申請上載 BR／NAR1 時再補
+          // 註冊頁唔再收集 BR／CR／員工人數；申請上載文件時再補
           brNumber: "PENDING",
           crNumber: "PENDING",
           foundedAt,
           companyType,
           industry: industry.trim(),
           address: address.trim(),
-          employees: Number(employees),
+          employees: 0,
           website: website.trim() || null,
           contactPerson: contactPerson.trim(),
           source: "register",
@@ -213,18 +211,6 @@ export default function CompanyPage() {
             value={address}
             onChange={(e) => setAddress(e.target.value)}
             placeholder="香港地址"
-          />
-        </Field>
-        <Field label="員工人數" required>
-          <Input
-            type="number"
-            min={0}
-            value={employees}
-            onChange={(e) =>
-              setEmployees(
-                e.target.value === "" ? "" : Number(e.target.value),
-              )
-            }
           />
         </Field>
         <Field label="公司網站" hint="選填">
