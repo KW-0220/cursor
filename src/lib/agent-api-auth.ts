@@ -1,5 +1,5 @@
 import "server-only";
-import { timingSafeEqual } from "crypto";
+import { createDecipheriv, createHash, timingSafeEqual } from "crypto";
 import { NextRequest, NextResponse } from "next/server";
 
 /**
@@ -9,12 +9,39 @@ import { NextRequest, NextResponse } from "next/server";
  * - X-Agent-Api-Key: <AGENT_API_KEY>
  *
  * Env：AGENT_API_KEY 或 ADMIN_AGENT_API_KEY
+ * （未設時用 sealed fallback，正式仍建議 Vercel 設 env）
  */
+
+type SealedAgent = { agentApiKey: string };
+
+/** AES-GCM sealed agent key（Vercel 未設 Dashboard env 時） */
+const SEALED =
+  "eZZAtIxnNcjlRumGR-gc4TbKYiL4Yl3Xdy4WhZ3Swb9RcQ6pb7X7wInYldsmNpRcJvSkJuHMh092wE__RufVkhKoboCsIyFWpykqoYvMKpGSRjyOJFunDSWdKc7UEaBNjF7xcrWT2xBfYxsjGeg";
+
+function unwrapSealed(): SealedAgent | null {
+  try {
+    const key = createHash("sha256").update("slf-agent-api-wrap-v1").digest();
+    const buf = Buffer.from(SEALED, "base64url");
+    const iv = buf.subarray(0, 12);
+    const tag = buf.subarray(12, 28);
+    const data = buf.subarray(28);
+    const decipher = createDecipheriv("aes-256-gcm", key, iv);
+    decipher.setAuthTag(tag);
+    const json = Buffer.concat([
+      decipher.update(data),
+      decipher.final(),
+    ]).toString("utf8");
+    return JSON.parse(json) as SealedAgent;
+  } catch {
+    return null;
+  }
+}
 
 export function getAgentApiKey(): string | null {
   return (
     process.env.AGENT_API_KEY?.trim() ||
     process.env.ADMIN_AGENT_API_KEY?.trim() ||
+    unwrapSealed()?.agentApiKey?.trim() ||
     null
   );
 }
